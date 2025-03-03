@@ -138,7 +138,7 @@ const Dashboard = () => {
   const carregarFiltros = async () => {
     try {
       setLoading(true);
-      const response = await axios.get("http://localhost:5001/api/filtros");
+      const response = await axios.get("https://dashboard-v1-pp6t.onrender.com/api/filtros");
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
       setSelectedFilters(prev => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
@@ -161,8 +161,8 @@ const Dashboard = () => {
       }));
 
       const [totaisResponse, breakdownsResponse] = await Promise.all([
-        axios.post("http://localhost:5001/api/totais", filtros),
-        axios.post("http://localhost:5001/api/breakdowns", filtros)
+        axios.post("https://dashboard-v1-pp6t.onrender.com/api/totais", filtros),
+        axios.post("https://dashboard-v1-pp6t.onrender.com/api/breakdowns", filtros)
       ]);
 
       setData(prev => ({
@@ -491,7 +491,7 @@ const Dashboard = () => {
       </div>
     </div>
   );
-  
+
 };
 
 export default Dashboard;
