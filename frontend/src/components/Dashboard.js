@@ -22,7 +22,7 @@ import {
   FaFilter,
   FaArrowUp,
   FaArrowDown,
-  FaChartLine
+  FaBalanceScale
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 
@@ -73,8 +73,8 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – aceita customClass para destaque
-const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "" }) => {
+// Componente Card – agora aceita a prop "valueColor" para alterar a cor do texto do valor
+const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "", valueColor = "" }) => {
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
       return (
@@ -97,7 +97,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, cus
     <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow ${customClass}`}>
       <div className="flex justify-center text-2xl mb-1">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span className="text-xl font-bold text-gray-800">
+      <span className="text-xl font-bold" style={{ color: valueColor || "inherit" }}>
         {disableFormat ? value : formatNumber(value)}
       </span>
       {renderComparativo()}
@@ -342,26 +342,21 @@ const Dashboard = () => {
     "#EC4899"
   ];
 
-  // Configuração do cartão comparativo:
-  // Se faltam matrículas (missing > 0), mostra "Falta" com seta para baixo (vermelha);
-  // Se excedeu (missing < 0), mostra "Excedente" com seta para cima (verde).
+  // Configuração do cartão Comparativo: sem alteração de fundo (mantém o estilo padrão),
+  // apenas o texto muda de cor conforme a condição.
   let trendValue = "N/A";
-  let trendIcon = <FaChartLine className="text-white" />;
-  let trendCardClass = "bg-gray-200";
+  let trendValueColor = "inherit";
   if (data.tendenciaMatriculas) {
-    const { missing, percent, arrow } = data.tendenciaMatriculas;
+    const { missing, percent } = data.tendenciaMatriculas;
     if (missing > 0) {
       trendValue = `Falta ${formatNumber(missing)} (${percent}%)`;
-      trendIcon = <FaArrowDown className="text-red-500" />;
-      trendCardClass = "bg-red-500";
+      trendValueColor = "red";
     } else if (missing < 0) {
       trendValue = `Excedente ${formatNumber(Math.abs(missing))} (${percent}%)`;
-      trendIcon = <FaArrowUp className="text-green-500" />;
-      trendCardClass = "bg-green-500";
+      trendValueColor = "green";
     } else {
       trendValue = "Sem variação";
-      trendIcon = <FaChartLine className="text-white" />;
-      trendCardClass = "bg-gray-200";
+      trendValueColor = "inherit";
     }
   }
 
@@ -441,11 +436,11 @@ const Dashboard = () => {
             <Card
               label="Comparativo"
               value={trendValue}
-              icon={trendIcon}
-              borderColor="border-white"
+              icon={<FaBalanceScale />}
+              borderColor="border-blue-500"
               comparativo={null}
               disableFormat
-              customClass={trendCardClass + " text-white"}
+              valueColor={trendValueColor}
             />
           </div>
 
@@ -583,9 +578,7 @@ const Dashboard = () => {
                       }
                     }
                   },
-                  layout: {
-                    padding: { top: 20, bottom: 20 }
-                  }
+                  layout: { padding: { top: 20, bottom: 20 } }
                 }}
               />
             </div>
@@ -676,9 +669,7 @@ const Dashboard = () => {
                       }
                     }
                   },
-                  layout: {
-                    padding: { left: 20, right: 20 }
-                  }
+                  layout: { padding: { left: 20, right: 20 } }
                 }}
               />
             </div>

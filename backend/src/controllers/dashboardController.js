@@ -17,7 +17,7 @@ const buscarTotais = async (req, res) => {
       idescola // Filtro para escola
     } = req.body;
 
-    // Espaço final para garantir concatenação correta
+    // Espaço final para garantir a concatenação correta
     let queryBase = `FROM dados_matriculas WHERE 1=1 `;
     const params = [];
     const addFilter = (value, condition) => {
@@ -44,11 +44,11 @@ const buscarTotais = async (req, res) => {
 
     // Queries principais para o ano atual
     const queriesMain = {
-      totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
-      totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
-      totalVagas: `SELECT SUM(limite_maximo_aluno) ${queryBase}`,
-      totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
-      totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
+      totalMatriculas: `SELECT COUNT(*) FROM dados_matriculas ${queryBaseFiltrada}`,
+      totalEscolas: `SELECT COUNT(DISTINCT idescola) FROM dados_matriculas ${queryBase}`,
+      totalVagas: `SELECT SUM(limite_maximo_aluno) FROM dados_matriculas ${queryBase}`,
+      totalEntradas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
+      totalSaidas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
 
     const resultsMain = await Promise.all(
@@ -289,7 +289,7 @@ const buscarBreakdowns = async (req, res) => {
       deficiencia,
       grupoEtapa: grupo_etapa,
       etapaMatricula: etapa_matricula,
-      etapaTurma: etapa_turma,  // Variável correta
+      etapaTurma: etapa_turma,
       multisserie,
       situacaoMatricula: situacao_matricula,
       tipoMatricula: tipo_matricula,
@@ -311,7 +311,7 @@ const buscarBreakdowns = async (req, res) => {
     addFilter(deficiencia, "deficiencia");
     addFilter(grupo_etapa, "grupo_etapa");
     addFilter(etapa_matricula, "etapa_matricula");
-    addFilter(etapa_turma, "etapa_turma");  // Correção: use etapa_turma
+    addFilter(etapa_turma, "etapa_turma");
     addFilter(multisserie, "multisserie");
     addFilter(situacao_matricula, "situacao_matricula");
     addFilter(tipo_matricula, "tipo_matricula");
