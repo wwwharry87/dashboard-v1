@@ -38,8 +38,14 @@ ChartJS.register(
   ChartDataLabels
 );
 
+//
+// Função para formatar números com separador de milhar (pt-BR)
+//
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
+//
+// Se necessário, reordena "sim"/"não" para exibir sempre nessa ordem
+//
 const reorderYesNo = (options) => {
   if (!options) return [];
   const opts = [...options];
@@ -52,6 +58,9 @@ const reorderYesNo = (options) => {
   return opts;
 };
 
+//
+// Componente de Select para Filtros
+//
 const FilterSelect = ({ label, name, options, disabled = false, value, onChange }) => {
   const orderedOptions = reorderYesNo(options);
   return (
@@ -73,8 +82,15 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – mesma altura (h-28), borda preta, ícone preto, mudança de cor apenas no texto
+//
+// Componente Card
+// - mesma altura (ex. h-28) 
+// - borda e ícone pretos
+// - cor do texto do valor pode mudar (valueColor) 
+// - comparativo exibe seta e percentual se houver
+//
 const Card = ({ label, value, icon, comparativo, disableFormat, valueColor = "" }) => {
+  // Renderiza a parte do comparativo (seta e diff%)
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
       return (
@@ -97,7 +113,7 @@ const Card = ({ label, value, icon, comparativo, disableFormat, valueColor = "" 
     <div 
       className={`
         shadow-lg rounded-xl 
-        p-3 text-center border-l-4 border-black 
+        p-3 text-center border-l-4 border-black
         hover:shadow-xl transition-shadow 
         h-28 flex flex-col items-center justify-center
       `}
@@ -105,8 +121,10 @@ const Card = ({ label, value, icon, comparativo, disableFormat, valueColor = "" 
       {/* Ícone em preto */}
       <div className="text-2xl mb-1 text-black">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      {/* Em telas menores que 430px, reduz o tamanho da fonte */}
-      <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
+      <span 
+        className="text-xl font-bold text-gray-800 max-[430px]:text-sm" 
+        style={{ color: valueColor }}
+      >
         {disableFormat ? value : formatNumber(value)}
       </span>
       {renderComparativo()}
@@ -114,6 +132,9 @@ const Card = ({ label, value, icon, comparativo, disableFormat, valueColor = "" 
   );
 };
 
+//
+// Componente principal do Dashboard
+//
 const Dashboard = () => {
   const [data, setData] = useState({
     totalMatriculas: 0,
@@ -147,15 +168,25 @@ const Dashboard = () => {
     idescola: ""
   });
 
+  // Estado para armazenar a escola selecionada (clique na tabela)
   const [selectedSchool, setSelectedSchool] = useState(null);
+
+  // Exibição da sidebar de filtros
   const [showSidebar, setShowSidebar] = useState(false);
+
+  // Estados para gerenciar o "loader" (barra de progresso)
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  // Indica se há uma atualização disponível (PWA)
   const [updateAvailable, setUpdateAvailable] = useState(false);
+
+  // Define a altura do container da tabela e do gráfico, conforme resolução
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
-  // ... (Demais states e useEffects para SW, layout e carregamento)
-
+  //
+  // useEffect principal: carrega filtros ao montar
+  //
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
@@ -165,13 +196,20 @@ const Dashboard = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  //
+  // Carrega a lista de filtros do backend
+  //
   const carregarFiltros = async () => {
     try {
       setLoading(true);
       const response = await axios.get("https://dashboard-v1-pp6t.onrender.com/api/filtros");
       setFilters(response.data);
+
+      // Define o último ano letivo como default
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
       setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
+
+      // Carrega os dados iniciais
       await carregarDados({ ...selectedFilters, anoLetivo: ultimoAnoLetivo });
     } catch (error) {
       console.error("Erro ao carregar filtros:", error);
@@ -180,9 +218,14 @@ const Dashboard = () => {
     }
   };
 
+  //
+  // Carrega os dados (totais e breakdown) com base nos filtros
+  //
   const carregarDados = async (filtros) => {
     try {
       setLoading(true);
+
+      // zera comparativos enquanto carrega
       setData((prev) => ({
         ...prev,
         comparativos: null
@@ -205,16 +248,155 @@ const Dashboard = () => {
     }
   };
 
-  // ... (Demais funções handleFilterChange, handleSchoolClick, handleClickOutside etc.)
+  //
+  // Função chamada ao mudar qualquer filtro
+  //
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    const updatedFilters = { ...selectedFilters, [name]: value };
 
-  // Cálculo do valor do cartão "Comparativo": 
-  // Exibe apenas o valor numérico e o percentual (com sinal + ou -).
+    // Se mudar ano letivo, mantemos a escola selecionada
+    if (name === "anoLetivo") {
+      updatedFilters.idescola = selectedFilters.idescola;
+    }
+
+    // Se selecionar um grupoEtapa, limpa as etapas específicas
+    if (name === "grupoEtapa") {
+      updatedFilters.etapaMatricula = "";
+      updatedFilters.etapaTurma = "";
+    }
+    if (name === "etapaMatricula" && value !== "") {
+      updatedFilters.etapaTurma = "";
+    }
+    if (name === "etapaTurma" && value !== "") {
+      updatedFilters.etapaMatricula = "";
+    }
+
+    // Atualiza estado e carrega dados
+    setSelectedFilters(updatedFilters);
+    carregarDados(updatedFilters);
+  };
+
+  //
+  // Quando clica numa escola da tabela
+  //
+  const handleSchoolClick = (escola) => {
+    const updatedFilters = { ...selectedFilters };
+    if (selectedSchool && selectedSchool.idescola === escola.idescola) {
+      // se já estiver selecionada, desmarca
+      setSelectedSchool(null);
+      updatedFilters.idescola = "";
+    } else {
+      setSelectedSchool(escola);
+      updatedFilters.idescola = escola.idescola;
+    }
+    setSelectedFilters(updatedFilters);
+    carregarDados(updatedFilters);
+  };
+
+  //
+  // Fecha a sidebar se clicar fora dela
+  //
+  const handleClickOutside = (event) => {
+    if (!event.target.closest("#sidebar")) {
+      setShowSidebar(false);
+    }
+  };
+
+  //
+  // Simula a barra de progresso do loader
+  //
+  useEffect(() => {
+    let interval;
+    if (loading) {
+      setProgress(0);
+      interval = setInterval(() => {
+        setProgress((prev) => {
+          if (prev < 90) {
+            return prev + 10;
+          } else {
+            clearInterval(interval);
+            return prev;
+          }
+        });
+      }, 300);
+    } else {
+      setProgress(100);
+      const timeout = setTimeout(() => {
+        setProgress(0);
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  //
+  // Ajusta a altura do container tabela/gráfico conforme resolução
+  //
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 1180 && window.innerHeight <= 820) {
+        setTableGraphHeight("h-72");
+      } else {
+        setTableGraphHeight("h-96");
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  //
+  // Verifica service worker para PWA (exemplo simplificado)
+  //
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg && reg.waiting) {
+          setUpdateAvailable(true);
+        }
+        if (reg) {
+          reg.addEventListener("updatefound", () => {
+            const newWorker = reg.installing;
+            if (newWorker) {
+              newWorker.addEventListener("statechange", () => {
+                if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+                  setUpdateAvailable(true);
+                }
+              });
+            }
+          });
+        }
+      });
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        window.location.reload();
+      });
+    }
+  }, []);
+
+  //
+  // Quando clicar no botão "Atualizar" do banner de SW
+  //
+  const handleUpdate = () => {
+    navigator.serviceWorker.getRegistration().then((reg) => {
+      if (reg && reg.waiting) {
+        reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      } else {
+        window.location.reload();
+      }
+    });
+  };
+
+  //
+  // Cálculo do valor do cartão Comparativo
+  // Ex.: "4417 (-21.13%)"
+  //
   let trendValue = "N/A";
   let trendValueColor = "";
   if (data.tendenciaMatriculas) {
     const { missing, percent } = data.tendenciaMatriculas;
     if (missing === 0) {
-      trendValue = `0 (0%)`;
+      trendValue = "0 (0%)";
     } else {
       const sign = missing > 0 ? "-" : "+";
       trendValue = `${formatNumber(Math.abs(missing))} (${sign}${percent}%)`;
@@ -224,7 +406,7 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-      {/* Exemplo de banner de atualização (caso SW detecte nova versão) */}
+      {/* Banner de update do PWA (caso SW detecte) */}
       {updateAvailable && (
         <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
           <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
@@ -237,7 +419,9 @@ const Dashboard = () => {
       {/* Cabeçalho */}
       <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Secretaria Municipal de Educação de Tucuruí-PA</h1>
+          <h1 className="text-2xl font-bold text-gray-800">
+            Secretaria Municipal de Educação de Tucuruí-PA
+          </h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
         <button
@@ -269,7 +453,10 @@ const Dashboard = () => {
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
           <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
-            <div className="bg-blue-600 text-center py-2 text-white font-bold" style={{ width: `${progress}%` }}>
+            <div 
+              className="bg-blue-600 text-center py-2 text-white font-bold" 
+              style={{ width: `${progress}%` }}
+            >
               {progress}%
             </div>
           </div>
@@ -277,15 +464,17 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Container de cartões – definimos 2 colunas em telas menores que 431px, e 6 colunas acima disso */}
+      {/* Cartões (2 colunas para telas < 431px, 6 colunas para telas maiores) */}
       <div className="grid grid-cols-2 min-[431px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
         {/* Cartão Matrículas */}
-        <div data-tooltip-id="matriculas-tooltip"
-             data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}>
+        <div 
+          data-tooltip-id="matriculas-tooltip"
+          data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
+        >
           <Card
             label="Matrículas"
             value={data.totalMatriculas}
-            icon={<FaUserGraduate className="text-black" />} // Ícone preto
+            icon={<FaUserGraduate className="text-black" />}
             comparativo={data.comparativos ? data.comparativos.totalMatriculas : null}
           />
           <Tooltip id="matriculas-tooltip" />
@@ -296,15 +485,17 @@ const Dashboard = () => {
           <Card
             label="Comparativo"
             value={trendValue}
-            icon={<FaBalanceScale className="text-black" />} // Ícone preto
+            icon={<FaBalanceScale className="text-black" />}
             valueColor={trendValueColor}
             disableFormat
           />
         </div>
 
         {/* Cartão Escolas */}
-        <div data-tooltip-id="escolas-tooltip"
-             data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}>
+        <div 
+          data-tooltip-id="escolas-tooltip"
+          data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
+        >
           <Card
             label="Escolas"
             value={data.totalEscolas}
@@ -339,10 +530,10 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* Conteúdo Principal: Tabela e gráficos */}
+      {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
         {/* Tabela de Escolas */}
-        <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-[400px]">
+        <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
           <div className="p-4 bg-gray-100 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
           </div>
@@ -383,7 +574,7 @@ const Dashboard = () => {
         </div>
 
         {/* Gráfico de Movimentação Mensal */}
-        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[400px]">
+        <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1">
             <Bar
@@ -550,7 +741,7 @@ const Dashboard = () => {
       >
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
-          <button 
+          <button
             onClick={() => setShowSidebar(false)}
             className="text-gray-500 hover:text-gray-700 transition-colors"
           >
