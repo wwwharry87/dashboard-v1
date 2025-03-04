@@ -464,207 +464,213 @@ const Dashboard = () => {
           />
         </div>
 
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
-            <div className="p-4 bg-gray-100 border-b">
-              <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
-            </div>
-            <div>
-              <table className="w-full">
-                <thead className="bg-gray-50 sticky top-0 z-10">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Escola</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Turmas</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Matrículas</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Vagas</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {data.escolas.map((escola, index) => (
-                    <tr
-                      key={index}
-                      onClick={() => handleSchoolClick(escola)}
-                      className={`cursor-pointer hover:bg-gray-50 ${
-                        selectedSchool && selectedSchool.idescola === escola.idescola
-                          ? "bg-blue-100"
-                          : index % 2 === 0
-                          ? "bg-white"
-                          : "bg-gray-50"
-                      }`}
-                    >
-                      <td className="px-4 py-3 text-sm text-gray-700">{escola.escola}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_turmas}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                      <td className={`px-4 py-3 text-sm font-semibold ${escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"}`}>
-                        {escola.vagas_disponiveis}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
-            <div className="flex-1">
-              <Bar
-                data={{
-                  labels: Object.keys(data.entradasSaidasPorMes),
-                  datasets: [
-                    {
-                      label: "Entradas",
-                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
-                      backgroundColor: "#FBBF24",
-                      borderRadius: 6
-                    },
-                    {
-                      label: "Saídas",
-                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
-                      backgroundColor: "#EF4444",
-                      borderRadius: 6
-                    }
-                  ]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { position: "top", labels: { color: "#6B7280" } },
-                    datalabels: {
-                      display: true,
-                      color: "#000",
-                      font: { weight: "bold" },
-                      anchor: "end",
-                      align: "end",
-                      offset: 4,
-                      formatter: (value) => formatNumber(value)
-                    }
-                  },
-                  scales: {
-                    x: {
-                      grid: { display: false },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" }
-                      }
-                    },
-                    y: {
-                      grid: { color: "#E5E7EB" },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" },
-                        callback: (value) => formatNumber(value)
-                      }
-                    }
-                  },
-                  layout: {
-                    padding: {
-                      top: 20,
-                      bottom: 20
-                    }
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
-            <div className="flex-1">
-              <Pie
-                data={{
-                  labels: Object.keys(data.matriculasPorSexo),
-                  datasets: [
-                    {
-                      label: "Sexo",
-                      data: Object.values(data.matriculasPorSexo),
-                      backgroundColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
-                      borderWidth: 0
-                    }
-                  ]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { position: "bottom" },
-                    datalabels: {
-                      display: true,
-                      color: "#fff",
-                      font: { weight: "bold" },
-                      formatter: (value) => formatNumber(value)
-                    }
-                  }
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
-            <div className="flex-1">
-              <Bar
-                data={{
-                  labels: Object.keys(data.matriculasPorTurno),
-                  datasets: [
-                    {
-                      label: "Turno",
-                      data: Object.values(data.matriculasPorTurno),
-                      backgroundColor: Object.keys(data.matriculasPorTurno).map(
-                        (_, index) => turnoColors[index % turnoColors.length]
-                      ),
-                      borderRadius: 4
-                    }
-                  ]
-                }}
-                options={{
-                  indexAxis: "y",
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { display: false },
-                    datalabels: {
-                      display: true,
-                      color: "#fff",
-                      font: { weight: "bold" },
-                      anchor: "end",
-                      align: "right",
-                      offset: 4,
-                      formatter: (value) => formatNumber(value)
-                    }
-                  },
-                  scales: {
-                    x: {
-                      grid: { color: "#E5E7EB" },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" },
-                        callback: (value) => formatNumber(value)
-                      }
-                    },
-                    y: {
-                      grid: { display: false },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" }
-                      }
-                    }
-                  },
-                  layout: {
-                    padding: {
-                      left: 20,
-                      right: 20
-                    }
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </div>
+         {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
+  <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {/* Tabela de Escolas */}
+    <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-[400px]"> {/* Aumentei a altura da tabela */}
+      <div className="p-4 bg-gray-100 border-b">
+        <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
       </div>
+      <div>
+        <table className="w-full">
+          <thead className="bg-gray-50 sticky top-0 z-10">
+            <tr>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Escola</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Turmas</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Matrículas</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Vagas</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {data.escolas.map((escola, index) => (
+              <tr
+                key={index}
+                onClick={() => handleSchoolClick(escola)}
+                className={`cursor-pointer hover:bg-gray-50 ${
+                  selectedSchool && selectedSchool.idescola === escola.idescola
+                    ? "bg-blue-100"
+                    : index % 2 === 0
+                    ? "bg-white"
+                    : "bg-gray-50"
+                }`}
+              >
+                <td className="px-4 py-3 text-sm text-gray-700">{escola.escola}</td>
+                <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_turmas}</td>
+                <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_matriculas}</td>
+                <td className={`px-4 py-3 text-sm font-semibold ${escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"}`}>
+                  {escola.vagas_disponiveis}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Gráfico de Movimentação Mensal */}
+    <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[400px]"> {/* Aumentei a altura do gráfico */}
+      <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
+      <div className="flex-1">
+        <Bar
+          data={{
+            labels: Object.keys(data.entradasSaidasPorMes),
+            datasets: [
+              {
+                label: "Entradas",
+                data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
+                backgroundColor: "#FBBF24",
+                borderRadius: 6
+              },
+              {
+                label: "Saídas",
+                data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
+                backgroundColor: "#EF4444",
+                borderRadius: 6
+              }
+            ]
+          }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: "top", labels: { color: "#6B7280" } },
+              datalabels: {
+                display: true,
+                color: "#000",
+                font: { weight: "bold" },
+                anchor: "end",
+                align: "end",
+                offset: 4,
+                formatter: (value) => formatNumber(value)
+              }
+            },
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: {
+                  color: "#6B7280",
+                  font: { weight: "bold" }
+                }
+              },
+              y: {
+                grid: { color: "#E5E7EB" },
+                ticks: {
+                  color: "#6B7280",
+                  font: { weight: "bold" },
+                  callback: (value) => formatNumber(value)
+                }
+              }
+            },
+            layout: {
+              padding: {
+                top: 20,
+                bottom: 20
+              }
+            }
+          }}
+        />
+      </div>
+    </div>
+  </div>
+
+  {/* Gráficos de Matrículas por Sexo e por Turno */}
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+    {/* Gráfico de Matrículas por Sexo */}
+    <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]"> {/* Diminui a altura do gráfico */}
+      <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
+      <div className="flex-1">
+        <Pie
+          data={{
+            labels: Object.keys(data.matriculasPorSexo),
+            datasets: [
+              {
+                label: "Sexo",
+                data: Object.values(data.matriculasPorSexo),
+                backgroundColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
+                borderWidth: 0
+              }
+            ]
+          }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: "bottom" },
+              datalabels: {
+                display: true,
+                color: "#fff",
+                font: { weight: "bold" },
+                formatter: (value) => formatNumber(value)
+              }
+            }
+          }}
+        />
+      </div>
+    </div>
+
+    {/* Gráfico de Matrículas por Turno */}
+    <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]"> {/* Diminui a altura do gráfico */}
+      <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
+      <div className="flex-1">
+        <Bar
+          data={{
+            labels: Object.keys(data.matriculasPorTurno),
+            datasets: [
+              {
+                label: "Turno",
+                data: Object.values(data.matriculasPorTurno),
+                backgroundColor: Object.keys(data.matriculasPorTurno).map(
+                  (_, index) => turnoColors[index % turnoColors.length]
+                ),
+                borderRadius: 4
+              }
+            ]
+          }}
+          options={{
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              datalabels: {
+                display: true,
+                color: "#fff",
+                font: { weight: "bold" },
+                anchor: "end",
+                align: "right",
+                offset: 4,
+                formatter: (value) => formatNumber(value)
+              }
+            },
+            scales: {
+              x: {
+                grid: { color: "#E5E7EB" },
+                ticks: {
+                  color: "#6B7280",
+                  font: { weight: "bold" },
+                  callback: (value) => formatNumber(value)
+                }
+              },
+              y: {
+                grid: { display: false },
+                ticks: {
+                  color: "#6B7280",
+                  font: { weight: "bold" }
+                }
+              }
+            },
+            layout: {
+              padding: {
+                left: 20,
+                right: 20
+              }
+            }
+          }}
+        />
+      </div>
+    </div>
+  </div>
+</div>
 
       <div
         id="sidebar"

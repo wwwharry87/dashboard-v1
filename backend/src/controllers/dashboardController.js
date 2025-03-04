@@ -199,9 +199,9 @@ const buscarTotais = async (req, res) => {
       };
 
       const computeDiff = (current, prev) => {
-        if (prev === 0) return null;
+        if (prev === 0) return null; // Evita divisão por zero
         const diff = ((current - prev) / prev) * 100;
-        return parseFloat(diff.toFixed(2));
+        return parseFloat(diff.toFixed(2)); // Arredonda para duas casas decimais
       };
 
       comparativos = {
@@ -223,14 +223,9 @@ const buscarTotais = async (req, res) => {
       comparativos.totalEntradas = { diff: comparativos.totalEntradas !== null ? comparativos.totalEntradas.toFixed(2) : null, arrow: addArrow(comparativos.totalEntradas) };
       comparativos.totalSaidas = { diff: comparativos.totalSaidas !== null ? comparativos.totalSaidas.toFixed(2) : null, arrow: addArrow(comparativos.totalSaidas) };
 
-      // Se o grupo_etapa não for "complementar", o comparativo de matrículas não será calculado
-      if (grupo_etapa && grupo_etapa.toLowerCase() !== "complementar") {
-        comparativos.totalMatriculas = null;
-      }
+      // Define a tendência de matrículas com base no comparativo (totalMatriculas)
+      const tendenciaMatriculas = comparativos.totalMatriculas;
     }
-
-    // Define a tendência de matrículas com base no comparativo (totalMatriculas)
-    const tendenciaMatriculas = comparativos ? comparativos.totalMatriculas : null;
 
     res.json({
       totalMatriculas: parseInt(resultsMain[0].rows[0].count, 10) || 0,
