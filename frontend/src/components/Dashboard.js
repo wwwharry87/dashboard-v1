@@ -65,7 +65,6 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 const Card = ({ label, value, icon, borderColor, comparativo }) => {
   const renderComparativo = () => {
     if (!comparativo || comparativo.diff === null) return null;
-
     return (
       <div className="flex items-center justify-center mt-1">
         {comparativo.arrow === "up" ? (
@@ -126,6 +125,7 @@ const Dashboard = () => {
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   useEffect(() => {
     const initialize = async () => {
@@ -135,6 +135,43 @@ const Dashboard = () => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Verifica atualização do service worker para PWA
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg && reg.waiting) {
+          setUpdateAvailable(true);
+        }
+        if (reg) {
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (newWorker) {
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  setUpdateAvailable(true);
+                }
+              });
+            }
+          });
+        }
+      });
+      // Quando o novo service worker assumir, recarrega a página
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.location.reload();
+      });
+    }
+  }, []);
+
+  const handleUpdate = () => {
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (reg && reg.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      } else {
+        window.location.reload();
+      }
+    });
+  };
 
   // Simulação do progresso de carregamento
   useEffect(() => {
@@ -258,8 +295,18 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+      {/* Barra de atualização para PWA */}
+      {updateAvailable && (
+        <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
+          <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
+          <button onClick={handleUpdate} className="bg-blue-600 text-white px-4 py-1 rounded">
+            Atualizar
+          </button>
+        </div>
+      )}
+
       {/* Cabeçalho */}
-      <div className="p-4 bg-white shadow-md flex justify-between items-center">
+      <div className="p-4 bg-white shadow-md flex justify-between items-center mt- updateAvailable ? 'mt-12' : ''">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Secretaria Municipal de Educação de Tucuruí-PA</h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
@@ -435,7 +482,7 @@ const Dashboard = () => {
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
-              {/* Para um efeito 3D de verdade, considere integrar um plugin como "chartjs-chart-3d" */}
+              {/* Para um efeito 3D real, considere integrar um plugin como "chartjs-chart-3d" */}
               <Pie
                 data={{
                   labels: Object.keys(data.matriculasPorSexo),
