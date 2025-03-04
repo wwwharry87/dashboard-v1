@@ -11,6 +11,7 @@ import {
   Legend,
   ArcElement
 } from "chart.js";
+import ChartDataLabels from "chartjs-plugin-datalabels";
 import "tailwindcss/tailwind.css";
 import {
   FaUserGraduate,
@@ -25,8 +26,8 @@ import {
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 
-// Registrar componentes necessários do Chart.js
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, ChartTooltip, Legend, ArcElement);
+// Registrar componentes necessários do Chart.js, incluindo o plugin de datalabels
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, ChartTooltip, Legend, ArcElement, ChartDataLabels);
 
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
@@ -174,6 +175,20 @@ const Dashboard = () => {
       }
     });
   };
+
+  // Verificação periódica a cada minuto para atualizar o service worker
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(registration => {
+          if (registration) {
+            registration.update();
+          }
+        });
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Simulação do progresso de carregamento
   useEffect(() => {
@@ -371,7 +386,11 @@ const Dashboard = () => {
           <div>
             <Card
               label="Tendência"
-              value={data.tendenciaMatriculas && data.tendenciaMatriculas.diff ? data.tendenciaMatriculas.diff + "%" : "N/A"}
+              value={
+                data.tendenciaMatriculas && !isNaN(Number(data.tendenciaMatriculas.diff))
+                  ? Number(data.tendenciaMatriculas.diff).toFixed(2) + "%"
+                  : "N/A"
+              }
               icon={<FaChartLine className="text-indigo-500" />}
               borderColor="border-indigo-500"
               comparativo={null}
@@ -487,20 +506,28 @@ const Dashboard = () => {
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
-                  plugins: { legend: { position: 'top', labels: { color: '#6B7280' } } }
+                  plugins: {
+                    legend: { position: 'top', labels: { color: '#6B7280' } },
+                    datalabels: {
+                      display: true,
+                      color: "#000",
+                      anchor: 'end',
+                      align: 'end',
+                      formatter: (value) => value
+                    }
+                  }
                 }}
               />
             </div>
           </div>
         </div>
 
-        {/* Gráficos de Matrículas por Sexo e por Turno (ajustados com altura fixa para alinhamento) */}
+        {/* Gráficos de Matrículas por Sexo e por Turno (containers com altura h-90) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           {/* Gráfico de Pizza para Matrículas por Sexo */}
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
+          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-90">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
-              {/* Para um efeito 3D real, considere integrar um plugin como "chartjs-chart-3d" */}
               <Pie
                 data={{
                   labels: Object.keys(data.matriculasPorSexo),
@@ -516,14 +543,21 @@ const Dashboard = () => {
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
-                  plugins: { legend: { position: 'bottom' } }
+                  plugins: {
+                    legend: { position: 'bottom' },
+                    datalabels: {
+                      display: true,
+                      color: "#fff",
+                      formatter: (value) => value
+                    }
+                  }
                 }}
               />
             </div>
           </div>
 
           {/* Gráfico de Barras Horizontal para Matrículas por Turno */}
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
+          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-90">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
             <div className="flex-1">
               <Bar
@@ -542,7 +576,16 @@ const Dashboard = () => {
                   indexAxis: 'y',
                   responsive: true,
                   maintainAspectRatio: false,
-                  plugins: { legend: { display: false } }
+                  plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                      display: true,
+                      color: "#000",
+                      anchor: 'end',
+                      align: 'end',
+                      formatter: (value) => value
+                    }
+                  }
                 }}
               />
             </div>

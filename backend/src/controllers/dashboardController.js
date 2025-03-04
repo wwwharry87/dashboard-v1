@@ -38,9 +38,10 @@ const buscarTotais = async (req, res) => {
     addFilter(transporte_escolar, "transporte_escolar");
     addFilter(idescola, "idescola"); // Filtro de escola
 
+    // Exclui etapas especiais
     const queryBaseFiltrada = queryBase + ` AND idetapa_matricula NOT IN (98,99)`;
 
-    // Executa as queries principais (ano atual)
+    // Queries principais para o ano atual
     const queriesMain = {
       totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
       totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
@@ -53,12 +54,12 @@ const buscarTotais = async (req, res) => {
       Object.values(queriesMain).map(q => pool.query(q, params))
     );
 
-    // Busca a última atualização da tabela
+    // Busca a última atualização
     const ultimaAtualizacaoQuery = `SELECT MAX(ultima_atualizacao) AS ultima_atualizacao FROM dados_matriculas`;
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
 
-    // Inicializa os breakdowns como objetos vazios
+    // Breakdown: Matrículas por Zona, Sexo e Turno (apenas para grupo_etapa "complementar")
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
     let matriculasPorTurno = {};
@@ -93,7 +94,7 @@ const buscarTotais = async (req, res) => {
       }
     }
 
-    // Busca os dados das escolas
+    // Dados das escolas
     const escolasQuery = `
       WITH turmas AS (
         SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
@@ -129,7 +130,7 @@ const buscarTotais = async (req, res) => {
       status_vagas: row.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
     }));
 
-    // Busca os dados de entradas e saídas por mês
+    // Dados de entradas e saídas por mês
     const entradasSaidasQuery = `
       SELECT TO_CHAR(data_matricula, 'MM') AS mes,
         COUNT(*) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-') AS entradas,
@@ -149,7 +150,7 @@ const buscarTotais = async (req, res) => {
       };
     });
 
-    // Busca os dados de escolas por zona
+    // Dados de escolas por zona
     const escolasZonaQuery = `SELECT zona_escola, COUNT(DISTINCT idescola) as total ${queryBase} GROUP BY zona_escola`;
     const resultEscolasZona = await pool.query(escolasZonaQuery, params);
     const escolasPorZona = {};
@@ -157,7 +158,7 @@ const buscarTotais = async (req, res) => {
       escolasPorZona[row.zona_escola] = parseInt(row.total, 10);
     });
 
-    // Cálculo do comparativo com o ano anterior
+    // Cálculo do comparativo com o ano anterior (para tendência)
     let comparativos = null;
     if (ano_letivo) {
       const prevYear = (parseInt(ano_letivo, 10) - 1).toString();
@@ -179,7 +180,7 @@ const buscarTotais = async (req, res) => {
       addFilterPrev(tipo_matricula, "tipo_matricula");
       addFilterPrev(tipo_transporte, "tipo_transporte");
       addFilterPrev(transporte_escolar, "transporte_escolar");
-      addFilterPrev(idescola, "idescola"); // Filtro de escola para o ano anterior
+      addFilterPrev(idescola, "idescola"); // Filtro para o ano anterior
 
       const queriesPrev = {
         totalMatriculas: `SELECT COUNT(*) ${queryBasePrev} AND idetapa_matricula NOT IN (98,99)`,
@@ -222,6 +223,7 @@ const buscarTotais = async (req, res) => {
       comparativos.totalEntradas = { diff: comparativos.totalEntradas !== null ? comparativos.totalEntradas.toFixed(2) : null, arrow: addArrow(comparativos.totalEntradas) };
       comparativos.totalSaidas = { diff: comparativos.totalSaidas !== null ? comparativos.totalSaidas.toFixed(2) : null, arrow: addArrow(comparativos.totalSaidas) };
 
+      // Se o grupo_etapa não for "complementar", o comparativo de matrículas não será calculado
       if (grupo_etapa && grupo_etapa.toLowerCase() !== "complementar") {
         comparativos.totalMatriculas = null;
       }
