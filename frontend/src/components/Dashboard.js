@@ -20,7 +20,8 @@ import {
   FaSignOutAlt,
   FaFilter,
   FaArrowUp,
-  FaArrowDown
+  FaArrowDown,
+  FaChartLine
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 
@@ -103,7 +104,8 @@ const Dashboard = () => {
     matriculasPorSexo: {},
     matriculasPorTurno: {},
     escolasPorZona: {},
-    ultimaAtualizacao: null 
+    ultimaAtualizacao: null,
+    tendenciaMatriculas: null
   });
 
   const [filters, setFilters] = useState({});
@@ -229,8 +231,7 @@ const Dashboard = () => {
       setData(prev => ({
         ...prev,
         ...totaisResponse.data,
-        ...breakdownsResponse.data,
-        ultimaAtualizacao: totaisResponse.data.ultimaAtualizacao
+        ...breakdownsResponse.data
       }));
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
@@ -246,7 +247,6 @@ const Dashboard = () => {
     if (name === "anoLetivo") {
       updatedFilters.idescola = selectedFilters.idescola;
     }
-
     if (name === "grupoEtapa") {
       updatedFilters.etapaMatricula = "";
       updatedFilters.etapaTurma = "";
@@ -285,8 +285,8 @@ const Dashboard = () => {
 
   // Função auxiliar para definir a cor conforme o sexo
   const getSexoColor = (sexo) => {
-    if (sexo.toLowerCase().includes("masc")) return "#0000FF"; // azul para masculino
-    if (sexo.toLowerCase().includes("femi")) return "#FFC0CB"; // rosa para feminino
+    if (sexo.toLowerCase().includes("masc")) return "#0000FF";
+    if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
     return "#CCCCCC";
   };
 
@@ -322,7 +322,7 @@ const Dashboard = () => {
       {/* Última Atualização */}
       {data.ultimaAtualizacao && (() => {
         const updatedDate = new Date(data.ultimaAtualizacao);
-        updatedDate.setHours(updatedDate.getHours() + 3); // Corrige o fuso adicionando 3 horas
+        updatedDate.setHours(updatedDate.getHours() + 3);
         const day = updatedDate.getDate().toString().padStart(2, '0');
         const month = (updatedDate.getMonth() + 1).toString().padStart(2, '0');
         const year = updatedDate.getFullYear();
@@ -351,7 +351,8 @@ const Dashboard = () => {
       {/* Conteúdo Principal */}
       <div className="flex-1 flex flex-col p-4">
         {/* Cartões de Métricas */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
+          {/* Cartão Matrículas */}
           <div 
             data-tooltip-id="matriculas-tooltip"
             data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
@@ -366,6 +367,18 @@ const Dashboard = () => {
             <Tooltip id="matriculas-tooltip" />
           </div>
 
+          {/* Cartão Tendência */}
+          <div>
+            <Card
+              label="Tendência"
+              value={data.tendenciaMatriculas && data.tendenciaMatriculas.diff ? data.tendenciaMatriculas.diff + "%" : "N/A"}
+              icon={<FaChartLine className="text-indigo-500" />}
+              borderColor="border-indigo-500"
+              comparativo={null}
+            />
+          </div>
+
+          {/* Cartão Escolas */}
           <div 
             data-tooltip-id="escolas-tooltip"
             data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
@@ -380,6 +393,7 @@ const Dashboard = () => {
             <Tooltip id="escolas-tooltip" />
           </div>
 
+          {/* Cartão Vagas */}
           <Card
             label="Vagas"
             value={totalVagasDisponiveis}
@@ -387,6 +401,8 @@ const Dashboard = () => {
             borderColor="border-purple-500"
             comparativo={data.comparativos ? data.comparativos.totalVagas : null}
           />
+
+          {/* Cartão Entradas */}
           <Card
             label="Entradas"
             value={data.totalEntradas}
@@ -394,6 +410,8 @@ const Dashboard = () => {
             borderColor="border-yellow-500"
             comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
           />
+
+          {/* Cartão Saídas */}
           <Card
             label="Saídas"
             value={data.totalSaidas}
@@ -476,10 +494,10 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Gráficos de Matrículas por Sexo (Pizza 3D simulada) e por Turno (Barra Horizontal) */}
+        {/* Gráficos de Matrículas por Sexo e por Turno (ajustados com altura fixa para alinhamento) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           {/* Gráfico de Pizza para Matrículas por Sexo */}
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col">
+          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
               {/* Para um efeito 3D real, considere integrar um plugin como "chartjs-chart-3d" */}
@@ -505,7 +523,7 @@ const Dashboard = () => {
           </div>
 
           {/* Gráfico de Barras Horizontal para Matrículas por Turno */}
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col">
+          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
             <div className="flex-1">
               <Bar

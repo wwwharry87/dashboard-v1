@@ -198,9 +198,9 @@ const buscarTotais = async (req, res) => {
       };
 
       const computeDiff = (current, prev) => {
-        if (prev === 0) return null; // Evita divisão por zero
+        if (prev === 0) return null;
         const diff = ((current - prev) / prev) * 100;
-        return parseFloat(diff.toFixed(2)); // Arredonda para 2 casas decimais
+        return parseFloat(diff.toFixed(2));
       };
 
       comparativos = {
@@ -227,6 +227,9 @@ const buscarTotais = async (req, res) => {
       }
     }
 
+    // Define a tendência de matrículas com base no comparativo (totalMatriculas)
+    const tendenciaMatriculas = comparativos ? comparativos.totalMatriculas : null;
+
     res.json({
       totalMatriculas: parseInt(resultsMain[0].rows[0].count, 10) || 0,
       totalEscolas: parseInt(resultsMain[1].rows[0].count, 10) || 0,
@@ -240,7 +243,8 @@ const buscarTotais = async (req, res) => {
       matriculasPorSexo,
       matriculasPorTurno,
       escolasPorZona,
-      ultimaAtualizacao
+      ultimaAtualizacao,
+      tendenciaMatriculas
     });
   } catch (err) {
     console.error("Erro ao buscar totais:", err);
@@ -341,7 +345,6 @@ const buscarBreakdowns = async (req, res) => {
 
     const queryBaseFiltrada = queryBase + ` AND idetapa_matricula NOT IN (98,99)`;
 
-    // Executa as queries de breakdown
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
     let matriculasPorTurno = {};
