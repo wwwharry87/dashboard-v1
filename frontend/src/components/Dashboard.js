@@ -73,7 +73,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Modificamos o Card para aceitar disableFormat, que se true, exibe o valor sem formatação.
+// O Card agora aceita a prop disableFormat para exibir o valor diretamente (usado no cartão de tendência)
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat }) => {
   const renderComparativo = () => {
     if (!comparativo || comparativo.diff === null) return null;
@@ -141,7 +141,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [rowsLimit, setRowsLimit] = useState(5);
+  // A altura do container é ajustada conforme resolução: h-72 para tela pequena (3 linhas) ou h-96 para maior (5 linhas)
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
   useEffect(() => {
@@ -228,14 +228,12 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, [loading]);
 
-  // Ajusta o número de linhas e a altura dos containers com base na resolução
+  // Ajusta a altura do container da tabela e gráfico com base na resolução (1080x820 ou maior)
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth <= 1180 && window.innerHeight <= 820) {
-        setRowsLimit(3);
         setTableGraphHeight("h-72");
       } else {
-        setRowsLimit(5);
         setTableGraphHeight("h-96");
       }
     };
@@ -504,7 +502,7 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {data.escolas.slice(0, rowsLimit).map((escola, index) => (
+                  {data.escolas.map((escola, index) => (
                     <tr
                       key={index}
                       onClick={() => handleSchoolClick(escola)}
@@ -519,11 +517,7 @@ const Dashboard = () => {
                       <td className="px-4 py-3 text-sm text-gray-700">{escola.escola}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_turmas}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                      <td
-                        className={`px-4 py-3 text-sm font-semibold ${
-                          escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
-                        }`}
-                      >
+                      <td className={`px-4 py-3 text-sm font-semibold ${escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"}`}>
                         {escola.vagas_disponiveis}
                       </td>
                     </tr>
@@ -636,7 +630,7 @@ const Dashboard = () => {
                     legend: { display: false },
                     datalabels: {
                       display: true,
-                      color: "#000",
+                      color: "#fff", // Valores em branco
                       font: { weight: "bold" },
                       anchor: "end",
                       align: "right",
