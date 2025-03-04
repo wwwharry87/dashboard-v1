@@ -38,8 +38,10 @@ ChartJS.register(
   ChartDataLabels
 );
 
+// Função para formatar números (ex.: 4417 => "4.417")
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
+// Função auxiliar para reordenar opções "sim"/"não"
 const reorderYesNo = (options) => {
   if (!options) return [];
   const opts = [...options];
@@ -50,6 +52,13 @@ const reorderYesNo = (options) => {
     }
   }
   return opts;
+};
+
+// Função auxiliar para converter uma classe de borda em classe de texto
+// Ex.: "border-blue-500" -> "text-blue-500"
+const getTextColorFromBorder = (borderClass) => {
+  if (!borderClass) return "text-black";
+  return borderClass.replace("border", "text");
 };
 
 const FilterSelect = ({ label, name, options, disabled = false, value, onChange }) => {
@@ -73,7 +82,9 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – recebe a prop borderColor para definir a cor da borda
+// Componente Card – todos os cartões terão altura fixa (h-28)
+// Para o cartão comparativo, a prop borderColor será "border-black"
+// e o ícone será renderizado com a cor derivada da borda
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
@@ -102,14 +113,11 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
         h-28 flex flex-col items-center justify-center
       `}
     >
-      <div className="text-2xl mb-1" style={{ color: "black" }}>
+      <div className={`text-2xl mb-1 ${getTextColorFromBorder(borderColor)}`}>
         {icon}
       </div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span 
-        className="text-xl font-bold text-gray-800 max-[430px]:text-sm" 
-        style={{ color: valueColor }}
-      >
+      <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
         {disableFormat ? value : formatNumber(value)}
       </span>
       {renderComparativo()}
@@ -295,10 +303,7 @@ const Dashboard = () => {
           <h1 className="text-2xl font-bold text-gray-800">Secretaria Municipal de Educação de Tucuruí-PA</h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
-        <button
-          onClick={() => setShowSidebar(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
-        >
+        <button onClick={() => setShowSidebar(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md">
           <FaFilter size={20} />
         </button>
       </div>
@@ -335,7 +340,7 @@ const Dashboard = () => {
           <Card
             label="Matrículas"
             value={data.totalMatriculas}
-            icon={<FaUserGraduate className="text-black" />}
+            icon={<FaUserGraduate />}
             borderColor="border-blue-500"
             comparativo={data.comparativos ? data.comparativos.totalMatriculas : null}
           />
@@ -346,7 +351,7 @@ const Dashboard = () => {
           <Card
             label="Comparativo"
             value={trendValue}
-            icon={<FaBalanceScale className="text-black" />}
+            icon={<FaBalanceScale />}
             borderColor="border-black"
             comparativo={null}
             disableFormat
@@ -358,7 +363,7 @@ const Dashboard = () => {
           <Card
             label="Escolas"
             value={data.totalEscolas}
-            icon={<FaSchool className="text-black" />}
+            icon={<FaSchool />}
             borderColor="border-green-500"
             comparativo={data.comparativos ? data.comparativos.totalEscolas : null}
           />
@@ -368,7 +373,7 @@ const Dashboard = () => {
         <Card
           label="Vagas"
           value={data.totalVagas}
-          icon={<FaChalkboardTeacher className="text-black" />}
+          icon={<FaChalkboardTeacher />}
           borderColor="border-purple-500"
           comparativo={data.comparativos ? data.comparativos.totalVagas : null}
         />
@@ -376,7 +381,7 @@ const Dashboard = () => {
         <Card
           label="Entradas"
           value={data.totalEntradas}
-          icon={<FaSignInAlt className="text-black" />}
+          icon={<FaSignInAlt />}
           borderColor="border-yellow-500"
           comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
         />
@@ -384,7 +389,7 @@ const Dashboard = () => {
         <Card
           label="Saídas"
           value={data.totalSaidas}
-          icon={<FaSignOutAlt className="text-black" />}
+          icon={<FaSignOutAlt />}
           borderColor="border-red-500"
           comparativo={data.comparativos ? data.comparativos.totalSaidas : null}
         />
@@ -534,7 +539,7 @@ const Dashboard = () => {
                     label: "Turno",
                     data: Object.values(data.matriculasPorTurno),
                     backgroundColor: Object.keys(data.matriculasPorTurno).map((_, index) => {
-                      const turnoColors = ["#4F46E5","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#EC4899"];
+                      const turnoColors = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899"];
                       return turnoColors[index % turnoColors.length];
                     }),
                     borderRadius: 4
@@ -568,10 +573,7 @@ const Dashboard = () => {
                   },
                   y: {
                     grid: { display: false },
-                    ticks: {
-                      color: "#6B7280",
-                      font: { weight: "bold" }
-                    }
+                    ticks: { color: "#6B7280", font: { weight: "bold" } }
                   }
                 },
                 layout: { padding: { left: 20, right: 20 } }
