@@ -73,7 +73,6 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// O Card agora aceita a prop disableFormat para exibir o valor diretamente (usado no cartão de tendência)
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat }) => {
   const renderComparativo = () => {
     if (!comparativo || comparativo.diff === null) return null;
@@ -141,7 +140,6 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  // A altura do container é ajustada conforme resolução: h-72 para tela pequena (3 linhas) ou h-96 para maior (5 linhas)
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
   useEffect(() => {
@@ -153,7 +151,6 @@ const Dashboard = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Verifica atualização do service worker para PWA
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
@@ -189,7 +186,6 @@ const Dashboard = () => {
     });
   };
 
-  // Atualização periódica a cada minuto para o service worker
   useEffect(() => {
     const interval = setInterval(() => {
       if ("serviceWorker" in navigator) {
@@ -203,7 +199,6 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Simulação do progresso de carregamento
   useEffect(() => {
     let interval;
     if (loading) {
@@ -228,7 +223,6 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, [loading]);
 
-  // Ajusta a altura do container da tabela e gráfico com base na resolução (1080x820 ou maior)
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth <= 1180 && window.innerHeight <= 820) {
@@ -328,14 +322,12 @@ const Dashboard = () => {
     0
   );
 
-  // Função auxiliar para definir a cor conforme o sexo
   const getSexoColor = (sexo) => {
     if (sexo.toLowerCase().includes("masc")) return "#0000FF";
     if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
     return "#CCCCCC";
   };
 
-  // Paleta de cores para o gráfico de turno
   const turnoColors = [
     "#4F46E5",
     "#10B981",
@@ -348,7 +340,6 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-      {/* Barra de atualização para PWA */}
       {updateAvailable && (
         <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
           <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
@@ -358,7 +349,6 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Cabeçalho */}
       <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">
@@ -374,7 +364,6 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {/* Última Atualização */}
       {data.ultimaAtualizacao && (() => {
         const updatedDate = new Date(data.ultimaAtualizacao);
         updatedDate.setHours(updatedDate.getHours() + 3);
@@ -391,7 +380,6 @@ const Dashboard = () => {
         );
       })()}
 
-      {/* Loader com barra de progresso */}
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
           <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
@@ -406,11 +394,8 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Conteúdo Principal */}
       <div className="flex-1 flex flex-col p-4">
-        {/* Cartões de Métricas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
-          {/* Cartão Matrículas */}
           <div
             data-tooltip-id="matriculas-tooltip"
             data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
@@ -425,7 +410,6 @@ const Dashboard = () => {
             <Tooltip id="matriculas-tooltip" />
           </div>
 
-          {/* Cartão Tendência (disableFormat para não aplicar formatNumber novamente) */}
           <div>
             <Card
               label="Tendência"
@@ -441,7 +425,6 @@ const Dashboard = () => {
             />
           </div>
 
-          {/* Cartão Escolas */}
           <div
             data-tooltip-id="escolas-tooltip"
             data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
@@ -456,7 +439,6 @@ const Dashboard = () => {
             <Tooltip id="escolas-tooltip" />
           </div>
 
-          {/* Cartão Vagas */}
           <Card
             label="Vagas"
             value={totalVagasDisponiveis}
@@ -465,7 +447,6 @@ const Dashboard = () => {
             comparativo={data.comparativos ? data.comparativos.totalVagas : null}
           />
 
-          {/* Cartão Entradas */}
           <Card
             label="Entradas"
             value={data.totalEntradas}
@@ -474,7 +455,6 @@ const Dashboard = () => {
             comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
           />
 
-          {/* Cartão Saídas */}
           <Card
             label="Saídas"
             value={data.totalSaidas}
@@ -484,9 +464,7 @@ const Dashboard = () => {
           />
         </div>
 
-        {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Tabela de Escolas com scroll vertical */}
           <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
             <div className="p-4 bg-gray-100 border-b">
               <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
@@ -527,7 +505,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Gráfico de Movimentação Mensal */}
           <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
             <div className="flex-1">
@@ -569,9 +546,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Gráficos de Matrículas por Sexo e por Turno */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          {/* Gráfico de Pizza para Matrículas por Sexo */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-90">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
@@ -604,7 +579,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Gráfico de Barras Horizontal para Matrículas por Turno */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-90">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
             <div className="flex-1">
@@ -630,7 +604,7 @@ const Dashboard = () => {
                     legend: { display: false },
                     datalabels: {
                       display: true,
-                      color: "#fff", // Valores em branco
+                      color: "#fff",
                       font: { weight: "bold" },
                       anchor: "end",
                       align: "right",
@@ -644,7 +618,6 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Sidebar de Filtros */}
       <div
         id="sidebar"
         className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${
