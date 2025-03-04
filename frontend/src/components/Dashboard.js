@@ -73,10 +73,9 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – aceita customClass para destaque (usado no cartão Comparativo)
+// Componente Card – aceita customClass para destaque
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "" }) => {
   const renderComparativo = () => {
-    // Se houver comparativo, renderiza o ícone e valor
     if (comparativo && comparativo.diff != null) {
       return (
         <div className="flex items-center justify-center mt-1">
@@ -95,7 +94,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, cus
   };
 
   return (
-    <div className={`bg-white shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow ${customClass}`}>
+    <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow ${customClass}`}>
       <div className="flex justify-center text-2xl mb-1">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
       <span className="text-xl font-bold text-gray-800">
@@ -344,8 +343,8 @@ const Dashboard = () => {
   ];
 
   // Configuração do cartão comparativo:
-  // Se faltam matrículas (missing > 0), mostra "Falta" com ícone de seta para baixo (vermelho).
-  // Se excedeu (missing < 0), mostra "Excedente" com ícone de seta para cima (verde).
+  // Se faltam matrículas (missing > 0), mostra "Falta" com seta para baixo (vermelha);
+  // Se excedeu (missing < 0), mostra "Excedente" com seta para cima (verde).
   let trendValue = "N/A";
   let trendIcon = <FaChartLine className="text-white" />;
   let trendCardClass = "bg-gray-200";
