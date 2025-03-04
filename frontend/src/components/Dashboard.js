@@ -537,7 +537,31 @@ const Dashboard = () => {
                       font: { weight: "bold" },
                       anchor: "end",
                       align: "end",
+                      offset: 4,
                       formatter: (value) => formatNumber(value)
+                    }
+                  },
+                  scales: {
+                    x: {
+                      grid: { display: false },
+                      ticks: {
+                        color: "#6B7280",
+                        font: { weight: "bold" }
+                      }
+                    },
+                    y: {
+                      grid: { color: "#E5E7EB" },
+                      ticks: {
+                        color: "#6B7280",
+                        font: { weight: "bold" },
+                        callback: (value) => formatNumber(value)
+                      }
+                    }
+                  },
+                  layout: {
+                    padding: {
+                      top: 20,
+                      bottom: 20
                     }
                   }
                 }}
@@ -547,7 +571,7 @@ const Dashboard = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-90">
+          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
               <Pie
@@ -579,7 +603,7 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-90">
+          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
             <div className="flex-1">
               <Bar
@@ -608,7 +632,31 @@ const Dashboard = () => {
                       font: { weight: "bold" },
                       anchor: "end",
                       align: "right",
+                      offset: 4,
                       formatter: (value) => formatNumber(value)
+                    }
+                  },
+                  scales: {
+                    x: {
+                      grid: { color: "#E5E7EB" },
+                      ticks: {
+                        color: "#6B7280",
+                        font: { weight: "bold" },
+                        callback: (value) => formatNumber(value)
+                      }
+                    },
+                    y: {
+                      grid: { display: false },
+                      ticks: {
+                        color: "#6B7280",
+                        font: { weight: "bold" }
+                      }
+                    }
+                  },
+                  layout: {
+                    padding: {
+                      left: 20,
+                      right: 20
                     }
                   }
                 }}
