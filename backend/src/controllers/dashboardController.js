@@ -53,6 +53,11 @@ const buscarTotais = async (req, res) => {
       Object.values(queriesMain).map(q => pool.query(q, params))
     );
 
+    // Busca a última atualização da tabela
+    const ultimaAtualizacaoQuery = `SELECT MAX(ultima_atualizacao) AS ultima_atualizacao FROM dados_matriculas`;
+    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
+    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
+
     // Inicializa os breakdowns como objetos vazios
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
@@ -234,7 +239,8 @@ const buscarTotais = async (req, res) => {
       matriculasPorZona,
       matriculasPorSexo,
       matriculasPorTurno,
-      escolasPorZona
+      escolasPorZona,
+      ultimaAtualizacao
     });
   } catch (err) {
     console.error("Erro ao buscar totais:", err);

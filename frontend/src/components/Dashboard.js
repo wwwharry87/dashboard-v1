@@ -104,7 +104,8 @@ const Dashboard = () => {
     matriculasPorZona: {},
     matriculasPorSexo: {},
     matriculasPorTurno: {},
-    escolasPorZona: {}
+    escolasPorZona: {},
+    ultimaAtualizacao: null 
   });
 
   const [filters, setFilters] = useState({});
@@ -168,7 +169,8 @@ const Dashboard = () => {
       setData(prev => ({
         ...prev,
         ...totaisResponse.data,
-        ...breakdownsResponse.data
+        ...breakdownsResponse.data,
+        ultimaAtualizacao: totaisResponse.data.ultimaAtualizacao // Atualizando a última atualização
       }));
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
@@ -248,6 +250,20 @@ const Dashboard = () => {
           <FaFilter size={20} />
         </button>
       </div>
+
+            {/* Última Atualização */}
+            {data.ultimaAtualizacao && (
+        <div className="p-2 bg-blue-100 text-center text-sm text-gray-700">
+          Dados Atualizados: {new Date(data.ultimaAtualizacao).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })}
+        </div>
+      )}
 
       {/* Conteúdo Principal */}
       <div className="flex-1 flex flex-col p-4">
