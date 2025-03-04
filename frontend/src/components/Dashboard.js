@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { Bar, Pie } from "react-chartjs-2";
+import { Bar, Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
+  LineElement,
+  PointElement,
   Title,
   Tooltip as ChartTooltip,
   Legend,
@@ -26,7 +28,17 @@ import { ClipLoader } from "react-spinners";
 import { Tooltip } from "react-tooltip";
 
 // Registrar componentes necessários do Chart.js
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, ChartTooltip, Legend, ArcElement);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  Title,
+  ChartTooltip,
+  Legend,
+  ArcElement
+);
 
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
@@ -120,10 +132,10 @@ const Dashboard = () => {
     tipoMatricula: "",
     tipoTransporte: "",
     transporteEscolar: "",
-    idescola: "" // Filtro para escola
+    idescola: ""
   });
 
-  const [selectedSchool, setSelectedSchool] = useState(null); // Estado para escola selecionada
+  const [selectedSchool, setSelectedSchool] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -154,11 +166,9 @@ const Dashboard = () => {
   const carregarDados = async (filtros) => {
     try {
       setLoading(true);
-
-      // Resetar os comparativos antes de carregar novos dados
       setData(prev => ({
         ...prev,
-        comparativos: null, // Resetar os comparativos
+        comparativos: null,
       }));
 
       const [totaisResponse, breakdownsResponse] = await Promise.all([
@@ -170,7 +180,7 @@ const Dashboard = () => {
         ...prev,
         ...totaisResponse.data,
         ...breakdownsResponse.data,
-        ultimaAtualizacao: totaisResponse.data.ultimaAtualizacao // Atualizando a última atualização
+        ultimaAtualizacao: totaisResponse.data.ultimaAtualizacao
       }));
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
@@ -183,9 +193,8 @@ const Dashboard = () => {
     const { name, value } = e.target;
     const updatedFilters = { ...selectedFilters, [name]: value };
 
-    // Se o ano letivo for alterado, mantemos o idescola selecionado
     if (name === "anoLetivo") {
-      updatedFilters.idescola = selectedFilters.idescola; // Mantém o idescola
+      updatedFilters.idescola = selectedFilters.idescola;
     }
 
     if (name === "grupoEtapa") {
@@ -206,7 +215,6 @@ const Dashboard = () => {
   const handleSchoolClick = (escola) => {
     const updatedFilters = { ...selectedFilters };
     if (selectedSchool && selectedSchool.idescola === escola.idescola) {
-      // Se já estiver selecionada, desmarca a escola
       setSelectedSchool(null);
       updatedFilters.idescola = "";
     } else {
@@ -232,7 +240,7 @@ const Dashboard = () => {
     return "#CCCCCC";
   };
 
-  // Paleta de cores para o gráfico de turno (cores variadas para cada barra)
+  // Paleta de cores para o gráfico de turno
   const turnoColors = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899"];
 
   return (
@@ -251,19 +259,22 @@ const Dashboard = () => {
         </button>
       </div>
 
-            {/* Última Atualização */}
-            {data.ultimaAtualizacao && (
-        <div className="p-2 bg-blue-100 text-center text-sm text-gray-700">
-          Dados Atualizados: {new Date(data.ultimaAtualizacao).toLocaleString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          })}
-        </div>
-      )}
+      {/* Última Atualização */}
+      {data.ultimaAtualizacao && (() => {
+        const updatedDate = new Date(data.ultimaAtualizacao);
+        updatedDate.setHours(updatedDate.getHours() + 3); // Corrige o fuso adicionando 3 horas
+        const day = updatedDate.getDate().toString().padStart(2, '0');
+        const month = (updatedDate.getMonth() + 1).toString().padStart(2, '0');
+        const year = updatedDate.getFullYear();
+        const hours = updatedDate.getHours().toString().padStart(2, '0');
+        const minutes = updatedDate.getMinutes().toString().padStart(2, '0');
+        const seconds = updatedDate.getSeconds().toString().padStart(2, '0');
+        return (
+          <div className="p-2 bg-blue-100 text-center text-sm text-gray-700">
+            Dados Atualizados: {`${day}/${month}/${year} às ${hours}:${minutes}:${seconds}`}
+          </div>
+        );
+      })()}
 
       {/* Conteúdo Principal */}
       <div className="flex-1 flex flex-col p-4">
@@ -333,9 +344,9 @@ const Dashboard = () => {
             <div className="p-4 bg-gray-100 border-b">
               <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
             </div>
-            <div className="overflow-x-auto max-h-96">
+            <div className="overflow-x-auto h-96">
               <table className="w-full">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Escola</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Turmas</th>
@@ -344,7 +355,7 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {data.escolas.map((escola, index) => (
+                  {data.escolas.slice(0, 5).map((escola, index) => (
                     <tr 
                       key={index}
                       onClick={() => handleSchoolClick(escola)}
@@ -368,7 +379,7 @@ const Dashboard = () => {
           </div>
 
           {/* Gráfico de Movimentação Mensal */}
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col">
+          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
             <div className="flex-1">
               <Bar
@@ -399,28 +410,30 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Gráficos de Matrículas por Sexo (Pizza) e por Turno (Barra Horizontal) */}
+        {/* Gráficos de Matrículas por Sexo (Linha) e por Turno (Barra Horizontal) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          {/* Gráfico de Pizza para Matrículas por Sexo */}
+          {/* Gráfico de Linha para Matrículas por Sexo */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
-              <Pie
+              <Line
                 data={{
                   labels: Object.keys(data.matriculasPorSexo),
                   datasets: [
                     {
-                      label: "Sexo",
+                      label: "Matrículas por Sexo",
                       data: Object.values(data.matriculasPorSexo),
-                      backgroundColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
-                      borderWidth: 0
+                      borderColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
+                      fill: false,
+                      tension: 0.1
                     }
                   ]
                 }}
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
-                  plugins: { legend: { position: 'bottom' } }
+                  plugins: { legend: { position: 'bottom' } },
+                  scales: { y: { beginAtZero: true } }
                 }}
               />
             </div>
@@ -443,7 +456,7 @@ const Dashboard = () => {
                   ]
                 }}
                 options={{
-                  indexAxis: 'y', // Barras horizontais
+                  indexAxis: 'y',
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: { legend: { display: false } }
@@ -507,7 +520,6 @@ const Dashboard = () => {
       </div>
     </div>
   );
-
 };
 
 export default Dashboard;
