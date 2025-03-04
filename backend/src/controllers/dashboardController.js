@@ -66,7 +66,7 @@ const buscarTotais = async (req, res) => {
       Object.values(queriesMain).map(q => pool.query(q, params))
     );
 
-    // Última atualização
+    // Busca a última atualização
     const ultimaAtualizacaoQuery = `SELECT MAX(ultima_atualizacao) AS ultima_atualizacao FROM dados_matriculas`;
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
@@ -172,21 +172,21 @@ const buscarTotais = async (req, res) => {
 
     // Cálculo do comparativo e tendência para matrículas (baseado no ano anterior)
     let trendMatriculas = null;
-    if (ano_letivo) {
-      const prevYear = (parseInt(ano_letivo, 10) - 1).toString();
-      // Constrói a cláusula WHERE para o ano anterior
+    if (filters.anoLetivo) {
+      const prevYear = (parseInt(filters.anoLetivo, 10) - 1).toString();
+      // Constrói a cláusula WHERE para o ano anterior usando buildWhereClause
       const { clause: clausePrev, params: paramsPrev } = buildWhereClause({
         anoLetivo: prevYear,
-        deficiencia,
-        grupoEtapa: grupo_etapa,
-        etapaMatricula: etapa_matricula,
-        etapaTurma: etapa_turma,
-        multisserie,
-        situacaoMatricula: situacao_matricula,
-        tipoMatricula: tipo_matricula,
-        tipoTransporte: tipo_transporte,
-        transporteEscolar: transporte_escolar,
-        idescola
+        deficiencia: filters.deficiencia,
+        grupoEtapa: filters.grupoEtapa,
+        etapaMatricula: filters.etapaMatricula,
+        etapaTurma: filters.etapaTurma,
+        multisserie: filters.multisserie,
+        situacaoMatricula: filters.situacaoMatricula,
+        tipoMatricula: filters.tipoMatricula,
+        tipoTransporte: filters.tipoTransporte,
+        transporteEscolar: filters.transporteEscolar,
+        idescola: filters.idescola
       });
       const queryBasePrev = `FROM dados_matriculas WHERE ${clausePrev} `;
       const queriesPrev = {
@@ -291,30 +291,30 @@ const buscarFiltros = async (req, res) => {
 const buscarBreakdowns = async (req, res) => {
   try {
     const {
-      anoLetivo: ano_letivo,
+      anoLetivo: anoLetivo,
       deficiencia,
-      grupoEtapa: grupo_etapa,
-      etapaMatricula: etapa_matricula,
-      etapaTurma: etapa_turma,
+      grupoEtapa,
+      etapaMatricula,
+      etapaTurma,
       multisserie,
-      situacaoMatricula: situacao_matricula,
-      tipoMatricula: tipo_matricula,
-      tipoTransporte: tipo_transporte,
-      transporteEscolar: transporte_escolar,
-      idescola // Filtro para escola
+      situacaoMatricula,
+      tipoMatricula,
+      tipoTransporte,
+      transporteEscolar,
+      idescola
     } = req.body;
 
     const { clause, params } = buildWhereClause({
-      anoLetivo: ano_letivo,
+      anoLetivo,
       deficiencia,
-      grupoEtapa: grupo_etapa,
-      etapaMatricula: etapa_matricula,
-      etapaTurma: etapa_turma,
+      grupoEtapa,
+      etapaMatricula,
+      etapaTurma,
       multisserie,
-      situacaoMatricula: situacao_matricula,
-      tipoMatricula: tipo_matricula,
-      tipoTransporte: tipo_transporte,
-      transporteEscolar: transporte_escolar,
+      situacaoMatricula,
+      tipoMatricula,
+      tipoTransporte,
+      transporteEscolar,
       idescola
     });
     const queryBase = `FROM dados_matriculas WHERE ${clause} `;
