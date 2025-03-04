@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { Bar, Line } from "react-chartjs-2";
+import { Bar, Pie } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   BarElement,
-  LineElement,
-  PointElement,
   Title,
   Tooltip as ChartTooltip,
   Legend,
@@ -24,21 +22,10 @@ import {
   FaArrowUp,
   FaArrowDown
 } from "react-icons/fa";
-import { ClipLoader } from "react-spinners";
 import { Tooltip } from "react-tooltip";
 
 // Registrar componentes necessários do Chart.js
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
-  ChartTooltip,
-  Legend,
-  ArcElement
-);
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, ChartTooltip, Legend, ArcElement);
 
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
@@ -138,6 +125,7 @@ const Dashboard = () => {
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     const initialize = async () => {
@@ -147,6 +135,31 @@ const Dashboard = () => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Simulação do progresso de carregamento
+  useEffect(() => {
+    let interval;
+    if (loading) {
+      setProgress(0);
+      interval = setInterval(() => {
+        setProgress(prev => {
+          if (prev < 90) {
+            return prev + 10;
+          } else {
+            clearInterval(interval);
+            return prev;
+          }
+        });
+      }, 300);
+    } else {
+      setProgress(100);
+      const timeout = setTimeout(() => {
+        setProgress(0);
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
 
   const carregarFiltros = async () => {
     try {
@@ -276,14 +289,20 @@ const Dashboard = () => {
         );
       })()}
 
+      {/* Loader com barra de progresso */}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
+          <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
+            <div className="bg-blue-600 text-center py-2 text-white font-bold" style={{ width: `${progress}%` }}>
+              {progress}%
+            </div>
+          </div>
+          <p className="mt-4 text-white">Carregando dados...</p>
+        </div>
+      )}
+
       {/* Conteúdo Principal */}
       <div className="flex-1 flex flex-col p-4">
-        {loading && (
-          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-            <ClipLoader color="#ffffff" size={60} />
-          </div>
-        )}
-
         {/* Cartões de Métricas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
           <div 
@@ -339,12 +358,12 @@ const Dashboard = () => {
 
         {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Tabela de Escolas */}
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          {/* Tabela de Escolas com scroll vertical */}
+          <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-96">
             <div className="p-4 bg-gray-100 border-b">
               <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
             </div>
-            <div className="overflow-x-auto h-96">
+            <div>
               <table className="w-full">
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
@@ -355,7 +374,7 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {data.escolas.slice(0, 5).map((escola, index) => (
+                  {data.escolas.map((escola, index) => (
                     <tr 
                       key={index}
                       onClick={() => handleSchoolClick(escola)}
@@ -410,30 +429,29 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Gráficos de Matrículas por Sexo (Linha) e por Turno (Barra Horizontal) */}
+        {/* Gráficos de Matrículas por Sexo (Pizza 3D simulada) e por Turno (Barra Horizontal) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          {/* Gráfico de Linha para Matrículas por Sexo */}
+          {/* Gráfico de Pizza para Matrículas por Sexo */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
-              <Line
+              {/* Para um efeito 3D de verdade, considere integrar um plugin como "chartjs-chart-3d" */}
+              <Pie
                 data={{
                   labels: Object.keys(data.matriculasPorSexo),
                   datasets: [
                     {
-                      label: "Matrículas por Sexo",
+                      label: "Sexo",
                       data: Object.values(data.matriculasPorSexo),
-                      borderColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
-                      fill: false,
-                      tension: 0.1
+                      backgroundColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
+                      borderWidth: 0
                     }
                   ]
                 }}
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
-                  plugins: { legend: { position: 'bottom' } },
-                  scales: { y: { beginAtZero: true } }
+                  plugins: { legend: { position: 'bottom' } }
                 }}
               />
             </div>
