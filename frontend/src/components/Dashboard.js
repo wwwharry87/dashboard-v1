@@ -26,7 +26,7 @@ import {
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 
-// Registrar os componentes do Chart.js, incluindo datalabels
+// Registrar componentes do Chart.js, incluindo datalabels
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -38,7 +38,7 @@ ChartJS.register(
   ChartDataLabels
 );
 
-// Função para formatar números (ex.: 4417 => "4.417")
+// Função para formatar números com separador de milhar (ex.: 4417 => "4.417")
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
 // Função auxiliar para reordenar opções "sim"/"não"
@@ -55,7 +55,7 @@ const reorderYesNo = (options) => {
 };
 
 // Função auxiliar para converter uma classe de borda em classe de texto
-// Ex.: "border-blue-500" -> "text-blue-500"
+// Exemplo: "border-blue-500" -> "text-blue-500"
 const getTextColorFromBorder = (borderClass) => {
   if (!borderClass) return "text-black";
   return borderClass.replace("border", "text");
@@ -82,9 +82,9 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – todos os cartões terão altura fixa (h-28)
-// Para o cartão comparativo, a prop borderColor será "border-black"
-// e o ícone será renderizado com a cor derivada da borda
+// Componente Card – altura fixa (h-28)
+// A cor do ícone é derivada da borda (usando getTextColorFromBorder)
+// A propriedade borderColor é utilizada para cada cartão
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
@@ -297,17 +297,20 @@ const Dashboard = () => {
           </button>
         </div>
       )}
-
       <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Secretaria Municipal de Educação de Tucuruí-PA</h1>
+          <h1 className="text-2xl font-bold text-gray-800">
+            Secretaria Municipal de Educação de Tucuruí-PA
+          </h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
-        <button onClick={() => setShowSidebar(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md">
+        <button
+          onClick={() => setShowSidebar(true)}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
+        >
           <FaFilter size={20} />
         </button>
       </div>
-
       {data.ultimaAtualizacao && (() => {
         const updatedDate = new Date(data.ultimaAtualizacao);
         updatedDate.setHours(updatedDate.getHours() + 3);
@@ -323,7 +326,6 @@ const Dashboard = () => {
           </div>
         );
       })()}
-
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
           <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
@@ -334,9 +336,11 @@ const Dashboard = () => {
           <p className="mt-4 text-white">Carregando dados...</p>
         </div>
       )}
-
       <div className="grid grid-cols-2 min-[431px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
-        <div data-tooltip-id="matriculas-tooltip" data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}>
+        <div
+          data-tooltip-id="matriculas-tooltip"
+          data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
+        >
           <Card
             label="Matrículas"
             value={data.totalMatriculas}
@@ -346,7 +350,6 @@ const Dashboard = () => {
           />
           <Tooltip id="matriculas-tooltip" />
         </div>
-
         <div>
           <Card
             label="Comparativo"
@@ -358,8 +361,10 @@ const Dashboard = () => {
             valueColor={trendValueColor}
           />
         </div>
-
-        <div data-tooltip-id="escolas-tooltip" data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}>
+        <div
+          data-tooltip-id="escolas-tooltip"
+          data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
+        >
           <Card
             label="Escolas"
             value={data.totalEscolas}
@@ -369,7 +374,6 @@ const Dashboard = () => {
           />
           <Tooltip id="escolas-tooltip" />
         </div>
-
         <Card
           label="Vagas"
           value={data.totalVagas}
@@ -377,7 +381,6 @@ const Dashboard = () => {
           borderColor="border-purple-500"
           comparativo={data.comparativos ? data.comparativos.totalVagas : null}
         />
-
         <Card
           label="Entradas"
           value={data.totalEntradas}
@@ -385,7 +388,6 @@ const Dashboard = () => {
           borderColor="border-yellow-500"
           comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
         />
-
         <Card
           label="Saídas"
           value={data.totalSaidas}
@@ -394,7 +396,6 @@ const Dashboard = () => {
           comparativo={data.comparativos ? data.comparativos.totalSaidas : null}
         />
       </div>
-
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
         <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
           <div className="p-4 bg-gray-100 border-b">
@@ -491,7 +492,6 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4">
         <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>

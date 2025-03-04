@@ -1,8 +1,6 @@
 const pool = require('../config/db');
 
-//
 // Função auxiliar para construir a cláusula WHERE
-//
 const buildWhereClause = (filters) => {
   const whereClauses = ["1=1"];
   const params = [];
@@ -28,9 +26,6 @@ const buildWhereClause = (filters) => {
   return { clause: whereClauses.join(" AND "), params };
 };
 
-//
-// Função para buscar os totais e dados gerais
-//
 const buscarTotais = async (req, res) => {
   try {
     // Extrai os filtros do body
@@ -57,7 +52,7 @@ const buscarTotais = async (req, res) => {
     const queriesMain = {
       totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
       totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
-      totalVagas: `SELECT SUM(limite_maximo_aluno) ${queryBase}`,
+      totalVagas: `SELECT SUM(limite_maximo_aluno) FROM (SELECT DISTINCT idturma, limite_maximo_aluno ${queryBase}) AS vagas_distintas`,
       totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
       totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
@@ -230,9 +225,6 @@ const buscarTotais = async (req, res) => {
   }
 };
 
-//
-// Função para buscar os filtros disponíveis
-//
 const buscarFiltros = async (req, res) => {
   try {
     const filtrosResult = await pool.query(`
@@ -285,9 +277,6 @@ const buscarFiltros = async (req, res) => {
   }
 };
 
-//
-// Função para buscar os breakdowns
-//
 const buscarBreakdowns = async (req, res) => {
   try {
     const {
