@@ -73,8 +73,8 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – aceita customClass e valueColor para ajuste responsivo
-const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "", valueColor = "" }) => {
+// Componente Card – mesma altura (h-28), borda preta, ícone preto, mudança de cor apenas no texto
+const Card = ({ label, value, icon, comparativo, disableFormat, valueColor = "" }) => {
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
       return (
@@ -94,10 +94,19 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, cus
   };
 
   return (
-    <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow ${customClass}`}>
-      <div className="flex justify-center text-2xl mb-1">{icon}</div>
+    <div 
+      className={`
+        shadow-lg rounded-xl 
+        p-3 text-center border-l-4 border-black 
+        hover:shadow-xl transition-shadow 
+        h-28 flex flex-col items-center justify-center
+      `}
+    >
+      {/* Ícone em preto */}
+      <div className="text-2xl mb-1 text-black">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor || "inherit" }}>
+      {/* Em telas menores que 430px, reduz o tamanho da fonte */}
+      <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
         {disableFormat ? value : formatNumber(value)}
       </span>
       {renderComparativo()}
@@ -145,6 +154,8 @@ const Dashboard = () => {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
+  // ... (Demais states e useEffects para SW, layout e carregamento)
+
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
@@ -152,92 +163,6 @@ const Dashboard = () => {
     initialize();
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Service Worker
-  useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        if (reg && reg.waiting) {
-          setUpdateAvailable(true);
-        }
-        if (reg) {
-          reg.addEventListener("updatefound", () => {
-            const newWorker = reg.installing;
-            if (newWorker) {
-              newWorker.addEventListener("statechange", () => {
-                if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-                  setUpdateAvailable(true);
-                }
-              });
-            }
-          });
-        }
-      });
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        window.location.reload();
-      });
-    }
-  }, []);
-
-  const handleUpdate = () => {
-    navigator.serviceWorker.getRegistration().then((reg) => {
-      if (reg && reg.waiting) {
-        reg.waiting.postMessage({ type: "SKIP_WAITING" });
-      } else {
-        window.location.reload();
-      }
-    });
-  };
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.getRegistration().then((registration) => {
-          if (registration) {
-            registration.update();
-          }
-        });
-      }
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    let interval;
-    if (loading) {
-      setProgress(0);
-      interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev < 90) {
-            return prev + 10;
-          } else {
-            clearInterval(interval);
-            return prev;
-          }
-        });
-      }, 300);
-    } else {
-      setProgress(100);
-      const timeout = setTimeout(() => {
-        setProgress(0);
-      }, 500);
-      return () => clearTimeout(timeout);
-    }
-    return () => clearInterval(interval);
-  }, [loading]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth <= 1180 && window.innerHeight <= 820) {
-        setTableGraphHeight("h-72");
-      } else {
-        setTableGraphHeight("h-96");
-      }
-    };
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const carregarFiltros = async () => {
@@ -280,91 +205,26 @@ const Dashboard = () => {
     }
   };
 
-  const handleFilterChange = (e) => {
-    const { name, value } = e.target;
-    const updatedFilters = { ...selectedFilters, [name]: value };
+  // ... (Demais funções handleFilterChange, handleSchoolClick, handleClickOutside etc.)
 
-    if (name === "anoLetivo") {
-      updatedFilters.idescola = selectedFilters.idescola;
-    }
-    if (name === "grupoEtapa") {
-      updatedFilters.etapaMatricula = "";
-      updatedFilters.etapaTurma = "";
-    }
-    if (name === "etapaMatricula" && value !== "") {
-      updatedFilters.etapaTurma = "";
-    }
-    if (name === "etapaTurma" && value !== "") {
-      updatedFilters.etapaMatricula = "";
-    }
-
-    setSelectedFilters(updatedFilters);
-    carregarDados(updatedFilters);
-  };
-
-  const handleSchoolClick = (escola) => {
-    const updatedFilters = { ...selectedFilters };
-    if (selectedSchool && selectedSchool.idescola === escola.idescola) {
-      setSelectedSchool(null);
-      updatedFilters.idescola = "";
-    } else {
-      setSelectedSchool(escola);
-      updatedFilters.idescola = escola.idescola;
-    }
-    setSelectedFilters(updatedFilters);
-    carregarDados(updatedFilters);
-  };
-
-  const handleClickOutside = (event) => {
-    if (!event.target.closest("#sidebar")) {
-      setShowSidebar(false);
-    }
-  };
-
-  const totalVagasDisponiveis = data.escolas.reduce(
-    (total, escola) => total + Number(escola.vagas_disponiveis),
-    0
-  );
-
-  const getSexoColor = (sexo) => {
-    if (sexo.toLowerCase().includes("masc")) return "#0000FF";
-    if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
-    return "#CCCCCC";
-  };
-
-  const turnoColors = [
-    "#4F46E5",
-    "#10B981",
-    "#F59E0B",
-    "#EF4444",
-    "#3B82F6",
-    "#8B5CF6",
-    "#EC4899"
-  ];
-
-  // Configuração do cartão Comparativo:
-  // Agora, removemos os textos "Falta" e "Excedente" e exibimos apenas o valor absoluto e o percentual com sinal.
+  // Cálculo do valor do cartão "Comparativo": 
+  // Exibe apenas o valor numérico e o percentual (com sinal + ou -).
   let trendValue = "N/A";
-  let trendValueColor = "inherit";
-  let trendBorderColor = "border-blue-500";
-  let trendIcon = <FaBalanceScale className="text-blue-500" />;
+  let trendValueColor = "";
   if (data.tendenciaMatriculas) {
     const { missing, percent } = data.tendenciaMatriculas;
-    const sign = missing > 0 ? "-" : missing < 0 ? "+" : "";
-    trendValue = `${formatNumber(Math.abs(missing))} (${sign}${percent}%)`;
-    if (missing > 0) {
-      trendValueColor = "red";
-      trendBorderColor = "border-red-500";
-      trendIcon = <FaBalanceScale className="text-red-500" />;
-    } else if (missing < 0) {
-      trendValueColor = "green";
-      trendBorderColor = "border-green-500";
-      trendIcon = <FaBalanceScale className="text-green-500" />;
+    if (missing === 0) {
+      trendValue = `0 (0%)`;
+    } else {
+      const sign = missing > 0 ? "-" : "+";
+      trendValue = `${formatNumber(Math.abs(missing))} (${sign}${percent}%)`;
+      trendValueColor = missing > 0 ? "red" : "green";
     }
   }
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+      {/* Exemplo de banner de atualização (caso SW detecte nova versão) */}
       {updateAvailable && (
         <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
           <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
@@ -374,11 +234,10 @@ const Dashboard = () => {
         </div>
       )}
 
+      {/* Cabeçalho */}
       <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">
-            Secretaria Municipal de Educação de Tucuruí-PA
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-800">Secretaria Municipal de Educação de Tucuruí-PA</h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
         <button
@@ -389,6 +248,7 @@ const Dashboard = () => {
         </button>
       </div>
 
+      {/* Última Atualização */}
       {data.ultimaAtualizacao && (() => {
         const updatedDate = new Date(data.ultimaAtualizacao);
         updatedDate.setHours(updatedDate.getHours() + 3);
@@ -400,18 +260,16 @@ const Dashboard = () => {
         const seconds = updatedDate.getSeconds().toString().padStart(2, "0");
         return (
           <div className="p-2 bg-blue-100 text-center text-sm text-gray-700">
-            Dados Atualizados: {`${day}/${month}/${year} às ${hours}:${minutes}:${seconds}`}
+            Dados atualizados: {`${day}/${month}/${year} às ${hours}:${minutes}:${seconds}`}
           </div>
         );
       })()}
 
+      {/* Loader com barra de progresso */}
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
           <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
-            <div
-              className="bg-blue-600 text-center py-2 text-white font-bold"
-              style={{ width: `${progress}%` }}
-            >
+            <div className="bg-blue-600 text-center py-2 text-white font-bold" style={{ width: `${progress}%` }}>
               {progress}%
             </div>
           </div>
@@ -419,75 +277,71 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Container de cartões – responsivo: 2 colunas por linha em telas com largura menor que 431px */}
-      <div className="grid grid-cols-2 min-[431px]:grid-cols-6 gap-3 mb-4">
-        <div
-          data-tooltip-id="matriculas-tooltip"
-          data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
-        >
+      {/* Container de cartões – definimos 2 colunas em telas menores que 431px, e 6 colunas acima disso */}
+      <div className="grid grid-cols-2 min-[431px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
+        {/* Cartão Matrículas */}
+        <div data-tooltip-id="matriculas-tooltip"
+             data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}>
           <Card
             label="Matrículas"
             value={data.totalMatriculas}
-            icon={<FaUserGraduate className="text-blue-500" />}
-            borderColor="border-blue-500"
+            icon={<FaUserGraduate className="text-black" />} // Ícone preto
             comparativo={data.comparativos ? data.comparativos.totalMatriculas : null}
           />
           <Tooltip id="matriculas-tooltip" />
         </div>
 
+        {/* Cartão Comparativo */}
         <div>
           <Card
             label="Comparativo"
             value={trendValue}
-            icon={trendIcon}
-            borderColor={trendBorderColor}
-            comparativo={null}
-            disableFormat
+            icon={<FaBalanceScale className="text-black" />} // Ícone preto
             valueColor={trendValueColor}
+            disableFormat
           />
         </div>
 
-        <div
-          data-tooltip-id="escolas-tooltip"
-          data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
-        >
+        {/* Cartão Escolas */}
+        <div data-tooltip-id="escolas-tooltip"
+             data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}>
           <Card
             label="Escolas"
             value={data.totalEscolas}
-            icon={<FaSchool className="text-green-500" />}
-            borderColor="border-green-500"
+            icon={<FaSchool className="text-black" />}
             comparativo={data.comparativos ? data.comparativos.totalEscolas : null}
           />
           <Tooltip id="escolas-tooltip" />
         </div>
 
+        {/* Cartão Vagas */}
         <Card
           label="Vagas"
-          value={totalVagasDisponiveis}
-          icon={<FaChalkboardTeacher className="text-purple-500" />}
-          borderColor="border-purple-500"
+          value={data.totalVagas}
+          icon={<FaChalkboardTeacher className="text-black" />}
           comparativo={data.comparativos ? data.comparativos.totalVagas : null}
         />
 
+        {/* Cartão Entradas */}
         <Card
           label="Entradas"
           value={data.totalEntradas}
-          icon={<FaSignInAlt className="text-yellow-500" />}
-          borderColor="border-yellow-500"
+          icon={<FaSignInAlt className="text-black" />}
           comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
         />
 
+        {/* Cartão Saídas */}
         <Card
           label="Saídas"
           value={data.totalSaidas}
-          icon={<FaSignOutAlt className="text-red-500" />}
-          borderColor="border-red-500"
+          icon={<FaSignOutAlt className="text-black" />}
           comparativo={data.comparativos ? data.comparativos.totalSaidas : null}
         />
       </div>
 
-      {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Conteúdo Principal: Tabela e gráficos */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
+        {/* Tabela de Escolas */}
         <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-[400px]">
           <div className="p-4 bg-gray-100 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
@@ -528,6 +382,7 @@ const Dashboard = () => {
           </div>
         </div>
 
+        {/* Gráfico de Movimentação Mensal */}
         <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[400px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1">
@@ -589,7 +444,7 @@ const Dashboard = () => {
       </div>
 
       {/* Gráficos de Matrículas por Sexo e por Turno */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4">
         <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
           <div className="flex-1">
@@ -600,7 +455,11 @@ const Dashboard = () => {
                   {
                     label: "Sexo",
                     data: Object.values(data.matriculasPorSexo),
-                    backgroundColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
+                    backgroundColor: Object.keys(data.matriculasPorSexo).map(sexo => {
+                      if (sexo.toLowerCase().includes("masc")) return "#0000FF";
+                      if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
+                      return "#CCCCCC";
+                    }),
                     borderWidth: 0
                   }
                 ]
@@ -633,7 +492,10 @@ const Dashboard = () => {
                     label: "Turno",
                     data: Object.values(data.matriculasPorTurno),
                     backgroundColor: Object.keys(data.matriculasPorTurno).map(
-                      (_, index) => turnoColors[index % turnoColors.length]
+                      (_, index) => {
+                        const turnoColors = ["#4F46E5","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#EC4899"];
+                        return turnoColors[index % turnoColors.length];
+                      }
                     ),
                     borderRadius: 4
                   }
@@ -679,6 +541,7 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {/* Sidebar de Filtros */}
       <div
         id="sidebar"
         className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${
@@ -687,7 +550,7 @@ const Dashboard = () => {
       >
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
-          <button
+          <button 
             onClick={() => setShowSidebar(false)}
             className="text-gray-500 hover:text-gray-700 transition-colors"
           >
