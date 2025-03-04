@@ -66,12 +66,12 @@ const buscarTotais = async (req, res) => {
       Object.values(queriesMain).map(q => pool.query(q, params))
     );
 
-    // Busca a última atualização
+    // Última atualização
     const ultimaAtualizacaoQuery = `SELECT MAX(ultima_atualizacao) AS ultima_atualizacao FROM dados_matriculas`;
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
 
-    // Breakdown: Matrículas por Zona, Sexo e Turno (apenas para grupo_etapa "complementar")
+    // Breakdown: Matrículas por Zona, Sexo e Turno (para grupo_etapa "complementar")
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
     let matriculasPorTurno = {};
@@ -174,7 +174,7 @@ const buscarTotais = async (req, res) => {
     let trendMatriculas = null;
     if (filters.anoLetivo) {
       const prevYear = (parseInt(filters.anoLetivo, 10) - 1).toString();
-      // Constrói a cláusula WHERE para o ano anterior usando buildWhereClause
+      // Constrói a cláusula WHERE para o ano anterior
       const { clause: clausePrev, params: paramsPrev } = buildWhereClause({
         anoLetivo: prevYear,
         deficiencia: filters.deficiencia,
@@ -201,7 +201,7 @@ const buscarTotais = async (req, res) => {
         const diff = prevMat - currentMat;
         const percentMissing = (Math.abs(diff) / prevMat) * 100;
         trendMatriculas = {
-          missing: diff, // se diff > 0, faltam matrículas; se diff < 0, excedeu
+          missing: diff, // se diff > 0, faltam; se diff < 0, excedeu
           percent: parseFloat(percentMissing.toFixed(2)),
           arrow: diff > 0 ? "down" : diff < 0 ? "up" : ""
         };
@@ -291,7 +291,7 @@ const buscarFiltros = async (req, res) => {
 const buscarBreakdowns = async (req, res) => {
   try {
     const {
-      anoLetivo: anoLetivo,
+      anoLetivo,
       deficiencia,
       grupoEtapa,
       etapaMatricula,

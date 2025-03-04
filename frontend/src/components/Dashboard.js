@@ -73,7 +73,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – aceita a prop "valueColor" para alterar a cor do texto do valor
+// Componente Card – aceita customClass e valueColor para ajuste responsivo
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "", valueColor = "" }) => {
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
@@ -84,7 +84,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, cus
           ) : (
             <FaArrowDown className="mr-1" style={{ color: "red" }} />
           )}
-          <span style={{ color: comparativo.arrow === "up" ? "green" : "red" }}>
+          <span style={{ color: comparativo.arrow === "up" ? "green" : "red", fontSize: "0.8rem" }}>
             {comparativo.diff}%
           </span>
         </div>
@@ -97,7 +97,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, cus
     <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow ${customClass}`}>
       <div className="flex justify-center text-2xl mb-1">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span className="text-xl font-bold" style={{ color: valueColor || "inherit" }}>
+      <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor || "inherit" }}>
         {disableFormat ? value : formatNumber(value)}
       </span>
       {renderComparativo()}
@@ -342,21 +342,24 @@ const Dashboard = () => {
     "#EC4899"
   ];
 
-  // Configuração do cartão Comparativo: Mantém o mesmo fundo dos demais,
-  // mas o valor (texto) muda de cor para vermelho (se faltar) ou verde (se exceder)
+  // Configuração do cartão Comparativo:
+  // Agora, removemos os textos "Falta" e "Excedente" e exibimos apenas o valor absoluto e o percentual com sinal.
   let trendValue = "N/A";
   let trendValueColor = "inherit";
+  let trendBorderColor = "border-blue-500";
+  let trendIcon = <FaBalanceScale className="text-blue-500" />;
   if (data.tendenciaMatriculas) {
     const { missing, percent } = data.tendenciaMatriculas;
+    const sign = missing > 0 ? "-" : missing < 0 ? "+" : "";
+    trendValue = `${formatNumber(Math.abs(missing))} (${sign}${percent}%)`;
     if (missing > 0) {
-      trendValue = `Falta ${formatNumber(missing)} (${percent}%)`;
       trendValueColor = "red";
+      trendBorderColor = "border-red-500";
+      trendIcon = <FaBalanceScale className="text-red-500" />;
     } else if (missing < 0) {
-      trendValue = `Excedente ${formatNumber(Math.abs(missing))} (${percent}%)`;
       trendValueColor = "green";
-    } else {
-      trendValue = "Sem variação";
-      trendValueColor = "inherit";
+      trendBorderColor = "border-green-500";
+      trendIcon = <FaBalanceScale className="text-green-500" />;
     }
   }
 
@@ -416,265 +419,262 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
-          <div
-            data-tooltip-id="matriculas-tooltip"
-            data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
-          >
-            <Card
-              label="Matrículas"
-              value={data.totalMatriculas}
-              icon={<FaUserGraduate className="text-blue-500" />}
-              borderColor="border-blue-500"
-              comparativo={data.comparativos ? data.comparativos.totalMatriculas : null}
-            />
-            <Tooltip id="matriculas-tooltip" />
-          </div>
+      {/* Container de cartões – responsivo: 2 colunas por linha em telas com largura menor que 431px */}
+      <div className="grid grid-cols-2 min-[431px]:grid-cols-6 gap-3 mb-4">
+        <div
+          data-tooltip-id="matriculas-tooltip"
+          data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
+        >
+          <Card
+            label="Matrículas"
+            value={data.totalMatriculas}
+            icon={<FaUserGraduate className="text-blue-500" />}
+            borderColor="border-blue-500"
+            comparativo={data.comparativos ? data.comparativos.totalMatriculas : null}
+          />
+          <Tooltip id="matriculas-tooltip" />
+        </div>
 
+        <div>
+          <Card
+            label="Comparativo"
+            value={trendValue}
+            icon={trendIcon}
+            borderColor={trendBorderColor}
+            comparativo={null}
+            disableFormat
+            valueColor={trendValueColor}
+          />
+        </div>
+
+        <div
+          data-tooltip-id="escolas-tooltip"
+          data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
+        >
+          <Card
+            label="Escolas"
+            value={data.totalEscolas}
+            icon={<FaSchool className="text-green-500" />}
+            borderColor="border-green-500"
+            comparativo={data.comparativos ? data.comparativos.totalEscolas : null}
+          />
+          <Tooltip id="escolas-tooltip" />
+        </div>
+
+        <Card
+          label="Vagas"
+          value={totalVagasDisponiveis}
+          icon={<FaChalkboardTeacher className="text-purple-500" />}
+          borderColor="border-purple-500"
+          comparativo={data.comparativos ? data.comparativos.totalVagas : null}
+        />
+
+        <Card
+          label="Entradas"
+          value={data.totalEntradas}
+          icon={<FaSignInAlt className="text-yellow-500" />}
+          borderColor="border-yellow-500"
+          comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
+        />
+
+        <Card
+          label="Saídas"
+          value={data.totalSaidas}
+          icon={<FaSignOutAlt className="text-red-500" />}
+          borderColor="border-red-500"
+          comparativo={data.comparativos ? data.comparativos.totalSaidas : null}
+        />
+      </div>
+
+      {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-[400px]">
+          <div className="p-4 bg-gray-100 border-b">
+            <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
+          </div>
           <div>
-            <Card
-              label="Comparativo"
-              value={trendValue}
-              icon={<FaBalanceScale />}
-              borderColor="border-blue-500"
-              comparativo={null}
-              disableFormat
-              valueColor={trendValueColor}
-            />
-          </div>
-
-          <div
-            data-tooltip-id="escolas-tooltip"
-            data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
-          >
-            <Card
-              label="Escolas"
-              value={data.totalEscolas}
-              icon={<FaSchool className="text-green-500" />}
-              borderColor="border-green-500"
-              comparativo={data.comparativos ? data.comparativos.totalEscolas : null}
-            />
-            <Tooltip id="escolas-tooltip" />
-          </div>
-
-          <Card
-            label="Vagas"
-            value={totalVagasDisponiveis}
-            icon={<FaChalkboardTeacher className="text-purple-500" />}
-            borderColor="border-purple-500"
-            comparativo={data.comparativos ? data.comparativos.totalVagas : null}
-          />
-
-          <Card
-            label="Entradas"
-            value={data.totalEntradas}
-            icon={<FaSignInAlt className="text-yellow-500" />}
-            borderColor="border-yellow-500"
-            comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
-          />
-
-          <Card
-            label="Saídas"
-            value={data.totalSaidas}
-            icon={<FaSignOutAlt className="text-red-500" />}
-            borderColor="border-red-500"
-            comparativo={data.comparativos ? data.comparativos.totalSaidas : null}
-          />
-        </div>
-
-        {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-[400px]">
-            <div className="p-4 bg-gray-100 border-b">
-              <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
-            </div>
-            <div>
-              <table className="w-full">
-                <thead className="bg-gray-50 sticky top-0 z-10">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Escola</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Turmas</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Matrículas</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Vagas</th>
+            <table className="w-full">
+              <thead className="bg-gray-50 sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Escola</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Turmas</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Matrículas</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Vagas</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {data.escolas.map((escola, index) => (
+                  <tr
+                    key={index}
+                    onClick={() => handleSchoolClick(escola)}
+                    className={`cursor-pointer hover:bg-gray-50 ${
+                      selectedSchool && selectedSchool.idescola === escola.idescola
+                        ? "bg-blue-100"
+                        : index % 2 === 0
+                        ? "bg-white"
+                        : "bg-gray-50"
+                    }`}
+                  >
+                    <td className="px-4 py-3 text-sm text-gray-700">{escola.escola}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_turmas}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_matriculas}</td>
+                    <td className={`px-4 py-3 text-sm font-semibold ${escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"}`}>
+                      {escola.vagas_disponiveis}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {data.escolas.map((escola, index) => (
-                    <tr
-                      key={index}
-                      onClick={() => handleSchoolClick(escola)}
-                      className={`cursor-pointer hover:bg-gray-50 ${
-                        selectedSchool && selectedSchool.idescola === escola.idescola
-                          ? "bg-blue-100"
-                          : index % 2 === 0
-                          ? "bg-white"
-                          : "bg-gray-50"
-                      }`}
-                    >
-                      <td className="px-4 py-3 text-sm text-gray-700">{escola.escola}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_turmas}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                      <td className={`px-4 py-3 text-sm font-semibold ${escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"}`}>
-                        {escola.vagas_disponiveis}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[400px]">
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
-            <div className="flex-1">
-              <Bar
-                data={{
-                  labels: Object.keys(data.entradasSaidasPorMes),
-                  datasets: [
-                    {
-                      label: "Entradas",
-                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
-                      backgroundColor: "#FBBF24",
-                      borderRadius: 6
-                    },
-                    {
-                      label: "Saídas",
-                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
-                      backgroundColor: "#EF4444",
-                      borderRadius: 6
-                    }
-                  ]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { position: "top", labels: { color: "#6B7280" } },
-                    datalabels: {
-                      display: true,
-                      color: "#000",
-                      font: { weight: "bold" },
-                      anchor: "end",
-                      align: "end",
-                      offset: 4,
-                      formatter: (value) => formatNumber(value)
-                    }
-                  },
-                  scales: {
-                    x: {
-                      grid: { display: false },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" }
-                      }
-                    },
-                    y: {
-                      grid: { color: "#E5E7EB" },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" },
-                        callback: (value) => formatNumber(value)
-                      }
-                    }
-                  },
-                  layout: {
-                    padding: { top: 20, bottom: 20 }
-                  }
-                }}
-              />
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {/* Gráficos de Matrículas por Sexo e por Turno */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
-            <div className="flex-1">
-              <Pie
-                data={{
-                  labels: Object.keys(data.matriculasPorSexo),
-                  datasets: [
-                    {
-                      label: "Sexo",
-                      data: Object.values(data.matriculasPorSexo),
-                      backgroundColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
-                      borderWidth: 0
+        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[400px]">
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
+          <div className="flex-1">
+            <Bar
+              data={{
+                labels: Object.keys(data.entradasSaidasPorMes),
+                datasets: [
+                  {
+                    label: "Entradas",
+                    data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
+                    backgroundColor: "#FBBF24",
+                    borderRadius: 6
+                  },
+                  {
+                    label: "Saídas",
+                    data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
+                    backgroundColor: "#EF4444",
+                    borderRadius: 6
+                  }
+                ]
+              }}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { position: "top", labels: { color: "#6B7280" } },
+                  datalabels: {
+                    display: true,
+                    color: "#000",
+                    font: { weight: "bold" },
+                    anchor: "end",
+                    align: "end",
+                    offset: 4,
+                    formatter: (value) => formatNumber(value)
+                  }
+                },
+                scales: {
+                  x: {
+                    grid: { display: false },
+                    ticks: {
+                      color: "#6B7280",
+                      font: { weight: "bold" }
                     }
-                  ]
-                }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { position: "bottom" },
-                    datalabels: {
-                      display: true,
-                      color: "#fff",
+                  },
+                  y: {
+                    grid: { color: "#E5E7EB" },
+                    ticks: {
+                      color: "#6B7280",
                       font: { weight: "bold" },
-                      formatter: (value) => formatNumber(value)
+                      callback: (value) => formatNumber(value)
                     }
                   }
-                }}
-              />
-            </div>
+                },
+                layout: { padding: { top: 20, bottom: 20 } }
+              }}
+            />
           </div>
+        </div>
+      </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
-            <div className="flex-1">
-              <Bar
-                data={{
-                  labels: Object.keys(data.matriculasPorTurno),
-                  datasets: [
-                    {
-                      label: "Turno",
-                      data: Object.values(data.matriculasPorTurno),
-                      backgroundColor: Object.keys(data.matriculasPorTurno).map(
-                        (_, index) => turnoColors[index % turnoColors.length]
-                      ),
-                      borderRadius: 4
-                    }
-                  ]
-                }}
-                options={{
-                  indexAxis: "y",
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: { display: false },
-                    datalabels: {
-                      display: true,
-                      color: "#fff",
+      {/* Gráficos de Matrículas por Sexo e por Turno */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
+          <div className="flex-1">
+            <Pie
+              data={{
+                labels: Object.keys(data.matriculasPorSexo),
+                datasets: [
+                  {
+                    label: "Sexo",
+                    data: Object.values(data.matriculasPorSexo),
+                    backgroundColor: Object.keys(data.matriculasPorSexo).map(getSexoColor),
+                    borderWidth: 0
+                  }
+                ]
+              }}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { position: "bottom" },
+                  datalabels: {
+                    display: true,
+                    color: "#fff",
+                    font: { weight: "bold" },
+                    formatter: (value) => formatNumber(value)
+                  }
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
+          <div className="flex-1">
+            <Bar
+              data={{
+                labels: Object.keys(data.matriculasPorTurno),
+                datasets: [
+                  {
+                    label: "Turno",
+                    data: Object.values(data.matriculasPorTurno),
+                    backgroundColor: Object.keys(data.matriculasPorTurno).map(
+                      (_, index) => turnoColors[index % turnoColors.length]
+                    ),
+                    borderRadius: 4
+                  }
+                ]
+              }}
+              options={{
+                indexAxis: "y",
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { display: false },
+                  datalabels: {
+                    display: true,
+                    color: "#fff",
+                    font: { weight: "bold" },
+                    anchor: "end",
+                    align: "right",
+                    offset: 4,
+                    formatter: (value) => formatNumber(value)
+                  }
+                },
+                scales: {
+                  x: {
+                    grid: { color: "#E5E7EB" },
+                    ticks: {
+                      color: "#6B7280",
                       font: { weight: "bold" },
-                      anchor: "end",
-                      align: "right",
-                      offset: 4,
-                      formatter: (value) => formatNumber(value)
+                      callback: (value) => formatNumber(value)
                     }
                   },
-                  scales: {
-                    x: {
-                      grid: { color: "#E5E7EB" },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" },
-                        callback: (value) => formatNumber(value)
-                      }
-                    },
-                    y: {
-                      grid: { display: false },
-                      ticks: {
-                        color: "#6B7280",
-                        font: { weight: "bold" }
-                      }
+                  y: {
+                    grid: { display: false },
+                    ticks: {
+                      color: "#6B7280",
+                      font: { weight: "bold" }
                     }
-                  },
-                  layout: { padding: { left: 20, right: 20 } }
-                }}
-              />
-            </div>
+                  }
+                },
+                layout: { padding: { left: 20, right: 20 } }
+              }}
+            />
           </div>
         </div>
       </div>
