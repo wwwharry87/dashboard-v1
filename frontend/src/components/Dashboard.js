@@ -73,7 +73,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – agora aceita a prop "valueColor" para alterar a cor do texto do valor
+// Componente Card – aceita a prop "valueColor" para alterar a cor do texto do valor
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "", valueColor = "" }) => {
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
@@ -342,8 +342,8 @@ const Dashboard = () => {
     "#EC4899"
   ];
 
-  // Configuração do cartão Comparativo: sem alteração de fundo (mantém o estilo padrão),
-  // apenas o texto muda de cor conforme a condição.
+  // Configuração do cartão Comparativo: Mantém o mesmo fundo dos demais,
+  // mas o valor (texto) muda de cor para vermelho (se faltar) ou verde (se exceder)
   let trendValue = "N/A";
   let trendValueColor = "inherit";
   if (data.tendenciaMatriculas) {
@@ -578,7 +578,9 @@ const Dashboard = () => {
                       }
                     }
                   },
-                  layout: { padding: { top: 20, bottom: 20 } }
+                  layout: {
+                    padding: { top: 20, bottom: 20 }
+                  }
                 }}
               />
             </div>

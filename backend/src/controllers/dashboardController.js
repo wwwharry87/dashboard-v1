@@ -1,61 +1,72 @@
 const pool = require('../config/db');
 
+//
+// Função auxiliar para construir a cláusula WHERE
+//
+const buildWhereClause = (filters) => {
+  const whereClauses = ["1=1"];
+  const params = [];
+  const addFilter = (value, field) => {
+    if (value && value !== "") {
+      params.push(value);
+      whereClauses.push(`${field} = $${params.length}`);
+    }
+  };
+
+  addFilter(filters.anoLetivo, "ano_letivo");
+  addFilter(filters.deficiencia, "deficiencia");
+  addFilter(filters.grupoEtapa, "grupo_etapa");
+  addFilter(filters.etapaMatricula, "etapa_matricula");
+  addFilter(filters.etapaTurma, "etapa_turma");
+  addFilter(filters.multisserie, "multisserie");
+  addFilter(filters.situacaoMatricula, "situacao_matricula");
+  addFilter(filters.tipoMatricula, "tipo_matricula");
+  addFilter(filters.tipoTransporte, "tipo_transporte");
+  addFilter(filters.transporteEscolar, "transporte_escolar");
+  addFilter(filters.idescola, "idescola");
+
+  return { clause: whereClauses.join(" AND "), params };
+};
+
+//
 // Função para buscar os totais e dados gerais
+//
 const buscarTotais = async (req, res) => {
   try {
-    const {
-      anoLetivo: ano_letivo,
-      deficiencia,
-      grupoEtapa: grupo_etapa,
-      etapaMatricula: etapa_matricula,
-      etapaTurma: etapa_turma,
-      multisserie,
-      situacaoMatricula: situacao_matricula,
-      tipoMatricula: tipo_matricula,
-      tipoTransporte: tipo_transporte,
-      transporteEscolar: transporte_escolar,
-      idescola // Filtro para escola
-    } = req.body;
-
-    // Espaço final para garantir a concatenação correta
-    let queryBase = `FROM dados_matriculas WHERE 1=1 `;
-    const params = [];
-    const addFilter = (value, condition) => {
-      if (value && value !== "") {
-        queryBase += `AND ${condition} = $${params.length + 1} `;
-        params.push(value);
-      }
+    // Extrai os filtros do body
+    const filters = {
+      anoLetivo: req.body.anoLetivo,
+      deficiencia: req.body.deficiencia,
+      grupoEtapa: req.body.grupoEtapa,
+      etapaMatricula: req.body.etapaMatricula,
+      etapaTurma: req.body.etapaTurma,
+      multisserie: req.body.multisserie,
+      situacaoMatricula: req.body.situacaoMatricula,
+      tipoMatricula: req.body.tipoMatricula,
+      tipoTransporte: req.body.tipoTransporte,
+      transporteEscolar: req.body.transporteEscolar,
+      idescola: req.body.idescola
     };
 
-    addFilter(ano_letivo, "ano_letivo");
-    addFilter(deficiencia, "deficiencia");
-    addFilter(grupo_etapa, "grupo_etapa");
-    addFilter(etapa_matricula, "etapa_matricula");
-    addFilter(etapa_turma, "etapa_turma");
-    addFilter(multisserie, "multisserie");
-    addFilter(situacao_matricula, "situacao_matricula");
-    addFilter(tipo_matricula, "tipo_matricula");
-    addFilter(tipo_transporte, "tipo_transporte");
-    addFilter(transporte_escolar, "transporte_escolar");
-    addFilter(idescola, "idescola");
-
-    // Exclui etapas especiais
-    const queryBaseFiltrada = queryBase + `AND idetapa_matricula NOT IN (98,99) `;
+    // Constrói a cláusula WHERE
+    const { clause, params } = buildWhereClause(filters);
+    const queryBase = `FROM dados_matriculas WHERE ${clause} `;
+    const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
 
     // Queries principais para o ano atual
     const queriesMain = {
-      totalMatriculas: `SELECT COUNT(*) FROM dados_matriculas ${queryBaseFiltrada}`,
-      totalEscolas: `SELECT COUNT(DISTINCT idescola) FROM dados_matriculas ${queryBase}`,
-      totalVagas: `SELECT SUM(limite_maximo_aluno) FROM dados_matriculas ${queryBase}`,
-      totalEntradas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
-      totalSaidas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
+      totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
+      totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
+      totalVagas: `SELECT SUM(limite_maximo_aluno) ${queryBase}`,
+      totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
+      totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
 
     const resultsMain = await Promise.all(
       Object.values(queriesMain).map(q => pool.query(q, params))
     );
 
-    // Busca a última atualização
+    // Última atualização
     const ultimaAtualizacaoQuery = `SELECT MAX(ultima_atualizacao) AS ultima_atualizacao FROM dados_matriculas`;
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
@@ -65,7 +76,7 @@ const buscarTotais = async (req, res) => {
     let matriculasPorSexo = {};
     let matriculasPorTurno = {};
 
-    if (grupo_etapa && grupo_etapa.toLowerCase() === "complementar") {
+    if (filters.grupoEtapa && filters.grupoEtapa.toLowerCase() === "complementar") {
       try {
         const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY zona_aluno `;
         const resultZona = await pool.query(matriculasZonaQuery, params);
@@ -160,30 +171,24 @@ const buscarTotais = async (req, res) => {
     });
 
     // Cálculo do comparativo e tendência para matrículas (baseado no ano anterior)
-    let comparativos = null;
     let trendMatriculas = null;
     if (ano_letivo) {
       const prevYear = (parseInt(ano_letivo, 10) - 1).toString();
-      let queryBasePrev = `FROM dados_matriculas WHERE 1=1 `;
-      const paramsPrev = [];
-      const addFilterPrev = (value, condition) => {
-        if (value && value !== "") {
-          queryBasePrev += `AND ${condition} = $${paramsPrev.length + 1} `;
-          paramsPrev.push(value);
-        }
-      };
-      addFilterPrev(prevYear, "ano_letivo");
-      addFilterPrev(deficiencia, "deficiencia");
-      addFilterPrev(grupo_etapa, "grupo_etapa");
-      addFilterPrev(etapa_matricula, "etapa_matricula");
-      addFilterPrev(etapa_turma, "etapa_turma");
-      addFilterPrev(multisserie, "multisserie");
-      addFilterPrev(situacao_matricula, "situacao_matricula");
-      addFilterPrev(tipo_matricula, "tipo_matricula");
-      addFilterPrev(tipo_transporte, "tipo_transporte");
-      addFilterPrev(transporte_escolar, "transporte_escolar");
-      addFilterPrev(idescola, "idescola");
-
+      // Constrói a cláusula WHERE para o ano anterior
+      const { clause: clausePrev, params: paramsPrev } = buildWhereClause({
+        anoLetivo: prevYear,
+        deficiencia,
+        grupoEtapa: grupo_etapa,
+        etapaMatricula: etapa_matricula,
+        etapaTurma: etapa_turma,
+        multisserie,
+        situacaoMatricula: situacao_matricula,
+        tipoMatricula: tipo_matricula,
+        tipoTransporte: tipo_transporte,
+        transporteEscolar: transporte_escolar,
+        idescola
+      });
+      const queryBasePrev = `FROM dados_matriculas WHERE ${clausePrev} `;
       const queriesPrev = {
         totalMatriculas: `SELECT COUNT(*) ${queryBasePrev}AND idetapa_matricula NOT IN (98,99)`
       };
@@ -201,9 +206,6 @@ const buscarTotais = async (req, res) => {
           arrow: diff > 0 ? "down" : diff < 0 ? "up" : ""
         };
       }
-      comparativos = {
-        totalMatriculas: trendMatriculas ? trendMatriculas : null
-      };
     }
 
     res.json({
@@ -214,7 +216,7 @@ const buscarTotais = async (req, res) => {
       totalSaidas: parseInt(resultsMain[4].rows[0].count, 10) || 0,
       escolas,
       entradasSaidasPorMes,
-      comparativos,
+      comparativos: { totalMatriculas: trendMatriculas },
       matriculasPorZona,
       matriculasPorSexo,
       matriculasPorTurno,
@@ -228,7 +230,9 @@ const buscarTotais = async (req, res) => {
   }
 };
 
+//
 // Função para buscar os filtros disponíveis
+//
 const buscarFiltros = async (req, res) => {
   try {
     const filtrosResult = await pool.query(`
@@ -281,7 +285,9 @@ const buscarFiltros = async (req, res) => {
   }
 };
 
+//
 // Função para buscar os breakdowns
+//
 const buscarBreakdowns = async (req, res) => {
   try {
     const {
@@ -298,28 +304,21 @@ const buscarBreakdowns = async (req, res) => {
       idescola // Filtro para escola
     } = req.body;
 
-    let queryBase = `FROM dados_matriculas WHERE 1=1 `;
-    const params = [];
-    const addFilter = (value, condition) => {
-      if (value && value !== "") {
-        queryBase += `AND ${condition} = $${params.length + 1} `;
-        params.push(value);
-      }
-    };
-
-    addFilter(ano_letivo, "ano_letivo");
-    addFilter(deficiencia, "deficiencia");
-    addFilter(grupo_etapa, "grupo_etapa");
-    addFilter(etapa_matricula, "etapa_matricula");
-    addFilter(etapa_turma, "etapa_turma");
-    addFilter(multisserie, "multisserie");
-    addFilter(situacao_matricula, "situacao_matricula");
-    addFilter(tipo_matricula, "tipo_matricula");
-    addFilter(tipo_transporte, "tipo_transporte");
-    addFilter(transporte_escolar, "transporte_escolar");
-    addFilter(idescola, "idescola");
-
-    const queryBaseFiltrada = queryBase + `AND idetapa_matricula NOT IN (98,99) `;
+    const { clause, params } = buildWhereClause({
+      anoLetivo: ano_letivo,
+      deficiencia,
+      grupoEtapa: grupo_etapa,
+      etapaMatricula: etapa_matricula,
+      etapaTurma: etapa_turma,
+      multisserie,
+      situacaoMatricula: situacao_matricula,
+      tipoMatricula: tipo_matricula,
+      tipoTransporte: tipo_transporte,
+      transporteEscolar: transporte_escolar,
+      idescola
+    });
+    const queryBase = `FROM dados_matriculas WHERE ${clause} `;
+    const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
 
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
