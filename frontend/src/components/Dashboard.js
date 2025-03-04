@@ -44,9 +44,9 @@ const reorderYesNo = (options) => {
   if (!options) return [];
   const opts = [...options];
   if (opts.length === 2) {
-    const lower = opts.map((o) => o.toLowerCase());
+    const lower = opts.map(o => o.toLowerCase());
     if (lower.includes("sim") && lower.includes("não")) {
-      return opts.sort((a, b) => (a.toLowerCase() === "sim" ? -1 : 1));
+      return opts.sort((a, b) => a.toLowerCase() === "sim" ? -1 : 1);
     }
   }
   return opts;
@@ -66,16 +66,15 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
       >
         <option value="">Todos</option>
         {orderedOptions?.map((option, idx) => (
-          <option key={idx} value={option}>
-            {option}
-          </option>
+          <option key={idx} value={option}>{option}</option>
         ))}
       </select>
     </label>
   );
 };
 
-const Card = ({ label, value, icon, borderColor, comparativo }) => {
+// Modificamos o Card para aceitar disableFormat, que se true, exibe o valor sem formatação.
+const Card = ({ label, value, icon, borderColor, comparativo, disableFormat }) => {
   const renderComparativo = () => {
     if (!comparativo || comparativo.diff === null) return null;
     return (
@@ -93,12 +92,12 @@ const Card = ({ label, value, icon, borderColor, comparativo }) => {
   };
 
   return (
-    <div
-      className={`bg-white shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow`}
-    >
+    <div className={`bg-white shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow`}>
       <div className="flex justify-center text-2xl mb-1">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span className="text-xl font-bold text-gray-800">{formatNumber(value)}</span>
+      <span className="text-xl font-bold text-gray-800">
+        {disableFormat ? value : formatNumber(value)}
+      </span>
       {renderComparativo()}
     </div>
   );
@@ -174,7 +173,6 @@ const Dashboard = () => {
           });
         }
       });
-      // Quando o novo service worker assumir, recarrega a página
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         window.location.reload();
       });
@@ -230,7 +228,7 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, [loading]);
 
-  // Verifica tamanho da tela para ajustar número de linhas e altura dos containers
+  // Ajusta o número de linhas e a altura dos containers com base na resolução
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth <= 1180 && window.innerHeight <= 820) {
@@ -429,7 +427,7 @@ const Dashboard = () => {
             <Tooltip id="matriculas-tooltip" />
           </div>
 
-          {/* Cartão Tendência */}
+          {/* Cartão Tendência (disableFormat para não aplicar formatNumber novamente) */}
           <div>
             <Card
               label="Tendência"
@@ -441,6 +439,7 @@ const Dashboard = () => {
               icon={<FaChartLine className="text-indigo-500" />}
               borderColor="border-indigo-500"
               comparativo={null}
+              disableFormat
             />
           </div>
 
