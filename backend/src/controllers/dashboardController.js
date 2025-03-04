@@ -43,11 +43,11 @@ const buscarTotais = async (req, res) => {
 
     // Queries principais para o ano atual
     const queriesMain = {
-      totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
-      totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
-      totalVagas: `SELECT SUM(limite_maximo_aluno) ${queryBase}`,
-      totalEntradas: `SELECT COUNT(*) ${queryBase} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
-      totalSaidas: `SELECT COUNT(*) ${queryBase} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
+      totalMatriculas: `SELECT COUNT(*) FROM dados_matriculas ${queryBaseFiltrada}`,
+      totalEscolas: `SELECT COUNT(DISTINCT idescola) FROM dados_matriculas ${queryBase}`,
+      totalVagas: `SELECT SUM(limite_maximo_aluno) FROM dados_matriculas ${queryBase}`,
+      totalEntradas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
+      totalSaidas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
 
     const resultsMain = await Promise.all(
@@ -66,7 +66,7 @@ const buscarTotais = async (req, res) => {
 
     if (grupo_etapa && grupo_etapa.toLowerCase() === "complementar") {
       try {
-        const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada} GROUP BY zona_aluno`;
+        const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total FROM dados_matriculas ${queryBaseFiltrada} GROUP BY zona_aluno`;
         const resultZona = await pool.query(matriculasZonaQuery, params);
         resultZona.rows.forEach(row => {
           matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
@@ -75,7 +75,7 @@ const buscarTotais = async (req, res) => {
         console.error("Erro ao buscar matriculas por zona:", err);
       }
       try {
-        const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada} GROUP BY sexo`;
+        const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total FROM dados_matriculas ${queryBaseFiltrada} GROUP BY sexo`;
         const resultSexo = await pool.query(matriculasSexoQuery, params);
         resultSexo.rows.forEach(row => {
           matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
@@ -84,7 +84,7 @@ const buscarTotais = async (req, res) => {
         console.error("Erro ao buscar matriculas por sexo:", err);
       }
       try {
-        const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada} GROUP BY turno`;
+        const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total FROM dados_matriculas ${queryBaseFiltrada} GROUP BY turno`;
         const resultTurno = await pool.query(matriculasTurnoQuery, params);
         resultTurno.rows.forEach(row => {
           matriculasPorTurno[row.turno] = parseInt(row.total, 10);
@@ -98,13 +98,13 @@ const buscarTotais = async (req, res) => {
     const escolasQuery = `
       WITH turmas AS (
         SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-        ${queryBase}
+        FROM dados_matriculas ${queryBase}
       ),
       totalMatriculas AS (
         SELECT idescola, COUNT(*) FILTER (
           WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
         ) AS qtde_matriculas
-        ${queryBase}
+        FROM dados_matriculas ${queryBase}
         GROUP BY idescola
       )
       SELECT 
@@ -135,7 +135,7 @@ const buscarTotais = async (req, res) => {
       SELECT TO_CHAR(data_matricula, 'MM') AS mes,
         COUNT(*) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-') AS entradas,
         COUNT(*) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-') AS saidas
-      ${queryBase}
+      FROM dados_matriculas ${queryBase}
       GROUP BY mes
       ORDER BY mes
     `;
@@ -151,7 +151,7 @@ const buscarTotais = async (req, res) => {
     });
 
     // Dados de escolas por zona
-    const escolasZonaQuery = `SELECT zona_escola, COUNT(DISTINCT idescola) as total ${queryBase} GROUP BY zona_escola`;
+    const escolasZonaQuery = `SELECT zona_escola, COUNT(DISTINCT idescola) as total FROM dados_matriculas ${queryBase} GROUP BY zona_escola`;
     const resultEscolasZona = await pool.query(escolasZonaQuery, params);
     const escolasPorZona = {};
     resultEscolasZona.rows.forEach(row => {
@@ -160,6 +160,7 @@ const buscarTotais = async (req, res) => {
 
     // Cálculo do comparativo com o ano anterior (para tendência)
     let comparativos = null;
+    let tendenciaMatriculas = null;
     if (ano_letivo) {
       const prevYear = (parseInt(ano_letivo, 10) - 1).toString();
       let queryBasePrev = `FROM dados_matriculas WHERE 1=1`;
@@ -189,7 +190,9 @@ const buscarTotais = async (req, res) => {
         totalEntradas: `SELECT COUNT(*) ${queryBasePrev} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
         totalSaidas: `SELECT COUNT(*) ${queryBasePrev} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
       };
-      const resultsPrev = await Promise.all(Object.values(queriesPrev).map(q => pool.query(q, paramsPrev)));
+      const resultsPrev = await Promise.all(
+        Object.values(queriesPrev).map(q => pool.query(q, paramsPrev))
+      );
       const prevTotals = {
         totalMatriculas: parseInt(resultsPrev[0].rows[0].count, 10) || 0,
         totalEscolas: parseInt(resultsPrev[1].rows[0].count, 10) || 0,
@@ -217,14 +220,29 @@ const buscarTotais = async (req, res) => {
         return diff >= 0 ? "up" : "down";
       };
 
-      comparativos.totalMatriculas = { diff: comparativos.totalMatriculas !== null ? comparativos.totalMatriculas.toFixed(2) : null, arrow: addArrow(comparativos.totalMatriculas) };
-      comparativos.totalEscolas = { diff: comparativos.totalEscolas !== null ? comparativos.totalEscolas.toFixed(2) : null, arrow: addArrow(comparativos.totalEscolas) };
-      comparativos.totalVagas = { diff: comparativos.totalVagas !== null ? comparativos.totalVagas.toFixed(2) : null, arrow: addArrow(comparativos.totalVagas) };
-      comparativos.totalEntradas = { diff: comparativos.totalEntradas !== null ? comparativos.totalEntradas.toFixed(2) : null, arrow: addArrow(comparativos.totalEntradas) };
-      comparativos.totalSaidas = { diff: comparativos.totalSaidas !== null ? comparativos.totalSaidas.toFixed(2) : null, arrow: addArrow(comparativos.totalSaidas) };
+      comparativos.totalMatriculas = {
+        diff: comparativos.totalMatriculas !== null ? comparativos.totalMatriculas.toFixed(2) : null,
+        arrow: addArrow(comparativos.totalMatriculas)
+      };
+      comparativos.totalEscolas = {
+        diff: comparativos.totalEscolas !== null ? comparativos.totalEscolas.toFixed(2) : null,
+        arrow: addArrow(comparativos.totalEscolas)
+      };
+      comparativos.totalVagas = {
+        diff: comparativos.totalVagas !== null ? comparativos.totalVagas.toFixed(2) : null,
+        arrow: addArrow(comparativos.totalVagas)
+      };
+      comparativos.totalEntradas = {
+        diff: comparativos.totalEntradas !== null ? comparativos.totalEntradas.toFixed(2) : null,
+        arrow: addArrow(comparativos.totalEntradas)
+      };
+      comparativos.totalSaidas = {
+        diff: comparativos.totalSaidas !== null ? comparativos.totalSaidas.toFixed(2) : null,
+        arrow: addArrow(comparativos.totalSaidas)
+      };
 
-      // Define a tendência de matrículas com base no comparativo (totalMatriculas)
-      const tendenciaMatriculas = comparativos.totalMatriculas;
+      // Define a tendência de matrículas com base no comparativo de matrículas
+      tendenciaMatriculas = comparativos.totalMatriculas;
     }
 
     res.json({
