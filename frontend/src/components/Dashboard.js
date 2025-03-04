@@ -27,7 +27,16 @@ import {
 import { Tooltip } from "react-tooltip";
 
 // Registrar componentes necessários do Chart.js, incluindo o plugin de datalabels
-ChartJS.register(CategoryScale, LinearScale, BarElement, Title, ChartTooltip, Legend, ArcElement, ChartDataLabels);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  ChartTooltip,
+  Legend,
+  ArcElement,
+  ChartDataLabels
+);
 
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
@@ -35,9 +44,9 @@ const reorderYesNo = (options) => {
   if (!options) return [];
   const opts = [...options];
   if (opts.length === 2) {
-    const lower = opts.map(o => o.toLowerCase());
+    const lower = opts.map((o) => o.toLowerCase());
     if (lower.includes("sim") && lower.includes("não")) {
-      return opts.sort((a, b) => a.toLowerCase() === "sim" ? -1 : 1);
+      return opts.sort((a, b) => (a.toLowerCase() === "sim" ? -1 : 1));
     }
   }
   return opts;
@@ -57,7 +66,9 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
       >
         <option value="">Todos</option>
         {orderedOptions?.map((option, idx) => (
-          <option key={idx} value={option}>{option}</option>
+          <option key={idx} value={option}>
+            {option}
+          </option>
         ))}
       </select>
     </label>
@@ -82,7 +93,9 @@ const Card = ({ label, value, icon, borderColor, comparativo }) => {
   };
 
   return (
-    <div className={`bg-white shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow`}>
+    <div
+      className={`bg-white shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow`}
+    >
       <div className="flex justify-center text-2xl mb-1">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
       <span className="text-xl font-bold text-gray-800">{formatNumber(value)}</span>
@@ -129,6 +142,8 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [rowsLimit, setRowsLimit] = useState(5);
+  const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
   useEffect(() => {
     const initialize = async () => {
@@ -141,17 +156,17 @@ const Dashboard = () => {
 
   // Verifica atualização do service worker para PWA
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistration().then(reg => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
         if (reg && reg.waiting) {
           setUpdateAvailable(true);
         }
         if (reg) {
-          reg.addEventListener('updatefound', () => {
+          reg.addEventListener("updatefound", () => {
             const newWorker = reg.installing;
             if (newWorker) {
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              newWorker.addEventListener("statechange", () => {
+                if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
                   setUpdateAvailable(true);
                 }
               });
@@ -160,27 +175,27 @@ const Dashboard = () => {
         }
       });
       // Quando o novo service worker assumir, recarrega a página
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
         window.location.reload();
       });
     }
   }, []);
 
   const handleUpdate = () => {
-    navigator.serviceWorker.getRegistration().then(reg => {
+    navigator.serviceWorker.getRegistration().then((reg) => {
       if (reg && reg.waiting) {
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        reg.waiting.postMessage({ type: "SKIP_WAITING" });
       } else {
         window.location.reload();
       }
     });
   };
 
-  // Verificação periódica a cada minuto para atualizar o service worker
+  // Atualização periódica a cada minuto para o service worker
   useEffect(() => {
     const interval = setInterval(() => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistration().then(registration => {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistration().then((registration) => {
           if (registration) {
             registration.update();
           }
@@ -196,7 +211,7 @@ const Dashboard = () => {
     if (loading) {
       setProgress(0);
       interval = setInterval(() => {
-        setProgress(prev => {
+        setProgress((prev) => {
           if (prev < 90) {
             return prev + 10;
           } else {
@@ -215,13 +230,29 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, [loading]);
 
+  // Verifica tamanho da tela para ajustar número de linhas e altura dos containers
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 1180 && window.innerHeight <= 820) {
+        setRowsLimit(3);
+        setTableGraphHeight("h-72");
+      } else {
+        setRowsLimit(5);
+        setTableGraphHeight("h-96");
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const carregarFiltros = async () => {
     try {
       setLoading(true);
       const response = await axios.get("https://dashboard-v1-pp6t.onrender.com/api/filtros");
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
-      setSelectedFilters(prev => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
+      setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
       await carregarDados({ ...selectedFilters, anoLetivo: ultimoAnoLetivo });
     } catch (error) {
       console.error("Erro ao carregar filtros:", error);
@@ -233,9 +264,9 @@ const Dashboard = () => {
   const carregarDados = async (filtros) => {
     try {
       setLoading(true);
-      setData(prev => ({
+      setData((prev) => ({
         ...prev,
-        comparativos: null,
+        comparativos: null
       }));
 
       const [totaisResponse, breakdownsResponse] = await Promise.all([
@@ -243,7 +274,7 @@ const Dashboard = () => {
         axios.post("https://dashboard-v1-pp6t.onrender.com/api/breakdowns", filtros)
       ]);
 
-      setData(prev => ({
+      setData((prev) => ({
         ...prev,
         ...totaisResponse.data,
         ...breakdownsResponse.data
@@ -296,7 +327,10 @@ const Dashboard = () => {
     }
   };
 
-  const totalVagasDisponiveis = data.escolas.reduce((total, escola) => total + Number(escola.vagas_disponiveis), 0);
+  const totalVagasDisponiveis = data.escolas.reduce(
+    (total, escola) => total + Number(escola.vagas_disponiveis),
+    0
+  );
 
   // Função auxiliar para definir a cor conforme o sexo
   const getSexoColor = (sexo) => {
@@ -306,7 +340,15 @@ const Dashboard = () => {
   };
 
   // Paleta de cores para o gráfico de turno
-  const turnoColors = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899"];
+  const turnoColors = [
+    "#4F46E5",
+    "#10B981",
+    "#F59E0B",
+    "#EF4444",
+    "#3B82F6",
+    "#8B5CF6",
+    "#EC4899"
+  ];
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
@@ -321,9 +363,11 @@ const Dashboard = () => {
       )}
 
       {/* Cabeçalho */}
-      <div className="p-4 bg-white shadow-md flex justify-between items-center mt- updateAvailable ? 'mt-12' : ''">
+      <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Secretaria Municipal de Educação de Tucuruí-PA</h1>
+          <h1 className="text-2xl font-bold text-gray-800">
+            Secretaria Municipal de Educação de Tucuruí-PA
+          </h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
         <button
@@ -338,12 +382,12 @@ const Dashboard = () => {
       {data.ultimaAtualizacao && (() => {
         const updatedDate = new Date(data.ultimaAtualizacao);
         updatedDate.setHours(updatedDate.getHours() + 3);
-        const day = updatedDate.getDate().toString().padStart(2, '0');
-        const month = (updatedDate.getMonth() + 1).toString().padStart(2, '0');
+        const day = updatedDate.getDate().toString().padStart(2, "0");
+        const month = (updatedDate.getMonth() + 1).toString().padStart(2, "0");
         const year = updatedDate.getFullYear();
-        const hours = updatedDate.getHours().toString().padStart(2, '0');
-        const minutes = updatedDate.getMinutes().toString().padStart(2, '0');
-        const seconds = updatedDate.getSeconds().toString().padStart(2, '0');
+        const hours = updatedDate.getHours().toString().padStart(2, "0");
+        const minutes = updatedDate.getMinutes().toString().padStart(2, "0");
+        const seconds = updatedDate.getSeconds().toString().padStart(2, "0");
         return (
           <div className="p-2 bg-blue-100 text-center text-sm text-gray-700">
             Dados Atualizados: {`${day}/${month}/${year} às ${hours}:${minutes}:${seconds}`}
@@ -355,7 +399,10 @@ const Dashboard = () => {
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
           <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
-            <div className="bg-blue-600 text-center py-2 text-white font-bold" style={{ width: `${progress}%` }}>
+            <div
+              className="bg-blue-600 text-center py-2 text-white font-bold"
+              style={{ width: `${progress}%` }}
+            >
               {progress}%
             </div>
           </div>
@@ -368,7 +415,7 @@ const Dashboard = () => {
         {/* Cartões de Métricas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
           {/* Cartão Matrículas */}
-          <div 
+          <div
             data-tooltip-id="matriculas-tooltip"
             data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
           >
@@ -387,7 +434,7 @@ const Dashboard = () => {
             <Card
               label="Tendência"
               value={
-                data.tendenciaMatriculas && !isNaN(Number(data.tendenciaMatriculas.diff))
+                data.tendenciaMatriculas && data.tendenciaMatriculas.diff != null
                   ? Number(data.tendenciaMatriculas.diff).toFixed(2) + "%"
                   : "N/A"
               }
@@ -398,7 +445,7 @@ const Dashboard = () => {
           </div>
 
           {/* Cartão Escolas */}
-          <div 
+          <div
             data-tooltip-id="escolas-tooltip"
             data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
           >
@@ -443,7 +490,7 @@ const Dashboard = () => {
         {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Tabela de Escolas com scroll vertical */}
-          <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-96">
+          <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
             <div className="p-4 bg-gray-100 border-b">
               <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
             </div>
@@ -458,20 +505,26 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {data.escolas.map((escola, index) => (
-                    <tr 
+                  {data.escolas.slice(0, rowsLimit).map((escola, index) => (
+                    <tr
                       key={index}
                       onClick={() => handleSchoolClick(escola)}
                       className={`cursor-pointer hover:bg-gray-50 ${
                         selectedSchool && selectedSchool.idescola === escola.idescola
                           ? "bg-blue-100"
-                          : (index % 2 === 0 ? "bg-white" : "bg-gray-50")
+                          : index % 2 === 0
+                          ? "bg-white"
+                          : "bg-gray-50"
                       }`}
                     >
                       <td className="px-4 py-3 text-sm text-gray-700">{escola.escola}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_turmas}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                      <td className={`px-4 py-3 text-sm font-semibold ${escola.status_vagas === 'disponivel' ? 'text-green-600' : 'text-red-600'}`}>
+                      <td
+                        className={`px-4 py-3 text-sm font-semibold ${
+                          escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
+                        }`}
+                      >
                         {escola.vagas_disponiveis}
                       </td>
                     </tr>
@@ -482,7 +535,7 @@ const Dashboard = () => {
           </div>
 
           {/* Gráfico de Movimentação Mensal */}
-          <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-96">
+          <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
             <div className="flex-1">
               <Bar
@@ -491,13 +544,13 @@ const Dashboard = () => {
                   datasets: [
                     {
                       label: "Entradas",
-                      data: Object.values(data.entradasSaidasPorMes).map(e => e.entradas),
+                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
                       backgroundColor: "#FBBF24",
                       borderRadius: 6
                     },
                     {
                       label: "Saídas",
-                      data: Object.values(data.entradasSaidasPorMes).map(e => e.saidas),
+                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
                       backgroundColor: "#EF4444",
                       borderRadius: 6
                     }
@@ -507,13 +560,14 @@ const Dashboard = () => {
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
-                    legend: { position: 'top', labels: { color: '#6B7280' } },
+                    legend: { position: "top", labels: { color: "#6B7280" } },
                     datalabels: {
                       display: true,
                       color: "#000",
-                      anchor: 'end',
-                      align: 'end',
-                      formatter: (value) => value
+                      font: { weight: "bold" },
+                      anchor: "end",
+                      align: "end",
+                      formatter: (value) => formatNumber(value)
                     }
                   }
                 }}
@@ -522,7 +576,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Gráficos de Matrículas por Sexo e por Turno (containers com altura h-90) */}
+        {/* Gráficos de Matrículas por Sexo e por Turno */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           {/* Gráfico de Pizza para Matrículas por Sexo */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-90">
@@ -544,11 +598,12 @@ const Dashboard = () => {
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
-                    legend: { position: 'bottom' },
+                    legend: { position: "bottom" },
                     datalabels: {
                       display: true,
                       color: "#fff",
-                      formatter: (value) => value
+                      font: { weight: "bold" },
+                      formatter: (value) => formatNumber(value)
                     }
                   }
                 }}
@@ -567,13 +622,15 @@ const Dashboard = () => {
                     {
                       label: "Turno",
                       data: Object.values(data.matriculasPorTurno),
-                      backgroundColor: Object.keys(data.matriculasPorTurno).map((_, index) => turnoColors[index % turnoColors.length]),
+                      backgroundColor: Object.keys(data.matriculasPorTurno).map(
+                        (_, index) => turnoColors[index % turnoColors.length]
+                      ),
                       borderRadius: 4
                     }
                   ]
                 }}
                 options={{
-                  indexAxis: 'y',
+                  indexAxis: "y",
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
@@ -581,9 +638,10 @@ const Dashboard = () => {
                     datalabels: {
                       display: true,
                       color: "#000",
-                      anchor: 'end',
-                      align: 'end',
-                      formatter: (value) => value
+                      font: { weight: "bold" },
+                      anchor: "end",
+                      align: "right",
+                      formatter: (value) => formatNumber(value)
                     }
                   }
                 }}
@@ -594,7 +652,7 @@ const Dashboard = () => {
       </div>
 
       {/* Sidebar de Filtros */}
-      <div 
+      <div
         id="sidebar"
         className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${
           showSidebar ? "translate-x-0" : "-translate-x-full"
@@ -602,7 +660,7 @@ const Dashboard = () => {
       >
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
-          <button 
+          <button
             onClick={() => setShowSidebar(false)}
             className="text-gray-500 hover:text-gray-700 transition-colors"
           >
@@ -610,13 +668,37 @@ const Dashboard = () => {
           </button>
         </div>
         <div className="space-y-4">
-          <FilterSelect label="Ano Letivo" name="anoLetivo" options={filters.ano_letivo} value={selectedFilters.anoLetivo} onChange={handleFilterChange} />
-          <FilterSelect label="Tipo Matrícula" name="tipoMatricula" options={filters.tipo_matricula} value={selectedFilters.tipoMatricula} onChange={handleFilterChange} />
-          <FilterSelect label="Situação Matrícula" name="situacaoMatricula" options={filters.situacao_matricula} value={selectedFilters.situacaoMatricula} onChange={handleFilterChange} />
-          <FilterSelect label="Grupo Etapa" name="grupoEtapa" options={filters.grupo_etapa} value={selectedFilters.grupoEtapa} onChange={handleFilterChange} />
-          <FilterSelect 
-            label="Etapa Matrícula" 
-            name="etapaMatricula" 
+          <FilterSelect
+            label="Ano Letivo"
+            name="anoLetivo"
+            options={filters.ano_letivo}
+            value={selectedFilters.anoLetivo}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Tipo Matrícula"
+            name="tipoMatricula"
+            options={filters.tipo_matricula}
+            value={selectedFilters.tipoMatricula}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Situação Matrícula"
+            name="situacaoMatricula"
+            options={filters.situacao_matricula}
+            value={selectedFilters.situacaoMatricula}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Grupo Etapa"
+            name="grupoEtapa"
+            options={filters.grupo_etapa}
+            value={selectedFilters.grupoEtapa}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Etapa Matrícula"
+            name="etapaMatricula"
             options={
               selectedFilters.grupoEtapa && filters.etapasMatriculaPorGrupo
                 ? filters.etapasMatriculaPorGrupo[selectedFilters.grupoEtapa] || []
@@ -626,9 +708,9 @@ const Dashboard = () => {
             value={selectedFilters.etapaMatricula}
             onChange={handleFilterChange}
           />
-          <FilterSelect 
-            label="Etapa Turma" 
-            name="etapaTurma" 
+          <FilterSelect
+            label="Etapa Turma"
+            name="etapaTurma"
             options={
               selectedFilters.grupoEtapa && filters.etapasTurmaPorGrupo
                 ? filters.etapasTurmaPorGrupo[selectedFilters.grupoEtapa] || []
@@ -638,10 +720,34 @@ const Dashboard = () => {
             value={selectedFilters.etapaTurma}
             onChange={handleFilterChange}
           />
-          <FilterSelect label="Deficiência" name="deficiencia" options={filters.deficiencia} value={selectedFilters.deficiencia} onChange={handleFilterChange} />
-          <FilterSelect label="Multissérie" name="multisserie" options={filters.multisserie} value={selectedFilters.multisserie} onChange={handleFilterChange} />
-          <FilterSelect label="Transporte Escolar" name="transporteEscolar" options={filters.transporte_escolar} value={selectedFilters.transporteEscolar} onChange={handleFilterChange} />
-          <FilterSelect label="Tipo Transporte" name="tipoTransporte" options={filters.tipo_transporte} value={selectedFilters.tipoTransporte} onChange={handleFilterChange} />
+          <FilterSelect
+            label="Deficiência"
+            name="deficiencia"
+            options={filters.deficiencia}
+            value={selectedFilters.deficiencia}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Multissérie"
+            name="multisserie"
+            options={filters.multisserie}
+            value={selectedFilters.multisserie}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Transporte Escolar"
+            name="transporteEscolar"
+            options={filters.transporte_escolar}
+            value={selectedFilters.transporteEscolar}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Tipo Transporte"
+            name="tipoTransporte"
+            options={filters.tipo_transporte}
+            value={selectedFilters.tipoTransporte}
+            onChange={handleFilterChange}
+          />
         </div>
       </div>
     </div>
