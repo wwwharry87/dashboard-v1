@@ -17,7 +17,7 @@ const buscarTotais = async (req, res) => {
       idescola // Filtro para escola
     } = req.body;
 
-    // Certifique-se de que há espaço final
+    // Espaço final para concatenar corretamente
     let queryBase = `FROM dados_matriculas WHERE 1=1 `;
     const params = [];
     const addFilter = (value, condition) => {
@@ -39,16 +39,16 @@ const buscarTotais = async (req, res) => {
     addFilter(transporte_escolar, "transporte_escolar");
     addFilter(idescola, "idescola");
 
-    // Exclui etapas especiais; adicione espaço ao final
+    // Exclui etapas especiais
     const queryBaseFiltrada = queryBase + `AND idetapa_matricula NOT IN (98,99) `;
 
     // Queries principais para o ano atual
     const queriesMain = {
-      totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
-      totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
-      totalVagas: `SELECT SUM(limite_maximo_aluno) ${queryBase}`,
-      totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
-      totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
+      totalMatriculas: `SELECT COUNT(*) FROM dados_matriculas ${queryBaseFiltrada}`,
+      totalEscolas: `SELECT COUNT(DISTINCT idescola) FROM dados_matriculas ${queryBase}`,
+      totalVagas: `SELECT SUM(limite_maximo_aluno) FROM dados_matriculas ${queryBase}`,
+      totalEntradas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
+      totalSaidas: `SELECT COUNT(*) FROM dados_matriculas ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
 
     const resultsMain = await Promise.all(
@@ -194,9 +194,9 @@ const buscarTotais = async (req, res) => {
       const currentMat = parseInt(resultsMain[0].rows[0].count, 10) || 0;
       if (prevMat > 0) {
         const diff = prevMat - currentMat;
-        const percentMissing = (diff / prevMat) * 100;
+        const percentMissing = (Math.abs(diff) / prevMat) * 100;
         trendMatriculas = {
-          missing: diff,
+          missing: diff, // se diff > 0, faltam matrículas; se diff < 0, excedeu
           percent: parseFloat(percentMissing.toFixed(2)),
           arrow: diff > 0 ? "down" : diff < 0 ? "up" : ""
         };
@@ -289,7 +289,7 @@ const buscarBreakdowns = async (req, res) => {
       deficiencia,
       grupoEtapa: grupo_etapa,
       etapaMatricula: etapa_matricula,
-      etapaTurma: etapa_turma,  // Use a variável correta
+      etapaTurma: etapa_turma,
       multisserie,
       situacaoMatricula: situacao_matricula,
       tipoMatricula: tipo_matricula,
@@ -311,7 +311,7 @@ const buscarBreakdowns = async (req, res) => {
     addFilter(deficiencia, "deficiencia");
     addFilter(grupo_etapa, "grupo_etapa");
     addFilter(etapa_matricula, "etapa_matricula");
-    addFilter(etapa_turma, "etapa_turma"); // Corrigido aqui
+    addFilter(etapa_turma, "etapa_turma");
     addFilter(multisserie, "multisserie");
     addFilter(situacao_matricula, "situacao_matricula");
     addFilter(tipo_matricula, "tipo_matricula");

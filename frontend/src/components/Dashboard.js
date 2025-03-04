@@ -73,26 +73,29 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card atualizado com customClass para destacar o cartão comparativo
+// Componente Card – aceita customClass para destaque (usado no cartão Comparativo)
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "" }) => {
   const renderComparativo = () => {
-    if (!comparativo || comparativo.diff === null) return null;
-    return (
-      <div className="flex items-center justify-center mt-1">
-        {comparativo.arrow === "up" ? (
-          <FaArrowUp className="mr-1" style={{ color: "green" }} />
-        ) : (
-          <FaArrowDown className="mr-1" style={{ color: "red" }} />
-        )}
-        <span style={{ color: comparativo.arrow === "up" ? "green" : "red" }}>
-          {comparativo.diff}%
-        </span>
-      </div>
-    );
+    // Se houver comparativo, renderiza o ícone e valor
+    if (comparativo && comparativo.diff != null) {
+      return (
+        <div className="flex items-center justify-center mt-1">
+          {comparativo.arrow === "up" ? (
+            <FaArrowUp className="mr-1" style={{ color: "green" }} />
+          ) : (
+            <FaArrowDown className="mr-1" style={{ color: "red" }} />
+          )}
+          <span style={{ color: comparativo.arrow === "up" ? "green" : "red" }}>
+            {comparativo.diff}%
+          </span>
+        </div>
+      );
+    }
+    return null;
   };
 
   return (
-    <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow ${customClass}`}>
+    <div className={`bg-white shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow ${customClass}`}>
       <div className="flex justify-center text-2xl mb-1">{icon}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
       <span className="text-xl font-bold text-gray-800">
@@ -152,7 +155,7 @@ const Dashboard = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Registro e verificação do service worker para PWA
+  // Service Worker
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
@@ -340,11 +343,27 @@ const Dashboard = () => {
     "#EC4899"
   ];
 
-  // Define a classe customizada para o cartão comparativo
+  // Configuração do cartão comparativo:
+  // Se faltam matrículas (missing > 0), mostra "Falta" com ícone de seta para baixo (vermelho).
+  // Se excedeu (missing < 0), mostra "Excedente" com ícone de seta para cima (verde).
+  let trendValue = "N/A";
+  let trendIcon = <FaChartLine className="text-white" />;
   let trendCardClass = "bg-gray-200";
   if (data.tendenciaMatriculas) {
-    trendCardClass =
-      data.tendenciaMatriculas.missing > 0 ? "bg-red-500" : data.tendenciaMatriculas.missing < 0 ? "bg-green-500" : "bg-gray-200";
+    const { missing, percent, arrow } = data.tendenciaMatriculas;
+    if (missing > 0) {
+      trendValue = `Falta ${formatNumber(missing)} (${percent}%)`;
+      trendIcon = <FaArrowDown className="text-red-500" />;
+      trendCardClass = "bg-red-500";
+    } else if (missing < 0) {
+      trendValue = `Excedente ${formatNumber(Math.abs(missing))} (${percent}%)`;
+      trendIcon = <FaArrowUp className="text-green-500" />;
+      trendCardClass = "bg-green-500";
+    } else {
+      trendValue = "Sem variação";
+      trendIcon = <FaChartLine className="text-white" />;
+      trendCardClass = "bg-gray-200";
+    }
   }
 
   return (
@@ -422,12 +441,8 @@ const Dashboard = () => {
           <div>
             <Card
               label="Comparativo"
-              value={
-                data.tendenciaMatriculas
-                  ? `${formatNumber(Math.abs(data.tendenciaMatriculas.missing))} (${data.tendenciaMatriculas.percent}%)`
-                  : "N/A"
-              }
-              icon={<FaChartLine className="text-white" />}
+              value={trendValue}
+              icon={trendIcon}
               borderColor="border-white"
               comparativo={null}
               disableFormat
@@ -476,7 +491,6 @@ const Dashboard = () => {
 
         {/* Tabela de Escolas e Gráfico de Movimentação Mensal */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Tabela de Escolas */}
           <div className="bg-white rounded-xl shadow-lg overflow-y-auto h-[400px]">
             <div className="p-4 bg-gray-100 border-b">
               <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
@@ -517,7 +531,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Gráfico de Movimentação Mensal */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[400px]">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
             <div className="flex-1">
@@ -572,10 +585,7 @@ const Dashboard = () => {
                     }
                   },
                   layout: {
-                    padding: {
-                      top: 20,
-                      bottom: 20
-                    }
+                    padding: { top: 20, bottom: 20 }
                   }
                 }}
               />
@@ -585,7 +595,6 @@ const Dashboard = () => {
 
         {/* Gráficos de Matrículas por Sexo e por Turno */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          {/* Gráfico de Matrículas por Sexo */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
             <div className="flex-1">
@@ -618,7 +627,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Gráfico de Matrículas por Turno */}
           <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
             <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
             <div className="flex-1">
@@ -670,10 +678,7 @@ const Dashboard = () => {
                     }
                   },
                   layout: {
-                    padding: {
-                      left: 20,
-                      right: 20
-                    }
+                    padding: { left: 20, right: 20 }
                   }
                 }}
               />
