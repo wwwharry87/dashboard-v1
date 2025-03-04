@@ -26,7 +26,7 @@ import {
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 
-// Registrar componentes necessários do Chart.js, incluindo o plugin de datalabels
+// Registrar componentes do Chart.js, incluindo datalabels
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -73,7 +73,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card atualizado para aceitar customClass (para estilo especial no cartão de tendência)
+// Componente Card atualizado com customClass para destacar o cartão comparativo
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, customClass = "" }) => {
   const renderComparativo = () => {
     if (!comparativo || comparativo.diff === null) return null;
@@ -340,12 +340,11 @@ const Dashboard = () => {
     "#EC4899"
   ];
 
-  // Define a classe customizada para o cartão de tendência com destaque:
-  // Se faltam matrículas para atingir o ano anterior, use fundo vermelho; se já superou, fundo verde.
-  let trendCardClass = "bg-gray-200"; // padrão
+  // Define a classe customizada para o cartão comparativo
+  let trendCardClass = "bg-gray-200";
   if (data.tendenciaMatriculas) {
     trendCardClass =
-      data.tendenciaMatriculas.arrow === "down" ? "bg-red-500" : "bg-green-500";
+      data.tendenciaMatriculas.missing > 0 ? "bg-red-500" : data.tendenciaMatriculas.missing < 0 ? "bg-green-500" : "bg-gray-200";
   }
 
   return (
