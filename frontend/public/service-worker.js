@@ -1,8 +1,8 @@
-const CACHE_NAME = 'my-app-cache-v1';
+const CACHE_NAME = 'dashboard-matriculas-cache-v1';
 const urlsToCache = [
   '/',
   '/index.html',
-  // Adicione outros arquivos estáticos necessários, como CSS, JS, imagens, etc.
+  // Adicione outros assets estáticos que não sejam das APIs
 ];
 
 self.addEventListener('install', (event) => {
@@ -28,14 +28,27 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Estratégia "network-first" para requisições da API
 self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => response || fetch(event.request))
-  );
+  if (event.request.url.includes('/api/')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          return response;
+        })
+        .catch(() => {
+          return caches.match(event.request);
+        })
+    );
+  } else {
+    event.respondWith(
+      caches.match(event.request)
+        .then((response) => response || fetch(event.request))
+    );
+  }
 });
 
-// Escuta a mensagem para forçar a atualização imediata
+// Escuta a mensagem para pular a espera
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
