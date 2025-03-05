@@ -440,10 +440,10 @@ const Dashboard = () => {
             </table>
           </div>
         </div>
-        {/* Gráfico – sem scroll */}
+        {/* Gráfico – sem scroll e com overflow-hidden para ajustar o conteúdo */}
         <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
-          <div className="flex-1">
+          <div className="flex-1 overflow-hidden">
             <Bar
               data={{
                 labels: Object.keys(data.entradasSaidasPorMes),
