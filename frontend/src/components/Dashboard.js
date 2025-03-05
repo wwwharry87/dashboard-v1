@@ -55,11 +55,17 @@ const reorderYesNo = (options) => {
   return opts;
 };
 
-// Função auxiliar para converter uma classe de borda em classe de texto
-// Exemplo: "border-blue-500" -> "text-blue-500"
-const getTextColorFromBorder = (borderClass) => {
-  if (!borderClass) return "text-black";
-  return borderClass.replace("border", "text");
+// Função auxiliar para obter a cor do ícone a partir da classe de borda
+const getIconColorFromBorder = (borderClass) => {
+  const mapping = {
+    "border-blue-500": "#3B82F6",
+    "border-green-500": "#10B981",
+    "border-purple-500": "#8B5CF6",
+    "border-yellow-500": "#FBBF24",
+    "border-red-500": "#EF4444",
+    "border-black": "#000000"
+  };
+  return mapping[borderClass] || "#000000";
 };
 
 const FilterSelect = ({ label, name, options, disabled = false, value, onChange }) => {
@@ -84,11 +90,9 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 };
 
 // Componente Card – altura fixa (h-28)
-// A cor do ícone é derivada da borda (usando getTextColorFromBorder)
-// A propriedade borderColor é utilizada para cada cartão
+// Agora o ícone recebe a cor via style, utilizando getIconColorFromBorder
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
-  // Clona o ícone adicionando a classe derivada da borda
-  const iconWithColor = React.cloneElement(icon, { className: `${getTextColorFromBorder(borderColor)} text-2xl` });
+  const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
   
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
@@ -117,7 +121,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
         h-28 flex flex-col items-center justify-center
       `}
     >
-      <div className="mb-1">
+      <div className="text-2xl mb-1">
         {iconWithColor}
       </div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
@@ -257,7 +261,7 @@ const Dashboard = () => {
     if (loading) {
       setProgress(5); // Inicia em 5%
       interval = setInterval(() => {
-        setProgress((prev) => (prev < 90 ? prev + 5 : prev)); // Incrementa de 5 em 5
+        setProgress((prev) => (prev < 90 ? prev + 5 : prev));
       }, 300);
     } else {
       setProgress(100);
@@ -269,11 +273,9 @@ const Dashboard = () => {
 
   useEffect(() => {
     const handleResize = () => {
-      if (isMobile || isTablet) {
-        setTableGraphHeight("h-64");
-      } else {
-        setTableGraphHeight("h-96");
-      }
+      setTableGraphHeight(
+        window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-64" : "h-96"
+      );
     };
     handleResize();
     window.addEventListener("resize", handleResize);
@@ -294,7 +296,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+    <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
       {updateAvailable && (
         <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
           <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
@@ -344,7 +346,11 @@ const Dashboard = () => {
           </p>
         </div>
       )}
-      <div className="grid grid-cols-2 min-[431px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
+      {/* Grid de Cartões: 
+          - Base (menor que 461px): 2 colunas
+          - De 461px até 719px: 3 colunas
+          - A partir de 720px: 6 colunas */}
+      <div className="grid grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
         <div
           data-tooltip-id="matriculas-tooltip"
           data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
@@ -690,7 +696,6 @@ const Dashboard = () => {
       </div>
     </div>
   );
-  
 };
 
 export default Dashboard;
