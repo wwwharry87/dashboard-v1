@@ -56,7 +56,6 @@ const reorderYesNo = (options) => {
   return opts;
 };
 
-
 // Função auxiliar para obter a cor do ícone a partir da classe de borda
 const getIconColorFromBorder = (borderClass) => {
   const mapping = {
@@ -92,7 +91,6 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 };
 
 // Componente Card – altura fixa (h-28)
-// Agora o ícone recebe a cor via style, utilizando getIconColorFromBorder
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
   
@@ -348,10 +346,7 @@ const Dashboard = () => {
           </p>
         </div>
       )}
-      {/* Grid de Cartões: 
-          - Base (menor que 461px): 2 colunas
-          - De 461px até 719px: 3 colunas
-          - A partir de 720px: 6 colunas */}
+      {/* Grid de Cartões */}
       <div className="grid grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
         <div
           data-tooltip-id="matriculas-tooltip"
@@ -413,19 +408,19 @@ const Dashboard = () => {
         />
       </div>
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        {/* Tabela – com scroll */}
+        {/* Tabela – scroll vertical somente, sem scroll horizontal */}
         <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
           <div className="p-4 bg-gray-100 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
           </div>
-          <div>
-            <table className="w-full">
+          <div className="overflow-x-hidden">
+            <table className="min-w-full table-fixed">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Escola</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Turmas</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Matrículas</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Vagas</th>
+                  <th className="w-1/2 px-2 py-2 text-left text-sm font-medium text-gray-700">Escola</th>
+                  <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Turmas</th>
+                  <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Matrículas</th>
+                  <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Vagas</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -441,10 +436,12 @@ const Dashboard = () => {
                         : "bg-gray-50"
                     }`}
                   >
-                    <td className="px-4 py-3 text-sm text-gray-700">{escola.escola}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_turmas}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                    <td className={`px-4 py-3 text-sm font-semibold ${escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"}`}>
+                    <td className="px-2 py-2 text-sm text-gray-700 break-words">{escola.escola}</td>
+                    <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_turmas}</td>
+                    <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_matriculas}</td>
+                    <td className={`px-2 py-2 text-sm font-semibold ${
+                      escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
+                    }`}>
                       {escola.vagas_disponiveis}
                     </td>
                   </tr>
@@ -453,7 +450,7 @@ const Dashboard = () => {
             </table>
           </div>
         </div>
-        {/* Gráfico – sem scroll e com overflow-hidden para ajustar o conteúdo */}
+        {/* Gráfico – sem scroll horizontal */}
         <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1 overflow-hidden">
@@ -698,7 +695,6 @@ const Dashboard = () => {
       </div>
     </div>
   );
-
 };
 
 export default Dashboard;
