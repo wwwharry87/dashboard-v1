@@ -184,8 +184,8 @@ const buscarTotais = async (req, res) => {
       const mesIndex = row.mes - 1;
       const mesAbreviado = nomesMeses[mesIndex] || row.mes;
       entradasSaidasPorMes[mesAbreviado] = {
-        entradas: parseInt(row.entradas, 10) || 0,
-        saidas: parseInt(row.saidas, 10) || 0
+        entradas: parseInt(row.entradas, 10) || '',
+        saidas: parseInt(row.saidas, 10) || ''
       };
     });
 
