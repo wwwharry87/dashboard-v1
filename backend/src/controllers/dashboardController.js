@@ -346,7 +346,7 @@ const buscarBreakdowns = async (req, res) => {
       console.error("Erro ao buscar matriculas por sexo:", err);
     }
     try {
-      const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno `;
+      const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno ORDER BY cdturno `;
       const resultTurno = await pool.query(matriculasTurnoQuery, params);
       resultTurno.rows.forEach(row => {
         matriculasPorTurno[row.turno] = parseInt(row.total, 10);
