@@ -66,7 +66,7 @@ const buscarTotais = async (req, res) => {
           ${queryBaseFiltrada}
           GROUP BY escola, etapa_turma, idturma, limite_maximo_aluno, inep
         ) AS sub
-      `, // Query ajustada para calcular o total de vagas
+      `,
       totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
       totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
@@ -151,23 +151,41 @@ const buscarTotais = async (req, res) => {
       status_vagas: row.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
     }));
 
-    // Dados de entradas e saídas por mês
+    // Dados de entradas e saídas por mês utilizando as colunas entrada_mes_tipo e saida_mes_situacao
     const entradasSaidasQuery = `
-      SELECT TO_CHAR(data_matricula, 'MM') AS mes,
-        COUNT(*) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-') AS entradas,
-        COUNT(*) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-') AS saidas
-      ${queryBase}
-      GROUP BY mes
-      ORDER BY mes
+      WITH entradas AS (
+        SELECT 
+          SUBSTRING(entrada_mes_tipo, 1, 2)::INT AS mes,
+          COUNT(*) AS total_entradas
+        ${queryBase} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'
+        GROUP BY mes
+      ),
+      saidas AS (
+        SELECT 
+          SUBSTRING(saida_mes_situacao, 1, 2)::INT AS mes,
+          COUNT(*) AS total_saidas
+        ${queryBase} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'
+        GROUP BY mes
+      )
+      SELECT m.mes,
+             COALESCE(e.total_entradas, 0) AS entradas,
+             COALESCE(s.total_saidas, 0) AS saidas
+      FROM (
+        SELECT generate_series(1,12) AS mes
+      ) m
+      LEFT JOIN entradas e ON m.mes = e.mes
+      LEFT JOIN saidas s ON m.mes = s.mes
+      ORDER BY m.mes;
     `;
     const entradasSaidasResult = await pool.query(entradasSaidasQuery, params);
     const entradasSaidasPorMes = {};
     const nomesMeses = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
     entradasSaidasResult.rows.forEach(row => {
-      const mesAbreviado = nomesMeses[parseInt(row.mes, 10) - 1] || row.mes;
+      const mesIndex = row.mes - 1;
+      const mesAbreviado = nomesMeses[mesIndex] || row.mes;
       entradasSaidasPorMes[mesAbreviado] = {
-        entradas: row.entradas || 0,
-        saidas: row.saidas || 0,
+        entradas: parseInt(row.entradas, 10) || 0,
+        saidas: parseInt(row.saidas, 10) || 0
       };
     });
 
@@ -220,7 +238,7 @@ const buscarTotais = async (req, res) => {
     res.json({
       totalMatriculas: parseInt(resultsMain[0].rows[0].count, 10) || 0,
       totalEscolas: parseInt(resultsMain[1].rows[0].count, 10) || 0,
-      totalVagas: parseInt(resultsMain[2].rows[0].total_vagas, 10) || 0, // Corrigido para usar o total de vagas disponíveis
+      totalVagas: parseInt(resultsMain[2].rows[0].total_vagas, 10) || 0,
       totalEntradas: parseInt(resultsMain[3].rows[0].count, 10) || 0,
       totalSaidas: parseInt(resultsMain[4].rows[0].count, 10) || 0,
       escolas,
@@ -364,7 +382,6 @@ const buscarBreakdowns = async (req, res) => {
     console.error("Erro ao buscar breakdowns:", err);
     res.status(500).json({ error: "Erro ao buscar breakdowns", details: err.message });
   }
-  
 };
 
 module.exports = { buscarTotais, buscarFiltros, buscarBreakdowns };
