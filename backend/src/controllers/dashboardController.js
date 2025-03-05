@@ -151,7 +151,9 @@ const buscarTotais = async (req, res) => {
       status_vagas: row.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
     }));
 
-    // Dados de entradas e saídas por mês utilizando as colunas entrada_mes_tipo e saida_mes_situacao
+    // =========================
+    // Entradas e saídas por mês (SEM gerar meses vazios)
+    // =========================
     const entradasSaidasQuery = `
       WITH entradas AS (
         SELECT 
@@ -167,26 +169,29 @@ const buscarTotais = async (req, res) => {
         ${queryBase} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'
         GROUP BY mes
       )
-      SELECT m.mes,
-             COALESCE(e.total_entradas, 0) AS entradas,
-             COALESCE(s.total_saidas, 0) AS saidas
-      FROM (
-        SELECT generate_series(1,12) AS mes
-      ) m
-      LEFT JOIN entradas e ON m.mes = e.mes
-      LEFT JOIN saidas s ON m.mes = s.mes
-      ORDER BY m.mes;
+      SELECT
+        COALESCE(e.mes, s.mes) AS mes,
+        COALESCE(e.total_entradas, 0) AS entradas,
+        COALESCE(s.total_saidas, 0) AS saidas
+      FROM entradas e
+      FULL JOIN saidas s ON e.mes = s.mes
+      ORDER BY COALESCE(e.mes, s.mes)
     `;
     const entradasSaidasResult = await pool.query(entradasSaidasQuery, params);
+
+    // Monta objeto final, mas só para os meses que existem (não haverá meses 0 pois não geramos)
     const entradasSaidasPorMes = {};
     const nomesMeses = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
     entradasSaidasResult.rows.forEach(row => {
-      const mesIndex = row.mes - 1;
+      // row.mes é 1..12 para quem tem dados, não vem 0 pois não gera
+      const mesIndex = row.mes - 1; 
       const mesAbreviado = nomesMeses[mesIndex] || row.mes;
-      entradasSaidasPorMes[mesAbreviado] = {
-        entradas: parseInt(row.entradas, 10) || '',
-        saidas: parseInt(row.saidas, 10) || ''
-      };
+      // entradas e saídas (coalesce) só aparecem se houver
+      const entradas = parseInt(row.entradas, 10) || 0;
+      const saidas = parseInt(row.saidas, 10) || 0;
+      // Se quiser omitir até mesmo se algum deles for zero, pode filtrar aqui
+      // if (entradas === 0 && saidas === 0) return; // <-- Se quisesse filtrar, mas nem precisa
+      entradasSaidasPorMes[mesAbreviado] = { entradas, saidas };
     });
 
     // Dados de escolas por zona
