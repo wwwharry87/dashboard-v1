@@ -119,13 +119,13 @@ const buscarTotais = async (req, res) => {
     const escolasQuery = `
       WITH turmas AS (
         SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-        ${queryBase}
+        ${queryBaseFiltrada}
       ),
       totalMatriculas AS (
         SELECT idescola, COUNT(*) FILTER (
           WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
         ) AS qtde_matriculas
-        ${queryBase}
+        ${queryBaseFiltrada}
         GROUP BY idescola
       )
       SELECT 
