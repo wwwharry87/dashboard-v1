@@ -22,11 +22,10 @@ import {
   FaFilter,
   FaArrowUp,
   FaArrowDown,
-  FaBalanceScale,
-  FaSearch
+  FaBalanceScale
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
-import { isMobile } from "react-device-detect";
+import { isMobile, isTablet, isDesktop, isIOS, isAndroid } from 'react-device-detect';
 
 // Registrar componentes do Chart.js, incluindo datalabels
 ChartJS.register(
@@ -40,12 +39,13 @@ ChartJS.register(
   ChartDataLabels
 );
 
-// Função para formatar números com separador de milhar
+// Função para formatar números com separador de milhar (ex.: 4417 => "4.417")
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
 // Função auxiliar para reordenar opções "sim"/"não"
 const reorderYesNo = (options) => {
   if (!options) return [];
+  // Converte cada elemento para string
   const opts = options.map(o => String(o));
   if (opts.length === 2) {
     const lower = opts.map(o => o.toLowerCase());
@@ -173,10 +173,6 @@ const Dashboard = () => {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
-  // Estados para a busca na tabela de escolas
-  const [showSearch, setShowSearch] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
@@ -263,7 +259,7 @@ const Dashboard = () => {
   useEffect(() => {
     let interval;
     if (loading) {
-      setProgress(5);
+      setProgress(5); // Inicia em 5%
       interval = setInterval(() => {
         setProgress((prev) => (prev < 90 ? prev + 5 : prev));
       }, 300);
@@ -299,11 +295,6 @@ const Dashboard = () => {
     }
   }
 
-  // Filtra as escolas com base na pesquisa (convertendo a query para maiúsculo)
-  const filteredEscolas = data.escolas.filter((escola) =>
-    escola.escola.toUpperCase().includes(searchQuery)
-  );
-
   return (
     <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
       {updateAvailable && (
@@ -316,7 +307,9 @@ const Dashboard = () => {
       )}
       <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">SEMED Marabá-PA</h1>
+          <h1 className="text-2xl font-bold text-gray-800">
+            SEMED Marabá-PA
+          </h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
         <button
@@ -415,30 +408,14 @@ const Dashboard = () => {
         />
       </div>
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        {/* Tabela com cabeçalho fixo e busca */}
-        <div className={`bg-white rounded-xl shadow-lg ${tableGraphHeight}`}>
-          {/* Cabeçalho fixo (sticky) do container da tabela */}
-          <div className="sticky top-0 z-30 bg-gray-100 h-16 flex items-center justify-between px-4 border-b">
+        {/* Tabela – scroll vertical somente, sem scroll horizontal */}
+        <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
+          <div className="p-4 bg-gray-100 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
-            <div className="flex items-center">
-              {showSearch && (
-                <input
-                  type="text"
-                  placeholder="BUSCAR ESCOLA..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
-                  className="p-1 border rounded uppercase"
-                />
-              )}
-              <button onClick={() => setShowSearch(!showSearch)} className="ml-2">
-                <FaSearch className="text-gray-700" />
-              </button>
-            </div>
           </div>
-          {/* Área de rolagem vertical para as linhas */}
-          <div className="overflow-y-auto overflow-x-hidden">
+          <div className="overflow-x-hidden">
             <table className="min-w-full table-fixed">
-              <thead className="bg-gray-50 sticky top-16 z-20">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="w-1/2 px-2 py-2 text-left text-sm font-medium text-gray-700">Escola</th>
                   <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Turmas</th>
@@ -447,7 +424,7 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredEscolas.map((escola, index) => (
+                {data.escolas.map((escola, index) => (
                   <tr
                     key={index}
                     onClick={() => handleSchoolClick(escola)}
