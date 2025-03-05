@@ -25,7 +25,7 @@ import {
   FaBalanceScale
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
-import { isMobile } from "react-device-detect";
+import { isMobile, isTablet, isDesktop, isIOS, isAndroid } from 'react-device-detect';
 
 // Registrar componentes do Chart.js, incluindo datalabels
 ChartJS.register(
@@ -55,17 +55,11 @@ const reorderYesNo = (options) => {
   return opts;
 };
 
-// Função auxiliar para obter a cor do ícone a partir da classe de borda
-const getIconColorFromBorder = (borderClass) => {
-  const mapping = {
-    "border-blue-500": "#3B82F6",
-    "border-green-500": "#10B981",
-    "border-purple-500": "#8B5CF6",
-    "border-yellow-500": "#FBBF24",
-    "border-red-500": "#EF4444",
-    "border-black": "#000000"
-  };
-  return mapping[borderClass] || "#000000";
+// Função auxiliar para converter uma classe de borda em classe de texto
+// Exemplo: "border-blue-500" -> "text-blue-500"
+const getTextColorFromBorder = (borderClass) => {
+  if (!borderClass) return "text-black";
+  return borderClass.replace("border", "text");
 };
 
 const FilterSelect = ({ label, name, options, disabled = false, value, onChange }) => {
@@ -90,9 +84,11 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 };
 
 // Componente Card – altura fixa (h-28)
-// Agora o ícone recebe a cor via style, utilizando getIconColorFromBorder
+// A cor do ícone é derivada da borda (usando getTextColorFromBorder)
+// A propriedade borderColor é utilizada para cada cartão
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
-  const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
+  // Clona o ícone adicionando a classe derivada da borda
+  const iconWithColor = React.cloneElement(icon, { className: `${getTextColorFromBorder(borderColor)} text-2xl` });
   
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
@@ -121,7 +117,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
         h-28 flex flex-col items-center justify-center
       `}
     >
-      <div className="text-2xl mb-1">
+      <div className="mb-1">
         {iconWithColor}
       </div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
@@ -261,7 +257,7 @@ const Dashboard = () => {
     if (loading) {
       setProgress(5); // Inicia em 5%
       interval = setInterval(() => {
-        setProgress((prev) => (prev < 90 ? prev + 5 : prev));
+        setProgress((prev) => (prev < 90 ? prev + 5 : prev)); // Incrementa de 5 em 5
       }, 300);
     } else {
       setProgress(100);
@@ -273,9 +269,11 @@ const Dashboard = () => {
 
   useEffect(() => {
     const handleResize = () => {
-      setTableGraphHeight(
-        window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-64" : "h-96"
-      );
+      if (isMobile || isTablet) {
+        setTableGraphHeight("h-64");
+      } else {
+        setTableGraphHeight("h-96");
+      }
     };
     handleResize();
     window.addEventListener("resize", handleResize);
@@ -296,7 +294,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
+    <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
       {updateAvailable && (
         <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
           <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
@@ -692,6 +690,7 @@ const Dashboard = () => {
       </div>
     </div>
   );
+  
 };
 
 export default Dashboard;
