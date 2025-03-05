@@ -45,7 +45,8 @@ const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 // Função auxiliar para reordenar opções "sim"/"não"
 const reorderYesNo = (options) => {
   if (!options) return [];
-  const opts = [...options];
+  // Converte cada elemento para string
+  const opts = options.map(o => String(o));
   if (opts.length === 2) {
     const lower = opts.map(o => o.toLowerCase());
     if (lower.includes("sim") && lower.includes("não")) {
@@ -54,6 +55,7 @@ const reorderYesNo = (options) => {
   }
   return opts;
 };
+
 
 // Função auxiliar para obter a cor do ícone a partir da classe de borda
 const getIconColorFromBorder = (borderClass) => {
@@ -696,7 +698,7 @@ const Dashboard = () => {
       </div>
     </div>
   );
-  
+
 };
 
 export default Dashboard;
