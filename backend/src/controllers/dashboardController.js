@@ -364,6 +364,7 @@ const buscarBreakdowns = async (req, res) => {
     console.error("Erro ao buscar breakdowns:", err);
     res.status(500).json({ error: "Erro ao buscar breakdowns", details: err.message });
   }
+  
 };
 
 module.exports = { buscarTotais, buscarFiltros, buscarBreakdowns };
