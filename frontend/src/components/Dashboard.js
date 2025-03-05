@@ -26,7 +26,7 @@ import {
   FaSearch
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
-import { isMobile, isTablet, isDesktop, isIOS, isAndroid } from 'react-device-detect';
+import { isMobile, isTablet, isDesktop, isIOS, isAndroid } from "react-device-detect";
 
 // Registrar componentes do Chart.js, incluindo datalabels
 ChartJS.register(
@@ -173,7 +173,6 @@ const Dashboard = () => {
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearch, setShowSearch] = useState(false);
-  const [showMonthlyLabels, setShowMonthlyLabels] = useState(false);
 
   useEffect(() => {
     const initialize = async () => {
@@ -258,6 +257,7 @@ const Dashboard = () => {
     }
   };
 
+  // Progresso de carregamento
   useEffect(() => {
     let interval;
     if (loading) {
@@ -309,9 +309,7 @@ const Dashboard = () => {
       )}
       <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">
-            SEMED Marabá-PA
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-800">SEMED Marabá-PA</h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
         <button
@@ -471,7 +469,7 @@ const Dashboard = () => {
             </table>
           </div>
         </div>
-        {/* Gráfico – Movimentação Mensal sem valores por padrão */}
+        {/* Gráfico – Movimentação Mensal sem exibição de valores */}
         <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1 overflow-hidden">
@@ -493,21 +491,13 @@ const Dashboard = () => {
                   }
                 ]
               }}
-              // Ao clicar no gráfico, os labels são alternados (aparecem ou somem)
-              onClick={(event, elements) => setShowMonthlyLabels(prev => !prev)}
               options={{
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                   legend: { position: "top", labels: { color: "#6B7280" } },
                   datalabels: {
-                    display: showMonthlyLabels,
-                    color: "#000",
-                    font: { weight: "bold" },
-                    anchor: "end",
-                    align: "end",
-                    offset: 4,
-                    formatter: (value) => formatNumber(value)
+                    display: false
                   }
                 },
                 scales: {
@@ -718,7 +708,6 @@ const Dashboard = () => {
       </div>
     </div>
   );
-  
 };
 
 export default Dashboard;
