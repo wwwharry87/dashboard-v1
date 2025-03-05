@@ -76,9 +76,11 @@ const buscarTotais = async (req, res) => {
     );
 
     // Última atualização
-    const ultimaAtualizacaoQuery = `SELECT MAX(ultima_atualizacao) AS ultima_atualizacao FROM dados_matriculas`;
+    const ultimaAtualizacaoQuery = `SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') AS ultima_atualizacao FROM dados_matriculas`;
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
+
+    
 
     // Breakdown: Matrículas por Zona, Sexo e Turno (para grupo_etapa "complementar")
     let matriculasPorZona = {};
