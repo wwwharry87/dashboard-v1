@@ -166,7 +166,8 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
+  // Aumentamos a altura da tabela e do gráfico de movimentação para "h-[500px]"
+  const [tableGraphHeight, setTableGraphHeight] = useState("h-[500px]");
 
   useEffect(() => {
     const initialize = async () => {
@@ -268,8 +269,9 @@ const Dashboard = () => {
 
   useEffect(() => {
     const handleResize = () => {
+      // Para resoluções menores, usamos "h-[400px]", caso contrário "h-[500px]"
       setTableGraphHeight(
-        window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-64" : "h-96"
+        window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-[400px]" : "h-[500px]"
       );
     };
     handleResize();
@@ -400,6 +402,7 @@ const Dashboard = () => {
         />
       </div>
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
+        {/* Tabela e gráfico de Movimentação com altura aumentada */}
         <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
           <div className="p-4 bg-gray-100 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
@@ -495,8 +498,9 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+      {/* Gráficos de Matrículas por Sexo e Turno com altura reduzida */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4">
-        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
+        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[200px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
           <div className="flex-1">
             <Pie
@@ -531,7 +535,7 @@ const Dashboard = () => {
             />
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
+        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[200px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
           <div className="flex-1">
             <Bar
