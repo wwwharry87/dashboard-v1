@@ -88,7 +88,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   // Clona o ícone adicionando a classe derivada da borda
   const iconWithColor = React.cloneElement(icon, { className: getTextColorFromBorder(borderColor) });
-
+  
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
       return (
@@ -166,8 +166,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  // Aumentamos a altura da tabela e do gráfico de movimentação para "h-[500px]"
-  const [tableGraphHeight, setTableGraphHeight] = useState("h-[500px]");
+  const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
   useEffect(() => {
     const initialize = async () => {
@@ -269,9 +268,8 @@ const Dashboard = () => {
 
   useEffect(() => {
     const handleResize = () => {
-      // Para resoluções menores, usamos "h-[400px]", caso contrário "h-[500px]"
       setTableGraphHeight(
-        window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-[400px]" : "h-[500px]"
+        window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-64" : "h-96"
       );
     };
     handleResize();
@@ -293,7 +291,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+    <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
       {updateAvailable && (
         <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
           <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
@@ -402,7 +400,7 @@ const Dashboard = () => {
         />
       </div>
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        {/* Tabela e gráfico de Movimentação com altura aumentada */}
+        {/* Tabela – com scroll */}
         <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
           <div className="p-4 bg-gray-100 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
@@ -442,7 +440,8 @@ const Dashboard = () => {
             </table>
           </div>
         </div>
-        <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col overflow-y-auto ${tableGraphHeight}`}>
+        {/* Gráfico – sem scroll */}
+        <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1">
             <Bar
@@ -498,9 +497,8 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-      {/* Gráficos de Matrículas por Sexo e Turno com altura reduzida */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4">
-        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[200px]">
+        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
           <div className="flex-1">
             <Pie
@@ -535,7 +533,7 @@ const Dashboard = () => {
             />
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[200px]">
+        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
           <div className="flex-1">
             <Bar
