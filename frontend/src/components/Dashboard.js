@@ -254,9 +254,9 @@ const Dashboard = () => {
   useEffect(() => {
     let interval;
     if (loading) {
-      setProgress(0);
+      setProgress(5); // Inicia em 5%
       interval = setInterval(() => {
-        setProgress((prev) => (prev < 90 ? prev + 10 : prev));
+        setProgress((prev) => (prev < 90 ? prev + 5 : prev)); // Incrementa de 5 em 5
       }, 300);
     } else {
       setProgress(100);
@@ -336,7 +336,9 @@ const Dashboard = () => {
               {progress}%
             </div>
           </div>
-          <p className="mt-4 text-white">Carregando dados...</p>
+          <p className="mt-4 text-white">
+            {updateAvailable ? "Atualizando versão..." : "Carregando dados..."}
+          </p>
         </div>
       )}
       <div className="grid grid-cols-2 min-[431px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
