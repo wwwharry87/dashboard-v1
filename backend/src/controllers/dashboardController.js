@@ -63,7 +63,7 @@ const buscarTotais = async (req, res) => {
             limite_maximo_aluno, 
             inep,
             (limite_maximo_aluno - COUNT(*) FILTER (WHERE situacao_matricula = 'ATIVO')) AS vagas
-          ${queryBase}
+          ${queryBaseFiltrada}
           GROUP BY escola, etapa_turma, idturma, limite_maximo_aluno, inep
         ) AS sub
       `, // Query ajustada para calcular o total de vagas
