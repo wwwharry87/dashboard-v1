@@ -173,6 +173,7 @@ const Dashboard = () => {
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [showMonthlyLabels, setShowMonthlyLabels] = useState(false);
 
   useEffect(() => {
     const initialize = async () => {
@@ -257,7 +258,6 @@ const Dashboard = () => {
     }
   };
 
-  // Atualizado: progresso sempre inicia em 0 e incrementa gradualmente de 5 em 5 até 95%
   useEffect(() => {
     let interval;
     if (loading) {
@@ -471,7 +471,7 @@ const Dashboard = () => {
             </table>
           </div>
         </div>
-        {/* Gráfico – sem scroll horizontal */}
+        {/* Gráfico – Movimentação Mensal sem valores por padrão */}
         <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1 overflow-hidden">
@@ -493,13 +493,15 @@ const Dashboard = () => {
                   }
                 ]
               }}
+              // Ao clicar no gráfico, os labels são alternados (aparecem ou somem)
+              onClick={(event, elements) => setShowMonthlyLabels(prev => !prev)}
               options={{
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                   legend: { position: "top", labels: { color: "#6B7280" } },
                   datalabels: {
-                    display: true,
+                    display: showMonthlyLabels,
                     color: "#000",
                     font: { weight: "bold" },
                     anchor: "end",
