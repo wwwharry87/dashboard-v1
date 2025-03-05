@@ -173,7 +173,7 @@ const Dashboard = () => {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
 
-  // Estados para pesquisa na tabela de escolas
+  // Estados para a busca na tabela de escolas
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -299,9 +299,9 @@ const Dashboard = () => {
     }
   }
 
-  // Filtra as escolas com base na pesquisa
+  // Filtra as escolas com base na pesquisa (convertendo a query para maiúsculo)
   const filteredEscolas = data.escolas.filter((escola) =>
-    escola.escola.toLowerCase().includes(searchQuery.toLowerCase())
+    escola.escola.toUpperCase().includes(searchQuery)
   );
 
   return (
@@ -415,18 +415,19 @@ const Dashboard = () => {
         />
       </div>
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        {/* Tabela – cabeçalho fixo (sticky) com título e busca */}
+        {/* Tabela com cabeçalho fixo e busca */}
         <div className={`bg-white rounded-xl shadow-lg ${tableGraphHeight}`}>
-          <div className="sticky top-0 z-20 bg-gray-100 p-4 border-b flex justify-between items-center">
+          {/* Cabeçalho fixo (sticky) do container da tabela */}
+          <div className="sticky top-0 z-30 bg-gray-100 h-16 flex items-center justify-between px-4 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
             <div className="flex items-center">
               {showSearch && (
                 <input
                   type="text"
-                  placeholder="Buscar escola..."
+                  placeholder="BUSCAR ESCOLA..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="p-1 border rounded"
+                  onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
+                  className="p-1 border rounded uppercase"
                 />
               )}
               <button onClick={() => setShowSearch(!showSearch)} className="ml-2">
@@ -434,9 +435,10 @@ const Dashboard = () => {
               </button>
             </div>
           </div>
+          {/* Área de rolagem vertical para as linhas */}
           <div className="overflow-y-auto overflow-x-hidden">
             <table className="min-w-full table-fixed">
-              <thead className="bg-gray-50 sticky top-16 z-10">
+              <thead className="bg-gray-50 sticky top-16 z-20">
                 <tr>
                   <th className="w-1/2 px-2 py-2 text-left text-sm font-medium text-gray-700">Escola</th>
                   <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Turmas</th>
