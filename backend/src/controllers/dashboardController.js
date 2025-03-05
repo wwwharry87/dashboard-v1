@@ -53,11 +53,20 @@ const buscarTotais = async (req, res) => {
       totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
       totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
       totalVagas: `
-      SELECT 
-        SUM(limite_maximo_aluno) - COUNT(*) FILTER (WHERE situacao_matricula = 'ATIVO') AS total_vagas
-        FROM dados_matriculas
-        WHERE ${clause}
-      `, // Corrigido para somar as vagas disponíveis
+        SELECT 
+          SUM(vagas) AS total_vagas
+        FROM (
+          SELECT 
+            escola, 
+            etapa_turma, 
+            idturma, 
+            limite_maximo_aluno, 
+            inep,
+            (limite_maximo_aluno - COUNT(*) FILTER (WHERE situacao_matricula = 'ATIVO')) AS vagas
+          ${queryBase}
+          GROUP BY escola, etapa_turma, idturma, limite_maximo_aluno, inep
+        ) AS sub
+      `, // Query ajustada para calcular o total de vagas
       totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
       totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
