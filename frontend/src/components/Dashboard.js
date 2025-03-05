@@ -45,7 +45,6 @@ const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 // Função auxiliar para reordenar opções "sim"/"não"
 const reorderYesNo = (options) => {
   if (!options) return [];
-  // Converte cada elemento para string
   const opts = options.map(o => String(o));
   if (opts.length === 2) {
     const lower = opts.map(o => o.toLowerCase());
@@ -90,7 +89,6 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-// Componente Card – altura fixa (h-28)
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
   
@@ -172,6 +170,7 @@ const Dashboard = () => {
   const [progress, setProgress] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     const initialize = async () => {
@@ -259,7 +258,7 @@ const Dashboard = () => {
   useEffect(() => {
     let interval;
     if (loading) {
-      setProgress(5); // Inicia em 5%
+      setProgress(5);
       interval = setInterval(() => {
         setProgress((prev) => (prev < 90 ? prev + 5 : prev));
       }, 300);
@@ -413,6 +412,16 @@ const Dashboard = () => {
           <div className="p-4 bg-gray-100 border-b">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
           </div>
+          {/* Campo de busca por nome da escola */}
+          <div className="p-2">
+            <input
+              type="text"
+              placeholder="Buscar escola..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded"
+            />
+          </div>
           <div className="overflow-x-hidden">
             <table className="min-w-full table-fixed">
               <thead className="bg-gray-50 sticky top-0 z-10">
@@ -424,28 +433,32 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {data.escolas.map((escola, index) => (
-                  <tr
-                    key={index}
-                    onClick={() => handleSchoolClick(escola)}
-                    className={`cursor-pointer hover:bg-gray-50 ${
-                      selectedSchool && selectedSchool.idescola === escola.idescola
-                        ? "bg-blue-100"
-                        : index % 2 === 0
-                        ? "bg-white"
-                        : "bg-gray-50"
-                    }`}
-                  >
-                    <td className="px-2 py-2 text-sm text-gray-700 break-words">{escola.escola}</td>
-                    <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_turmas}</td>
-                    <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                    <td className={`px-2 py-2 text-sm font-semibold ${
-                      escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
-                    }`}>
-                      {escola.vagas_disponiveis}
-                    </td>
-                  </tr>
-                ))}
+                {data.escolas
+                  .filter(escola =>
+                    escola.escola.toLowerCase().includes(searchTerm.toLowerCase())
+                  )
+                  .map((escola, index) => (
+                    <tr
+                      key={index}
+                      onClick={() => handleSchoolClick(escola)}
+                      className={`cursor-pointer hover:bg-gray-50 ${
+                        selectedSchool && selectedSchool.idescola === escola.idescola
+                          ? "bg-blue-100"
+                          : index % 2 === 0
+                          ? "bg-white"
+                          : "bg-gray-50"
+                      }`}
+                    >
+                      <td className="px-2 py-2 text-sm text-gray-700 break-words">{escola.escola}</td>
+                      <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_turmas}</td>
+                      <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_matriculas}</td>
+                      <td className={`px-2 py-2 text-sm font-semibold ${
+                        escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
+                      }`}>
+                        {escola.vagas_disponiveis}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>

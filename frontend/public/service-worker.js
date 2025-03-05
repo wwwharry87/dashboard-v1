@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dashboard-matriculas-cache-v5.0';
+const CACHE_NAME = 'dashboard-matriculas-cache-v5.1';
 const urlsToCache = [
   '/',
   '/index.html',
