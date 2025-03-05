@@ -52,7 +52,11 @@ const buscarTotais = async (req, res) => {
     const queriesMain = {
       totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
       totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
-      totalVagas: `SELECT SUM(limite_maximo_aluno) ${queryBase}`, // Corrigido para somar diretamente as vagas
+      totalVagas: `
+        SELECT 
+          SUM(limite_maximo_aluno) - COUNT(*) FILTER (WHERE situacao_matricula = 'ATIVO') AS total_vagas
+        ${queryBase}
+      `, // Corrigido para somar as vagas disponíveis
       totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
       totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
@@ -206,7 +210,7 @@ const buscarTotais = async (req, res) => {
     res.json({
       totalMatriculas: parseInt(resultsMain[0].rows[0].count, 10) || 0,
       totalEscolas: parseInt(resultsMain[1].rows[0].count, 10) || 0,
-      totalVagas: parseInt(resultsMain[2].rows[0].sum, 10) || 0,
+      totalVagas: parseInt(resultsMain[2].rows[0].total_vagas, 10) || 0, // Corrigido para usar o total de vagas disponíveis
       totalEntradas: parseInt(resultsMain[3].rows[0].count, 10) || 0,
       totalSaidas: parseInt(resultsMain[4].rows[0].count, 10) || 0,
       escolas,
