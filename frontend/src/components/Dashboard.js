@@ -257,12 +257,13 @@ const Dashboard = () => {
     }
   };
 
+  // Atualizado: progresso sempre inicia em 0 e incrementa gradualmente de 5 em 5 até 95%
   useEffect(() => {
     let interval;
     if (loading) {
-      setProgress(5);
+      setProgress(0);
       interval = setInterval(() => {
-        setProgress((prev) => (prev < 90 ? prev + 5 : prev));
+        setProgress(prev => (prev < 95 ? prev + 5 : prev));
       }, 300);
     } else {
       setProgress(100);
@@ -715,7 +716,6 @@ const Dashboard = () => {
       </div>
     </div>
   );
-  
 };
 
 export default Dashboard;
