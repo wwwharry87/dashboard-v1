@@ -22,7 +22,8 @@ import {
   FaFilter,
   FaArrowUp,
   FaArrowDown,
-  FaBalanceScale
+  FaBalanceScale,
+  FaSearch
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 import { isMobile, isTablet, isDesktop, isIOS, isAndroid } from 'react-device-detect';
@@ -171,6 +172,7 @@ const Dashboard = () => {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
   const [searchTerm, setSearchTerm] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
 
   useEffect(() => {
     const initialize = async () => {
@@ -409,19 +411,24 @@ const Dashboard = () => {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
         {/* Tabela – scroll vertical somente, sem scroll horizontal */}
         <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
-          <div className="p-4 bg-gray-100 border-b">
+          <div className="p-4 bg-gray-100 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
+            <button onClick={() => setShowSearch(!showSearch)}>
+              <FaSearch size={20} className="text-gray-700 cursor-pointer" />
+            </button>
           </div>
-          {/* Campo de busca por nome da escola */}
-          <div className="p-2">
-            <input
-              type="text"
-              placeholder="Buscar escola..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded"
-            />
-          </div>
+          {showSearch && (
+            <div className="p-2">
+              <input
+                type="text"
+                placeholder="Buscar escola..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
+                style={{ textTransform: "uppercase" }}
+                className="w-full p-2 border border-gray-300 rounded"
+              />
+            </div>
+          )}
           <div className="overflow-x-hidden">
             <table className="min-w-full table-fixed">
               <thead className="bg-gray-50 sticky top-0 z-10">
