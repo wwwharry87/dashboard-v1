@@ -22,8 +22,14 @@ const Login = ({ onLogin }) => {
       if (!response.ok) {
         setErro(data.error || "Erro no login");
       } else {
-        onLogin(data); // Chama a função onLogin passando os dados do login
-        navigate("/dashboard"); // Redireciona para o dashboard
+        // Armazena o token no localStorage
+        localStorage.setItem("token", data.token);
+
+        // Chama a função onLogin passando os dados do login
+        onLogin(data);
+
+        // Redireciona para o dashboard
+        navigate("/dashboard");
       }
     } catch (error) {
       setErro("Erro ao conectar com o servidor");

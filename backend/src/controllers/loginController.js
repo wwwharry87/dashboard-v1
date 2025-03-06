@@ -8,7 +8,6 @@ const secret = process.env.JWT_SECRET || 'sua_chave_secreta';
 
 const loginController = async (req, res) => {
   const { email, senha } = req.body;
-  
 
   try {
     // 1. Busca o usuário pelo email

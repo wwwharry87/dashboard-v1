@@ -1,3 +1,4 @@
+// src/components/DashboardContainer.js
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Dashboard from "./Dashboard";
@@ -19,14 +20,17 @@ const DashboardContainer = ({ loginData, onLogout }) => {
   const carregarDados = async (clienteId) => {
     setLoading(true);
     try {
+      // Recupera o token do localStorage
       const token = localStorage.getItem("token");
+
       const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/dados", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${token}`, // Inclui o token no cabeçalho
         },
       });
+
       const data = await response.json();
       setDados(data);
     } catch (error) {
