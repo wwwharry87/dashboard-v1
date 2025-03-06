@@ -29,7 +29,6 @@ const loginController = async (req, res) => {
     res.json({ token, usuario });
   } catch (error) {
     console.error("Erro no login:", error);
-    // Em desenvolvimento, envie detalhes adicionais para ajudar na depuração
     res.status(500).json({ error: "Erro interno no servidor", details: error.message });
   }
 };

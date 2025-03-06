@@ -13,14 +13,12 @@ const DashboardContainer = ({ loginData, onLogout }) => {
   useEffect(() => {
     if (loginData && loginData.clientes) {
       setClientes(loginData.clientes);
-      // Se o usuário tiver somente um cliente, seleciona-o automaticamente
       if (loginData.clientes.length === 1) {
         setSelectedCliente(loginData.clientes[0]);
       } else {
         setSelectedCliente(loginData.selectedCliente || loginData.clientes[0]);
       }
     } else {
-      // Se não houver clientes nos dados de login, busca via API
       const fetchClientes = async () => {
         try {
           const token = localStorage.getItem("token");
