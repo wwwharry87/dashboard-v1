@@ -8,15 +8,15 @@ const app = express();
 
 // Configura o CORS para permitir requisições do frontend
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "https://ge-dashboard.onrender.com", // Domínio do frontend
-  methods: ["GET", "POST", "PUT", "DELETE"], // Métodos permitidos
-  credentials: true // Permite o envio de cookies e headers de autenticação
+  origin: process.env.FRONTEND_URL || "https://ge-dashboard.onrender.com",
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
 }));
 
 // Middleware para parsear JSON
 app.use(express.json());
 
-// Rotas de autenticação
+// Rotas de autenticação (públicas)
 app.use("/api/auth", authRoutes);
 
 // Rotas protegidas por autenticação

@@ -5,15 +5,16 @@ const Login = ({ onLogin }) => {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
-  const navigate = useNavigate(); // Hook para redirecionamento
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/login", {
+      // URL ajustada para chamar a rota pública de login
+      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, senha }), // Dados enviados no corpo da requisição
+        body: JSON.stringify({ email, senha }),
       });
 
       const data = await response.json();
