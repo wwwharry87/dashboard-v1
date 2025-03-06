@@ -46,7 +46,7 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/dados", {
+      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/totais", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
