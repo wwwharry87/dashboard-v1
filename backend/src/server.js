@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const authMiddleware = require("./middlewares/authMiddleware");
+const authMiddleware = require('./middlewares/authMiddleware');
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const authRoutes = require("./routes/authRoutes");
 

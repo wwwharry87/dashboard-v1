@@ -1,29 +1,21 @@
-const express = require("express");
-const cors = require("cors");
-const authMiddleware = require("./middlewares/authMiddleware");
-const dashboardRoutes = require("./routes/dashboardRoutes");
-const authRoutes = require("./routes/authRoutes");
+// middlewares/authMiddleware.js
+const jwt = require('jsonwebtoken');
+const secret = process.env.JWT_SECRET || 'sua_chave_secreta';
 
-const app = express();
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader) return res.status(401).json({ error: 'Token não fornecido' });
 
-// Configura o CORS para permitir requisições do frontend
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "https://ge-dashboard.onrender.com", // Domínio do frontend
-  methods: ["GET", "POST", "PUT", "DELETE"], // Métodos permitidos
-  credentials: true // Permite o envio de cookies e headers de autenticação
-}));
+  const token = authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Token mal formatado' });
 
-// Middleware para parsear JSON
-app.use(express.json());
+  try {
+    const decoded = jwt.verify(token, secret);
+    req.user = decoded; // Disponibiliza as informações do token para as próximas rotas
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
+};
 
-// Rotas de autenticação (não protegidas)
-app.use("/api/auth", authRoutes);
-
-// Rotas protegidas por autenticação
-app.use("/api", authMiddleware, dashboardRoutes);
-
-// Inicia o servidor
-const port = process.env.PORT || 5001;
-app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
-});
+module.exports = authMiddleware;
