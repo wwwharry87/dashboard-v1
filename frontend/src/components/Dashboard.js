@@ -522,9 +522,10 @@ const Dashboard = () => {
                       font: { weight: "bold" },
                       callback: (value) => formatNumber(value)
                     }
-                  },
-                  layout: { padding: { top: 20, bottom: 20 } }
-                }
+                  }
+                },
+                // layout agora está no nível superior
+                layout: { padding: { top: 20, bottom: 20 } }
               }}
             />
           </div>
