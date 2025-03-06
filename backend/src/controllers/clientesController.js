@@ -9,7 +9,7 @@ const getClientes = async (req, res) => {
 
     // Ajuste esta query conforme a estrutura do seu banco.
     // Se a tabela se chamar, por exemplo, "clientes_usuarios", modifique aqui.
-    const query = "SELECT * FROM clientes WHERE usuario_id = $1";
+    const query = "SELECT * FROM usuario_clientes WHERE usuario_id = $1";
     const values = [req.user.id];
 
     console.log("Executando query de clientes:", query, values);
