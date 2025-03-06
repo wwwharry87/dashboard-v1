@@ -6,17 +6,19 @@ const DashboardContainer = ({ loginData, onLogout }) => {
   const [clientes, setClientes] = useState([]);
   const [selectedCliente, setSelectedCliente] = useState(null);
   const [dados, setDados] = useState(null);
-  const [loading, setLoading] = useState(false); // Estado para controlar o carregamento
+  const [loading, setLoading] = useState(false);
 
-  // Atualiza a lista de clientes e o cliente selecionado quando loginData muda
+  // Verifica se loginData está disponível antes de acessar suas propriedades
   useEffect(() => {
-    setClientes(loginData.clientes);
-    setSelectedCliente(loginData.selectedCliente);
+    if (loginData) {
+      setClientes(loginData.clientes || []);
+      setSelectedCliente(loginData.selectedCliente || null);
+    }
   }, [loginData]);
 
   // Função para carregar os dados do cliente selecionado
   const carregarDados = async (clienteId) => {
-    setLoading(true); // Ativa o estado de carregamento
+    setLoading(true);
     try {
       const token = localStorage.getItem("token");
       const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/totais", {
@@ -32,7 +34,7 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
     } finally {
-      setLoading(false); // Desativa o estado de carregamento
+      setLoading(false);
     }
   };
 
@@ -49,6 +51,15 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     const novoCliente = clientes.find((c) => c.idcliente === novoIdCliente);
     setSelectedCliente(novoCliente);
   };
+
+  // Se loginData for null, exibe uma mensagem de erro
+  if (!loginData) {
+    return (
+      <div className="p-6 bg-gray-100 min-h-screen flex items-center justify-center">
+        <p className="text-red-600">Erro: Dados de login não disponíveis.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
@@ -85,18 +96,14 @@ const DashboardContainer = ({ loginData, onLogout }) => {
       </div>
 
       {/* Conteúdo do Dashboard */}
-    
       {loading ? (
-        // Exibe o spinner e a mensagem de carregamento
         <div className="flex flex-col items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
           <p className="text-gray-600">Carregando dados...</p>
         </div>
       ) : dados ? (
-        // Exibe o dashboard quando os dados estão prontos
         <Dashboard data={dados} />
       ) : (
-        // Exibe uma mensagem se não houver dados
         <p className="text-center text-gray-600">Nenhum dado disponível.</p>
       )}
     </div>
