@@ -1,16 +1,14 @@
-// src/components/DashboardContainer.js
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Dashboard from "./Dashboard";
 
 const DashboardContainer = ({ loginData, onLogout }) => {
-  const navigate = useNavigate(); // Hook para redirecionamento
+  const navigate = useNavigate();
   const [clientes, setClientes] = useState([]);
   const [selectedCliente, setSelectedCliente] = useState(null);
   const [dados, setDados] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Verifica se loginData está disponível antes de acessar suas propriedades
   useEffect(() => {
     if (loginData) {
       setClientes(loginData.clientes || []);
@@ -18,7 +16,6 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     }
   }, [loginData]);
 
-  // Função para carregar os dados do cliente selecionado
   const carregarDados = async (clienteId) => {
     setLoading(true);
     try {
@@ -39,21 +36,18 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     }
   };
 
-  // Carrega os dados quando o cliente selecionado muda
   useEffect(() => {
     if (selectedCliente) {
       carregarDados(selectedCliente.idcliente);
     }
   }, [selectedCliente]);
 
-  // Função para lidar com a mudança de cliente
   const handleChangeCliente = (e) => {
     const novoIdCliente = parseInt(e.target.value, 10);
     const novoCliente = clientes.find((c) => c.idcliente === novoIdCliente);
     setSelectedCliente(novoCliente);
   };
 
-  // Se loginData for null, exibe uma mensagem de erro e um botão para voltar ao login
   if (!loginData) {
     return (
       <div className="p-6 bg-gray-100 min-h-screen flex flex-col items-center justify-center">
@@ -70,7 +64,6 @@ const DashboardContainer = ({ loginData, onLogout }) => {
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
-      {/* Cabeçalho */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
         <button
@@ -81,7 +74,6 @@ const DashboardContainer = ({ loginData, onLogout }) => {
         </button>
       </div>
 
-      {/* Seleção de Cliente */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Selecione o Cliente:
@@ -102,7 +94,6 @@ const DashboardContainer = ({ loginData, onLogout }) => {
         </select>
       </div>
 
-      {/* Conteúdo do Dashboard */}
       {loading ? (
         <div className="flex flex-col items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>

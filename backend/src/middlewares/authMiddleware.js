@@ -1,4 +1,3 @@
-// middlewares/authMiddleware.js
 const jwt = require('jsonwebtoken');
 const secret = process.env.JWT_SECRET || 'sua_chave_secreta';
 
