@@ -23,13 +23,12 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/totais", {
-        method: "POST",
+      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/dados", {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ idcliente: clienteId }),
       });
       const data = await response.json();
       setDados(data);
