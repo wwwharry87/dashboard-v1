@@ -80,8 +80,6 @@ const buscarTotais = async (req, res) => {
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
 
-    
-
     // Breakdown: Matrículas por Zona, Sexo e Turno (para grupo_etapa "complementar")
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
