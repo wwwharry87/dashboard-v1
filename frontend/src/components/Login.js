@@ -1,12 +1,15 @@
 // src/components/Login.js
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
+  const navigate = useNavigate(); // Hook para redirecionamento
 
-const handleLogin = async (email, senha) => {
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     try {
       const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/login", {
         method: "POST",
@@ -14,20 +17,16 @@ const handleLogin = async (email, senha) => {
         body: JSON.stringify({ email, senha }),
       });
       const data = await response.json();
-      if (response.ok) {
-        localStorage.setItem("token", data.token); // Salva o token
-        setLoginData(data); // Atualiza o estado global ou local com os dados do login
-        navigate("/dashboard"); // Redireciona para o dashboard
+      if (!response.ok) {
+        setErro(data.error || "Erro no login");
       } else {
-        console.error("Erro no login:", data.error);
+        onLogin(data); // Chama a função onLogin passando os dados do login
+        navigate("/dashboard"); // Redireciona para o dashboard
       }
     } catch (error) {
-      console.error("Erro ao conectar com o servidor:", error);
+      setErro("Erro ao conectar com o servidor");
     }
   };
-
-
-
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600">
@@ -76,7 +75,6 @@ const handleLogin = async (email, senha) => {
         </form>
       </div>
     </div>
-
   );
 };
 

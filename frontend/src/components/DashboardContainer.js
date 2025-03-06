@@ -1,8 +1,7 @@
 // src/components/DashboardContainer.js
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, useNavigate } from "react-router-dom"; // Importe o useNavigate para redirecionar
+import { useNavigate } from "react-router-dom";
 import Dashboard from "./Dashboard";
-
 
 const DashboardContainer = ({ loginData, onLogout }) => {
   const navigate = useNavigate(); // Hook para redirecionamento
@@ -55,19 +54,13 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     setSelectedCliente(novoCliente);
   };
 
-  // Função para redirecionar para a tela de login
-  const handleBackToLogin = () => {
-    localStorage.removeItem("token"); // Remove o token do localStorage
-    navigate("/login"); // Redireciona para a tela de login
-  };
-
   // Se loginData for null, exibe uma mensagem de erro e um botão para voltar ao login
   if (!loginData) {
     return (
       <div className="p-6 bg-gray-100 min-h-screen flex flex-col items-center justify-center">
         <p className="text-red-600 mb-4">Erro: Dados de login não disponíveis.</p>
         <button
-          onClick={handleBackToLogin}
+          onClick={() => navigate("/login")}
           className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
         >
           Voltar ao Login
@@ -124,4 +117,5 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     </div>
   );
 };
+
 export default DashboardContainer;
