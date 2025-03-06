@@ -1,4 +1,3 @@
-// controllers/loginController.js
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const pool = require('../config/db');

@@ -1,4 +1,3 @@
-// src/components/Login.js
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -14,7 +13,7 @@ const Login = ({ onLogin }) => {
       const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, senha }),
+        body: JSON.stringify({ email, senha }), // Dados enviados no corpo da requisição
       });
 
       const data = await response.json();
