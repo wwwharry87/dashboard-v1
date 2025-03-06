@@ -72,6 +72,7 @@ const Login = ({ onLogin }) => {
         </form>
       </div>
     </div>
+    
   );
 };
 
