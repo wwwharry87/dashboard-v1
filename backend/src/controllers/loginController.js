@@ -23,45 +23,15 @@ const loginController = async (req, res) => {
       return res.status(401).json({ error: 'Senha inválida' });
     }
     
-    // 3. Busca os clientes associados ao usuário
-    const clientesResult = await pool.query(
-      `SELECT c.* 
-       FROM usuario_clientes uc
-       JOIN clientes c ON uc.idcliente = c.idcliente
-       WHERE uc.usuario_id = $1`,
-      [usuario.id]
-    );
+    // 3. Gera o token JWT
+    const token = jwt.sign({ id: usuario.id, email: usuario.email }, secret, { expiresIn: '1h' });
     
-    const clientes = clientesResult.rows;
-    // Seleciona o primeiro cliente da lista (pode ser ajustado conforme a necessidade)
-    const selectedCliente = clientes.length > 0 ? clientes[0] : null;
-    
-    // 4. Cria o payload para o token JWT
-    const tokenPayload = {
-      id: usuario.id,
-      email: usuario.email,
-      // Inclui dados do cliente selecionado e a lista de clientes para uso no front-end
-      selectedCliente: selectedCliente ? { idcliente: selectedCliente.idcliente, cliente: selectedCliente.cliente } : null,
-      clientes
-    };
-    
-    // 5. Gera o token JWT (válido por 1 hora, por exemplo)
-    const token = jwt.sign(tokenPayload, secret, { expiresIn: '1h' });
-    
-    // Remove a senha do objeto usuário antes de retornar a resposta
+    // 4. Retorna o token e os dados do usuário (sem a senha)
     delete usuario.senha;
-    
-    // 6. Retorna os dados do usuário, os clientes associados e o token JWT
-    return res.json({
-      token,
-      usuario,
-      clientes,
-      selectedCliente
-    });
-    
+    res.json({ token, usuario });
   } catch (error) {
     console.error("Erro no login:", error);
-    return res.status(500).json({ error: "Erro interno no servidor" });
+    res.status(500).json({ error: "Erro interno no servidor" });
   }
 };
 
