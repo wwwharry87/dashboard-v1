@@ -2,9 +2,19 @@ const pool = require('../config/db');
 
 const getClientes = async (req, res) => {
   try {
-    // Exemplo: supondo que a tabela "clientes" tenha uma coluna "usuario_id"
-    // e que o authMiddleware tenha colocado o id do usuário em req.user.id
-    const result = await pool.query("SELECT * FROM clientes WHERE usuario_id = $1", [req.user.id]);
+    // Verifica se o req.user.id está disponível
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: "Usuário não autenticado" });
+    }
+
+    // Ajuste esta query conforme a estrutura do seu banco.
+    // Se a tabela se chamar, por exemplo, "clientes_usuarios", modifique aqui.
+    const query = "SELECT * FROM clientes WHERE usuario_id = $1";
+    const values = [req.user.id];
+
+    console.log("Executando query de clientes:", query, values);
+    const result = await pool.query(query, values);
+    console.log("Resultado da query:", result.rows);
     res.json({ clientes: result.rows });
   } catch (error) {
     console.error("Erro ao buscar clientes:", error);
