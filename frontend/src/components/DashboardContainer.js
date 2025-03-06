@@ -123,5 +123,4 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     </div>
   );
 };
-
 export default DashboardContainer;
