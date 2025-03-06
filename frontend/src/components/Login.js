@@ -6,8 +6,7 @@ const Login = ({ onLogin }) => {
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+const handleLogin = async (email, senha) => {
     try {
       const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/login", {
         method: "POST",
@@ -15,15 +14,20 @@ const Login = ({ onLogin }) => {
         body: JSON.stringify({ email, senha }),
       });
       const data = await response.json();
-      if (!response.ok) {
-        setErro(data.error || "Erro no login");
+      if (response.ok) {
+        localStorage.setItem("token", data.token); // Salva o token
+        setLoginData(data); // Atualiza o estado global ou local com os dados do login
+        navigate("/dashboard"); // Redireciona para o dashboard
       } else {
-        onLogin(data); // Chama a função onLogin passando os dados do login
+        console.error("Erro no login:", data.error);
       }
     } catch (error) {
-      setErro("Erro ao conectar com o servidor");
+      console.error("Erro ao conectar com o servidor:", error);
     }
   };
+
+
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-500 to-purple-600">
@@ -72,7 +76,7 @@ const Login = ({ onLogin }) => {
         </form>
       </div>
     </div>
-    
+
   );
 };
 
