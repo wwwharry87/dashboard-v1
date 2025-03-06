@@ -9,11 +9,16 @@ const DashboardContainer = ({ loginData, onLogout }) => {
   const [dados, setDados] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Tenta carregar a lista de clientes dos dados de login
+  // Carrega a lista de clientes a partir dos dados de login ou via API
   useEffect(() => {
     if (loginData && loginData.clientes) {
       setClientes(loginData.clientes);
-      setSelectedCliente(loginData.selectedCliente || loginData.clientes[0]);
+      // Se o usuário tiver somente um cliente, seleciona-o automaticamente
+      if (loginData.clientes.length === 1) {
+        setSelectedCliente(loginData.clientes[0]);
+      } else {
+        setSelectedCliente(loginData.selectedCliente || loginData.clientes[0]);
+      }
     } else {
       // Se não houver clientes nos dados de login, busca via API
       const fetchClientes = async () => {
@@ -29,7 +34,11 @@ const DashboardContainer = ({ loginData, onLogout }) => {
           const data = await response.json();
           if (response.ok) {
             setClientes(data.clientes);
-            setSelectedCliente(data.clientes[0]);
+            if (data.clientes.length === 1) {
+              setSelectedCliente(data.clientes[0]);
+            } else {
+              setSelectedCliente(data.clientes[0]);
+            }
           } else {
             console.error("Erro ao buscar clientes:", data.error);
           }
@@ -46,6 +55,7 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
+      // Aqui você pode ajustar a requisição conforme a necessidade, incluindo o clienteId se o endpoint suportar
       const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/totais", {
         method: "GET",
         headers: {
@@ -62,7 +72,7 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     }
   };
 
-  // Quando o cliente selecionado mudar, carrega os dados correspondentes
+  // Quando o cliente selecionado muda, carrega os dados
   useEffect(() => {
     if (selectedCliente) {
       carregarDados(selectedCliente.idcliente);
@@ -101,22 +111,25 @@ const DashboardContainer = ({ loginData, onLogout }) => {
         </button>
       </div>
 
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Selecione o Cliente:
-        </label>
-        <select
-          value={selectedCliente ? selectedCliente.idcliente : ""}
-          onChange={handleChangeCliente}
-          className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          {clientes.map((cliente) => (
-            <option key={cliente.idcliente} value={cliente.idcliente}>
-              {cliente.cliente}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Se houver mais de um cliente, exibe o dropdown para seleção */}
+      {clientes.length > 1 && (
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Selecione o Cliente:
+          </label>
+          <select
+            value={selectedCliente ? selectedCliente.idcliente : ""}
+            onChange={handleChangeCliente}
+            className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            {clientes.map((cliente) => (
+              <option key={cliente.idcliente} value={cliente.idcliente}>
+                {cliente.cliente}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex flex-col items-center justify-center h-64">
