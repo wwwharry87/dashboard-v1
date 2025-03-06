@@ -3,6 +3,7 @@ const cors = require("cors");
 const authMiddleware = require('./middlewares/authMiddleware');
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const authRoutes = require("./routes/authRoutes");
+const clientesRoutes = require("./routes/clientesRoutes");
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 
 // Rotas protegidas por autenticação
+app.use("/api/clientes", authMiddleware, clientesRoutes);
 app.use("/api", authMiddleware, dashboardRoutes);
 
 // Inicia o servidor

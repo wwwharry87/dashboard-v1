@@ -56,7 +56,7 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     try {
       const token = localStorage.getItem("token");
       // Aqui você pode ajustar a requisição conforme a necessidade, incluindo o clienteId se o endpoint suportar
-      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/totais", {
+      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/dados", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
