@@ -174,6 +174,12 @@ const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearch, setShowSearch] = useState(false);
 
+  // Detecta se o navegador é Chrome
+  const isChrome =
+    typeof window !== "undefined" &&
+    /Chrome/.test(navigator.userAgent) &&
+    /Google Inc/.test(navigator.vendor);
+
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
@@ -257,7 +263,7 @@ const Dashboard = () => {
     }
   };
 
-  // Progresso de carregamento
+  // Progresso de carregamento com ajuste para Chrome (delay maior para exibir o 100%)
   useEffect(() => {
     let interval;
     if (loading) {
@@ -267,11 +273,12 @@ const Dashboard = () => {
       }, 300);
     } else {
       setProgress(100);
-      const timeout = setTimeout(() => setProgress(0), 500);
+      const delay = isChrome ? 800 : 500;
+      const timeout = setTimeout(() => setProgress(0), delay);
       return () => clearTimeout(timeout);
     }
     return () => clearInterval(interval);
-  }, [loading]);
+  }, [loading, isChrome]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -337,7 +344,10 @@ const Dashboard = () => {
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
           <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
-            <div className="bg-blue-600 text-center py-2 text-white font-bold" style={{ width: `${progress}%` }}>
+            <div 
+              className="bg-blue-600 text-center py-2 text-white font-bold" 
+              style={{ width: `${progress}%`, transition: "width 0.3s ease" }}
+            >
               {progress}%
             </div>
           </div>
@@ -512,9 +522,9 @@ const Dashboard = () => {
                       font: { weight: "bold" },
                       callback: (value) => formatNumber(value)
                     }
-                  }
-                },
-                layout: { padding: { top: 20, bottom: 20 } }
+                  },
+                  layout: { padding: { top: 20, bottom: 20 } }
+                }
               }}
             />
           </div>
