@@ -1,7 +1,8 @@
 // src/components/DashboardContainer.js
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom"; // Importe o useNavigate para redirecionar
+import { BrowserRouter as Router, Routes, Route, useNavigate } from "react-router-dom"; // Importe o useNavigate para redirecionar
 import Dashboard from "./Dashboard";
+
 
 const DashboardContainer = ({ loginData, onLogout }) => {
   const navigate = useNavigate(); // Hook para redirecionamento
