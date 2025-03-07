@@ -5,13 +5,4 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Teste a conexão ao banco de dados
-pool.query('SELECT NOW()', (err, res) => {
-  if (err) {
-    console.error('Erro ao conectar ao banco de dados:', err);
-  } else {
-    console.log('Conexão com o banco de dados estabelecida com sucesso:', res.rows[0]);
-  }
-});
-
 module.exports = pool;

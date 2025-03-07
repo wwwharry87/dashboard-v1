@@ -16,7 +16,6 @@
     "react-device-detect": "^2.2.3",
     "react-dom": "^19.0.0",
     "react-icons": "^5.5.0",
-    "react-router-dom": "^7.2.0",
     "react-scripts": "^5.0.1",
     "react-spinners": "^0.15.0",
     "react-tooltip": "^5.28.0",
@@ -33,16 +32,17 @@
       "react-app",
       "react-app/jest"
     ]
-  },  
-"browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
     "development": [
       "last 1 chrome version",
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "engines": {
-    "node": "18.16.0"
   }
 }
