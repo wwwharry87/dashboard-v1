@@ -12,7 +12,7 @@ const getClientes = async (req, res) => {
         SELECT c.* 
       FROM clientes c
       JOIN usuario_clientes uc ON c.idcliente = uc.idcliente
-      WHERE uc.usuario_id = $2
+      WHERE uc.usuario_id = $1
     `;
     const values = [req.user.id];
 
