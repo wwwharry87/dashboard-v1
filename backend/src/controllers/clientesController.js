@@ -7,9 +7,13 @@ const getClientes = async (req, res) => {
       return res.status(401).json({ error: "Usuário não autenticado" });
     }
 
-    // Ajuste esta query conforme a estrutura do seu banco.
-    // Se a tabela se chamar, por exemplo, "clientes_usuarios", modifique aqui.
-    const query = "SELECT * FROM usuario_clientes WHERE usuario_id = $1";
+    // Busca os clientes associados ao usuário através da tabela usuario_clientes
+    const query = `
+      SELECT c.* 
+      FROM clientes c
+      JOIN usuario_clientes uc ON c.id = uc.cliente_id
+      WHERE uc.usuario_id = $1
+    `;
     const values = [req.user.id];
 
     console.log("Executando query de clientes:", query, values);

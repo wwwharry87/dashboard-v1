@@ -13,12 +13,14 @@ const DashboardContainer = ({ loginData, onLogout }) => {
   useEffect(() => {
     if (loginData && loginData.clientes) {
       setClientes(loginData.clientes);
+      // Se o usuário tiver somente um cliente, seleciona-o automaticamente
       if (loginData.clientes.length === 1) {
         setSelectedCliente(loginData.clientes[0]);
       } else {
         setSelectedCliente(loginData.selectedCliente || loginData.clientes[0]);
       }
     } else {
+      // Se não houver clientes nos dados de login, busca via API
       const fetchClientes = async () => {
         try {
           const token = localStorage.getItem("token");
@@ -53,16 +55,22 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      // Aqui você pode ajustar a requisição conforme a necessidade, incluindo o clienteId se o endpoint suportar
-      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/dados", {
+
+      // Busca os dados do cliente selecionado
+      const response = await fetch(`https://dashboard-v1-pp6t.onrender.com/api/clientes/${clienteId}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         }
       });
+
       const data = await response.json();
-      setDados(data);
+      if (response.ok) {
+        setDados(data);
+      } else {
+        console.error("Erro ao carregar dados:", data.error);
+      }
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
     } finally {
@@ -73,13 +81,13 @@ const DashboardContainer = ({ loginData, onLogout }) => {
   // Quando o cliente selecionado muda, carrega os dados
   useEffect(() => {
     if (selectedCliente) {
-      carregarDados(selectedCliente.idcliente);
+      carregarDados(selectedCliente.id);
     }
   }, [selectedCliente]);
 
   const handleChangeCliente = (e) => {
     const novoIdCliente = parseInt(e.target.value, 10);
-    const novoCliente = clientes.find((c) => c.idcliente === novoIdCliente);
+    const novoCliente = clientes.find((c) => c.id === novoIdCliente);
     setSelectedCliente(novoCliente);
   };
 
@@ -116,13 +124,13 @@ const DashboardContainer = ({ loginData, onLogout }) => {
             Selecione o Cliente:
           </label>
           <select
-            value={selectedCliente ? selectedCliente.idcliente : ""}
+            value={selectedCliente ? selectedCliente.id : ""}
             onChange={handleChangeCliente}
             className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             {clientes.map((cliente) => (
-              <option key={cliente.idcliente} value={cliente.idcliente}>
-                {cliente.cliente}
+              <option key={cliente.id} value={cliente.id}>
+                {cliente.nome}
               </option>
             ))}
           </select>
