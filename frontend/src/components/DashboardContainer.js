@@ -130,7 +130,7 @@ const DashboardContainer = ({ loginData, onLogout }) => {
           >
             {clientes.map((cliente) => (
               <option key={cliente.id} value={cliente.id}>
-                {cliente.nome}
+                {cliente.cliente} {/* Exibe a coluna "cliente" */}
               </option>
             ))}
           </select>
