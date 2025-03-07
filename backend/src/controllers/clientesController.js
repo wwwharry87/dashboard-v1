@@ -9,9 +9,9 @@ const getClientes = async (req, res) => {
 
     // Busca os clientes associados ao usuário através da tabela usuario_clientes
     const query = `
-      SELECT c.* 
+        SELECT c.* 
       FROM clientes c
-      JOIN usuario_clientes uc ON c.id = uc.cliente_id
+      JOIN usuario_clientes uc ON c.idcliente = uc.idcliente
       WHERE uc.usuario_id = $1
     `;
     const values = [req.user.id];
