@@ -55,22 +55,17 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-
-      // Busca os dados do cliente selecionado
-      const response = await fetch(`https://dashboard-v1-pp6t.onrender.com/api/clientes/${clienteId}`, {
-        method: "GET",
+      // Envia o id do cliente (como "idescola") no corpo da requisição
+      const response = await fetch("https://dashboard-v1-pp6t.onrender.com/api/totais", {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify({ idescola: clienteId })
       });
-
       const data = await response.json();
-      if (response.ok) {
-        setDados(data);
-      } else {
-        console.error("Erro ao carregar dados:", data.error);
-      }
+      setDados(data);
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
     } finally {
@@ -78,16 +73,16 @@ const DashboardContainer = ({ loginData, onLogout }) => {
     }
   };
 
-  // Quando o cliente selecionado muda, carrega os dados
+  // Quando o cliente selecionado muda, carrega os dados correspondentes
   useEffect(() => {
     if (selectedCliente) {
-      carregarDados(selectedCliente.id);
+      carregarDados(selectedCliente.idcliente);
     }
   }, [selectedCliente]);
 
   const handleChangeCliente = (e) => {
     const novoIdCliente = parseInt(e.target.value, 10);
-    const novoCliente = clientes.find((c) => c.id === novoIdCliente);
+    const novoCliente = clientes.find((c) => c.idcliente === novoIdCliente);
     setSelectedCliente(novoCliente);
   };
 
@@ -124,13 +119,13 @@ const DashboardContainer = ({ loginData, onLogout }) => {
             Selecione o Cliente:
           </label>
           <select
-            value={selectedCliente ? selectedCliente.id : ""}
+            value={selectedCliente ? selectedCliente.idcliente : ""}
             onChange={handleChangeCliente}
             className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             {clientes.map((cliente) => (
-              <option key={cliente.id} value={cliente.id}>
-                {cliente.cliente} {/* Exibe a coluna "cliente" */}
+              <option key={cliente.idcliente} value={cliente.idcliente}>
+                {cliente.cliente}
               </option>
             ))}
           </select>
