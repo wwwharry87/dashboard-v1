@@ -316,7 +316,7 @@ const Dashboard = () => {
       )}
       <div className="p-4 bg-white shadow-md flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">SEMED Marabá-PA</h1>
+          <h1 className="text-2xl font-bold text-gray-800">SEMED ITAITUBA-PA</h1>
           <h2 className="text-lg text-gray-600">- Painel de Matrículas</h2>
         </div>
         <button
