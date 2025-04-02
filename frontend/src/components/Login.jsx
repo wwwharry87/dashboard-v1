@@ -28,7 +28,7 @@ const Login = () => {
       localStorage.setItem('token', token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       // Redireciona para o dashboard (usando navigate)
-      navigate('/dashboard'.toLowerCase(), { replace: true });
+      window.location.href = '/dashboard'; // Força recarregamento total
     } catch (err) {
       console.error("Erro no login:", err.response || err);
       setErro('Credenciais inválidas. Verifique e tente novamente.');
