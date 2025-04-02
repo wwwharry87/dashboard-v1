@@ -1,4 +1,3 @@
-// src/components/Login.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
@@ -19,14 +18,14 @@ const Login = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      const response = await axios.post(`${API_URL}/api/login`, { cpf, password });
-      console.log("Login response:", response.data); // Verifique o token aqui
+      // Removido o extra "/api" para não duplicar na URL
+      const response = await axios.post(`${API_URL}/login`, { cpf, password });
       const { token } = response.data;
       if (!token) {
         throw new Error('Token não retornado');
       }
       localStorage.setItem('token', token);
-      // Força um recarregamento completo para garantir que o token seja lido
+      // Força um reload para garantir que o token seja lido
       window.location.replace('/dashboard');
     } catch (err) {
       console.error("Erro no login:", err.response || err);
