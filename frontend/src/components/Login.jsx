@@ -20,21 +20,20 @@ const Login = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      // Certifique-se de que o endpoint de login seja "API_URL/api/login"
       const response = await axios.post(`${API_URL}/api/login`, { cpf, password });
       const { token } = response.data;
       if (!token) {
         throw new Error('Token não retornado');
       }
       localStorage.setItem('token', token);
-      // Dispara um evento para atualizar a aplicação, se necessário
-      window.dispatchEvent(new Event('storage'));
-      navigate('/dashboard', { replace: true });
+      // Força o redirecionamento para /dashboard
+      window.location.replace('/dashboard');
     } catch (err) {
       console.error("Erro no login:", err.response || err);
       setErro(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
     }
   };
+  
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
