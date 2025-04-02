@@ -1,8 +1,7 @@
+// src/components/ResetPasswordManual.jsx
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from './api'; // Usando a instância configurada do Axios
 import { useNavigate } from 'react-router-dom';
-
-const API_URL = process.env.REACT_APP_API_URL; // Variável de ambiente
 
 const ResetPasswordManual = () => {
   const [cpf, setCpf] = useState('');
@@ -27,7 +26,8 @@ const ResetPasswordManual = () => {
     }
     
     try {
-      const response = await axios.post(`${API_URL}/reset-password-manual`, {
+      // Usando a instância "api" que já possui baseURL configurada
+      const response = await api.post('/reset-password-manual', {
         cpf,
         nome,
         data_nascimento: dataNascimento, // formato "YYYY-MM-DD"
@@ -49,6 +49,7 @@ const ResetPasswordManual = () => {
         navigate('/login');
       }, 2000);
     } catch (error) {
+      console.error("Erro ao redefinir senha:", error.response || error);
       setErro(error.response?.data?.error || 'Erro ao redefinir senha.');
     }
   };
