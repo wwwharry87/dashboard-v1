@@ -1,7 +1,9 @@
 // src/components/ResetPasswordManual.jsx
 import React, { useState } from 'react';
-import api from './api'; // Usando a instância configurada do Axios
+import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+
+const API_URL = process.env.REACT_APP_API_URL; // Certifique-se que está definido como: https://dashboard-v1-pp6t.onrender.com/api
 
 const ResetPasswordManual = () => {
   const [cpf, setCpf] = useState('');
@@ -26,8 +28,8 @@ const ResetPasswordManual = () => {
     }
     
     try {
-      // Usando a instância "api" que já possui baseURL configurada
-      const response = await api.post('/reset-password-manual', {
+      // Usando axios diretamente para não enviar token no header
+      const response = await axios.post(`${API_URL}/reset-password-manual`, {
         cpf,
         nome,
         data_nascimento: dataNascimento, // formato "YYYY-MM-DD"
