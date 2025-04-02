@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import api from './api'; // Instância configurada do Axios
 import { Bar, Pie } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -112,17 +112,8 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
   };
 
   return (
-    <div 
-      className={`
-        shadow-lg rounded-xl 
-        p-3 text-center border-l-4 ${borderColor}
-        hover:shadow-xl transition-shadow 
-        h-28 flex flex-col items-center justify-center
-      `}
-    >
-      <div className="text-2xl mb-1">
-        {iconWithColor}
-      </div>
+    <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow h-28 flex flex-col items-center justify-center`}>
+      <div className="text-2xl mb-1">{iconWithColor}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
       <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
         {disableFormat ? value : formatNumber(value)}
@@ -131,8 +122,6 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
     </div>
   );
 };
-
-const API_URL = process.env.REACT_APP_API_URL; // Utiliza a variável de ambiente
 
 const Dashboard = () => {
   const [data, setData] = useState({
@@ -175,26 +164,30 @@ const Dashboard = () => {
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearch, setShowSearch] = useState(false);
-  
-  // Estado para o nome do cliente
   const [clientName, setClientName] = useState("");
 
-  // Buscar o nome do cliente da tabela de clientes (coluna "cliente")
+  // Se o token não existir, redireciona para /login
+  useEffect(() => {
+    if (!localStorage.getItem('token')) {
+      window.location.href = '/login';
+      return;
+    }
+  }, []);
+
+  // Buscar o nome do cliente
   useEffect(() => {
     const fetchClientName = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await axios.get(`${API_URL}/api/client`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const response = await api.get('/client'); // Já inclui baseURL e headers se configurados
         setClientName(response.data.cliente);
       } catch (error) {
         console.error("Erro ao buscar nome do cliente:", error);
       }
     };
     fetchClientName();
-  }, []);  
+  }, []);
 
+  // Carregar filtros e dados ao inicializar
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
@@ -207,10 +200,10 @@ const Dashboard = () => {
   const carregarFiltros = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/api/filtros`);
+      const response = await api.get('/filtros');
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
-      setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
+      setSelectedFilters(prev => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
       await carregarDados({ ...selectedFilters, anoLetivo: ultimoAnoLetivo });
     } catch (error) {
       console.error("Erro ao carregar filtros:", error);
@@ -222,12 +215,12 @@ const Dashboard = () => {
   const carregarDados = async (filtros) => {
     try {
       setLoading(true);
-      setData((prev) => ({ ...prev, comparativos: null }));
+      setData(prev => ({ ...prev, comparativos: null }));
       const [totaisResponse, breakdownsResponse] = await Promise.all([
-        axios.post(`${API_URL}/api/totais`, filtros),
-        axios.post(`${API_URL}/api/breakdowns`, filtros)
+        api.post('/totais', filtros),
+        api.post('/breakdowns', filtros)
       ]);
-      setData((prev) => ({
+      setData(prev => ({
         ...prev,
         ...totaisResponse.data,
         ...breakdownsResponse.data
@@ -349,7 +342,7 @@ const Dashboard = () => {
           <button
             onClick={() => {
               localStorage.removeItem('token');
-              window.location.replace('/api/login');
+              window.location.replace('/login');
             }}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
           >
@@ -537,9 +530,7 @@ const Dashboard = () => {
                 maintainAspectRatio: false,
                 plugins: {
                   legend: { position: "top", labels: { color: "#6B7280" } },
-                  datalabels: {
-                    display: false
-                  }
+                  datalabels: { display: false }
                 },
                 scales: {
                   x: {
@@ -548,11 +539,7 @@ const Dashboard = () => {
                   },
                   y: {
                     grid: { color: "#E5E7EB" },
-                    ticks: {
-                      color: "#6B7280",
-                      font: { weight: "bold" },
-                      callback: (value) => formatNumber(value)
-                    }
+                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) }
                   }
                 },
                 layout: { padding: { top: 20, bottom: 20 } }
@@ -586,12 +573,7 @@ const Dashboard = () => {
                 maintainAspectRatio: false,
                 plugins: {
                   legend: { position: "bottom" },
-                  datalabels: {
-                    display: true,
-                    color: "#fff",
-                    font: { weight: "bold" },
-                    formatter: (value) => formatNumber(value)
-                  }
+                  datalabels: { display: true, color: "#fff", font: { weight: "bold" }, formatter: (value) => formatNumber(value) }
                 }
               }}
             />
@@ -634,11 +616,7 @@ const Dashboard = () => {
                 scales: {
                   x: {
                     grid: { color: "#E5E7EB" },
-                    ticks: {
-                      color: "#6B7280",
-                      font: { weight: "bold" },
-                      callback: (value) => formatNumber(value)
-                    }
+                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) }
                   },
                   y: {
                     grid: { display: false },
@@ -651,12 +629,9 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-      <div
-        id="sidebar"
-        className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${
-          showSidebar ? "translate-x-0" : "-translate-x-full"
-        } transition-transform duration-300 ease-in-out z-50`}
-      >
+      <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${
+        showSidebar ? "translate-x-0" : "-translate-x-full"
+      } transition-transform duration-300 ease-in-out z-50`}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
           <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-gray-700 transition-colors">
