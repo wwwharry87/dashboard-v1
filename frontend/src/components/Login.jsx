@@ -26,13 +26,14 @@ const Login = () => {
         throw new Error('Token não retornado');
       }
       localStorage.setItem('token', token);
-      // Força o redirecionamento para /dashboard
+      // Força redirecionamento com reload completo
       window.location.replace('/dashboard');
     } catch (err) {
       console.error("Erro no login:", err.response || err);
       setErro(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
     }
   };
+  
   
 
   return (
