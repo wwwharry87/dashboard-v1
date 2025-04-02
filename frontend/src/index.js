@@ -4,7 +4,7 @@ import './index.css';
 import App from './components/App';
 import reportWebVitals from './reportWebVitals';
 
-// Desregistra todos os service workers para evitar cache de versões antigas
+// Desregistra qualquer service worker antigo para evitar cache desatualizado
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((registrations) => {
     registrations.forEach((registration) => registration.unregister());
