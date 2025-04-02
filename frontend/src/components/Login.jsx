@@ -11,7 +11,7 @@ const Login = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Remove token antigo ao carregar a página de login
+    // Limpa token antigo para forçar novo login
     localStorage.removeItem('token');
     delete axios.defaults.headers.common['Authorization'];
   }, []);
@@ -20,14 +20,17 @@ const Login = () => {
     event.preventDefault();
     try {
       const response = await axios.post(`${API_URL}/login`, { cpf, password });
-      console.log("Login response:", response.data); // Debug
+      console.log("Login response:", response.data);
       const { token } = response.data;
       if (!token) {
         throw new Error('Token não retornado');
       }
       localStorage.setItem('token', token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      navigate('/dashboard');
+      // Redireciona para o dashboard; use window.location.href para recarregar completamente o App
+      window.location.href = '/dashboard';
+      // Se preferir uma navegação sem recarregar, use:
+      // navigate('/dashboard', { replace: true });
     } catch (err) {
       console.error("Erro no login:", err.response || err);
       setErro('Credenciais inválidas. Verifique e tente novamente.');
