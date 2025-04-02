@@ -276,7 +276,6 @@ const Dashboard = () => {
       setShowSidebar(false);
     }
   };
-
   // Progresso de carregamento com ajuste para Chrome
   useEffect(() => {
     let interval;
