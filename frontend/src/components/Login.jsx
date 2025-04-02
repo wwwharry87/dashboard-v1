@@ -1,26 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 
-const API_URL = process.env.REACT_APP_API_URL; // Variável de ambiente
+const API_URL = process.env.REACT_APP_API_URL;
 
 const Login = ({ onLoginSuccess }) => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [erro, setErro] = useState('');
 
+  useEffect(() => {
+    // Remove token antigo ao carregar a página de login
+    localStorage.removeItem('token');
+    delete axios.defaults.headers.common['Authorization'];
+  }, []);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      const response = await axios.post(`${API_URL}/login`, {
-        cpf,
-        password
-      });
+      const response = await axios.post(`${API_URL}/login`, { cpf, password });
+      console.log("Login response:", response.data); // Debug: veja o que vem na resposta
       const { token } = response.data;
+      if (!token) {
+        // Se não houver token, trata como erro
+        throw new Error('Token não retornado');
+      }
       localStorage.setItem('token', token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       onLoginSuccess();
     } catch (err) {
+      console.error("Erro no login:", err.response || err);
       setErro('Credenciais inválidas. Verifique e tente novamente.');
     }
   };
