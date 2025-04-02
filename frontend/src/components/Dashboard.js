@@ -1,3 +1,4 @@
+// src/components/Dashboard.js
 import React, { useEffect, useState } from "react";
 import api from './api'; // Instância configurada do Axios
 import { Bar, Pie } from "react-chartjs-2";
@@ -178,7 +179,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchClientName = async () => {
       try {
-        const response = await api.get('/client'); // Já inclui baseURL e headers se configurados
+        const response = await api.get('/client');
         setClientName(response.data.cliente);
       } catch (error) {
         console.error("Erro ao buscar nome do cliente:", error);
@@ -629,9 +630,7 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-      <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${
-        showSidebar ? "translate-x-0" : "-translate-x-full"
-      } transition-transform duration-300 ease-in-out z-50`}>
+      <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${showSidebar ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out z-50`}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
           <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-gray-700 transition-colors">

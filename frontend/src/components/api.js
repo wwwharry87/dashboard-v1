@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL, //endereco do backend
+  baseURL: process.env.REACT_APP_API_URL, // Ex: "https://dashboard-v1-pp6t.onrender.com/api"
 });
 
 api.interceptors.request.use((config) => {
