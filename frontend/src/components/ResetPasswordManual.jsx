@@ -25,7 +25,7 @@ const ResetPasswordManual = () => {
     }
     
     try {
-      const response = await axios.post('http://localhost:5001/api/reset-password-manual', {
+      const response = await axios.post('https://dashboard-v1-pp6t.onrender.com/api/reset-password-manual', {
         cpf,
         nome,
         data_nascimento: dataNascimento, // formato "YYYY-MM-DD"
