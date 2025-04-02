@@ -11,7 +11,7 @@ const Login = ({ onLoginSuccess }) => {
     event.preventDefault();
     try {
       // URL do backend local
-      const response = await axios.post('http://localhost:5001/api/login', {
+      const response = await axios.post('https://dashboard-v1-pp6t.onrender.com/api/login', {
         cpf,        // Envia o CPF
         password    // Envia a senha
       });
