@@ -9,7 +9,7 @@ const App = () => {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<Login onLoginSuccess={() => window.location.replace('/dashboard')} />} />
+        <Route path="/login" element={<Login onLoginSuccess={() => {}} />} />
         <Route path="/reset-password-manual" element={<ResetPasswordManual />} />
         <Route path="/dashboard" element={token ? <Dashboard /> : <Navigate to="/login" replace />} />
         <Route path="/" element={<Navigate to={token ? "/dashboard" : "/login"} replace />} />

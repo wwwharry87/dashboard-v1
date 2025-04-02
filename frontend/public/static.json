@@ -1,9 +1,0 @@
-{
-    "routes": [
-      {
-        "src": "^(?!.*\\.(js|css|png|jpg|svg)$)",
-        "dest": "/index.html"
-      }
-    ]
-  }
-  
