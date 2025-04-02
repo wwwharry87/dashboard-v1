@@ -35,13 +35,12 @@ const buildWhereClause = (filters, user) => {
     }
     // Se não existir, mas o token tiver allowedClients (usuário com múltiplos clientes)
     else if (user.allowedClients && user.allowedClients.length > 0) {
-      // Utiliza todo o array allowedClients; como a coluna idcliente é INTEGER, convertemos o array para integer[]
       params.push(user.allowedClients);
       whereClauses.push(`${clientField} = ANY($${params.length}::integer[])`);
       clientFilterApplied = true;
     }
   }
-  
+
   // Se nenhum filtro de cliente foi aplicado pelo token, usa o filtro manual enviado no body
   if (!clientFilterApplied) {
     addFilter(filters.idcliente, clientField);
@@ -68,7 +67,7 @@ const buscarTotais = async (req, res) => {
       tipoMatricula: req.body.tipoMatricula,
       tipoTransporte: req.body.tipoTransporte,
       transporteEscolar: req.body.transporteEscolar,
-      idcliente: req.body.idcliente // Esse valor será ignorado se o token tiver filtro de cliente
+      idcliente: req.body.idcliente // Será ignorado se o token tiver filtro de cliente
     };
 
     const { clause, params } = buildWhereClause(filters, req.user);
@@ -109,7 +108,7 @@ const buscarTotais = async (req, res) => {
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
 
-    // Breakdown (apenas para registros com grupo_etapa "complementar")
+    // Breakdown para registros com grupo_etapa "complementar"
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
     let matriculasPorTurno = {};
@@ -280,21 +279,32 @@ const buscarTotais = async (req, res) => {
 
 const buscarFiltros = async (req, res) => {
   try {
+    // Recebe os filtros enviados no body, se houver, ou usa objeto vazio
+    const filters = req.body || {};
+
+    // Constrói a cláusula WHERE considerando os filtros e o usuário
+    const { clause, params } = buildWhereClause(filters, req.user);
+
+    // Consulta os filtros aplicando a cláusula WHERE
     const filtrosResult = await pool.query(`
       SELECT DISTINCT 
         ano_letivo, deficiencia, grupo_etapa, etapa_matricula,
         etapa_turma, multisserie, situacao_matricula, tipo_matricula,
         tipo_transporte, transporte_escolar
       FROM dados_matriculas
+      WHERE ${clause}
       ORDER BY ano_letivo DESC
-    `);
-    const formatarFiltro = (key) => [...new Set(filtrosResult.rows.map(row => row[key]).filter(Boolean))];
+    `, params);
+
+    const formatarFiltro = (key) =>
+      [...new Set(filtrosResult.rows.map(row => row[key]).filter(Boolean))];
 
     const etapasMatriculaResult = await pool.query(`
       SELECT grupo_etapa, array_agg(DISTINCT etapa_matricula) as etapas
       FROM dados_matriculas
+      WHERE ${clause}
       GROUP BY grupo_etapa
-    `);
+    `, params);
     const etapasMatriculaPorGrupo = {};
     etapasMatriculaResult.rows.forEach(row => {
       etapasMatriculaPorGrupo[row.grupo_etapa] = row.etapas || [];
@@ -303,8 +313,9 @@ const buscarFiltros = async (req, res) => {
     const etapasTurmaResult = await pool.query(`
       SELECT grupo_etapa, array_agg(DISTINCT etapa_turma) as etapas
       FROM dados_matriculas
+      WHERE ${clause}
       GROUP BY grupo_etapa
-    `);
+    `, params);
     const etapasTurmaPorGrupo = {};
     etapasTurmaResult.rows.forEach(row => {
       etapasTurmaPorGrupo[row.grupo_etapa] = row.etapas || [];
