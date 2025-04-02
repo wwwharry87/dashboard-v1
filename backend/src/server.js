@@ -9,15 +9,20 @@ const clientRoutes = require('./routes/clientRoutes');
 const app = express();
 const port = process.env.PORT || 5001;
 
+// Configuração do CORS para permitir apenas o frontend no Render
+app.use(cors({
+  origin: 'https://ge-dashboard.onrender.com', // URL do seu frontend
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Adicione outros métodos se necessário
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true // Se estiver usando cookies ou sessões
+}));
+
 // Middlewares
-app.use(cors());
 app.use(bodyParser.json());
 
 // Rotas protegidas
 app.use('/api', authRoutes);
 app.use('/api', dashboardRoutes);
-
-// Endpoint de clientes protegido (usa token para filtrar os clientes autorizados)
 app.use('/api/client', clientRoutes);
 
 app.listen(port, () => {
