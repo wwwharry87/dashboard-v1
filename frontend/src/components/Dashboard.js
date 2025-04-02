@@ -40,7 +40,7 @@ ChartJS.register(
   ChartDataLabels
 );
 
-// Função para formatar números com separador de milhar (ex.: 4417 => "4.417")
+// Função para formatar números com separador de milhar
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
 // Função auxiliar para reordenar opções "sim"/"não"
@@ -132,6 +132,8 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
   );
 };
 
+const API_URL = process.env.REACT_APP_API_URL; // Utiliza a variável de ambiente
+
 const Dashboard = () => {
   const [data, setData] = useState({
     totalMatriculas: 0,
@@ -182,10 +184,9 @@ const Dashboard = () => {
     const fetchClientName = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await axios.get("https://dashboard-v1-pp6t.onrender.com/api/client", {
+        const response = await axios.get(`${API_URL}/client`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        // Supondo que a resposta retorne { cliente: "Nome do Cliente" }
         setClientName(response.data.cliente);
       } catch (error) {
         console.error("Erro ao buscar nome do cliente:", error);
@@ -206,7 +207,7 @@ const Dashboard = () => {
   const carregarFiltros = async () => {
     try {
       setLoading(true);
-      const response = await axios.get("https://dashboard-v1-pp6t.onrender.com/api/filtros");
+      const response = await axios.get(`${API_URL}/filtros`);
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
       setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
@@ -223,8 +224,8 @@ const Dashboard = () => {
       setLoading(true);
       setData((prev) => ({ ...prev, comparativos: null }));
       const [totaisResponse, breakdownsResponse] = await Promise.all([
-        axios.post("https://dashboard-v1-pp6t.onrender.com/api/totais", filtros),
-        axios.post("https://dashboard-v1-pp6t.onrender.com/api/breakdowns", filtros)
+        axios.post(`${API_URL}/totais`, filtros),
+        axios.post(`${API_URL}/breakdowns`, filtros)
       ]);
       setData((prev) => ({
         ...prev,
@@ -276,7 +277,8 @@ const Dashboard = () => {
       setShowSidebar(false);
     }
   };
-  // Progresso de carregamento com ajuste para Chrome
+
+  // Progresso de carregamento
   useEffect(() => {
     let interval;
     if (loading) {
@@ -327,9 +329,8 @@ const Dashboard = () => {
           </button>
         </div>
       )}
-      {/* Barra superior personalizada */}
+      {/* Barra superior */}
       <div className="p-4 bg-white shadow-md flex items-center justify-between">
-        {/* Ícone de filtro à esquerda */}
         <div className="flex items-center">
           <button
             onClick={() => setShowSidebar(true)}
@@ -338,14 +339,12 @@ const Dashboard = () => {
             <FaFilter size={20} />
           </button>
         </div>
-        {/* Título centralizado */}
         <div className="flex-1 text-center">
           <h1 className="text-2xl font-bold text-gray-800">
             {clientName || "SEMED Itaituba-PA"}
           </h1>
           <h2 className="text-lg text-gray-600">Painel de Matrículas</h2>
         </div>
-        {/* Botão de logout à direita */}
         <div>
           <button
             onClick={() => {
@@ -450,7 +449,7 @@ const Dashboard = () => {
         />
       </div>
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        {/* Tabela – scroll vertical somente, sem scroll horizontal */}
+        {/* Tabela – scroll vertical */}
         <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
           <div className="p-4 bg-gray-100 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
@@ -652,7 +651,6 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-
       <div
         id="sidebar"
         className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dashboard-matriculas-cache-v8.1';
+const CACHE_NAME = 'dashboard-matriculas-cache-v8.2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -28,18 +28,10 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Estratégia "network-first" para requisições da API
+// Para requisições que contenham '/api/', sempre utiliza a rede sem fallback para cache.
 self.addEventListener('fetch', (event) => {
   if (event.request.url.includes('/api/')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          return response;
-        })
-        .catch(() => {
-          return caches.match(event.request);
-        })
-    );
+    event.respondWith(fetch(event.request));
   } else {
     event.respondWith(
       caches.match(event.request)

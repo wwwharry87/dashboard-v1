@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 
+const API_URL = process.env.REACT_APP_API_URL; // Variável de ambiente
+
 const Login = ({ onLoginSuccess }) => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
@@ -10,10 +12,9 @@ const Login = ({ onLoginSuccess }) => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      // URL do backend local
-      const response = await axios.post('https://dashboard-v1-pp6t.onrender.com/api/login', {
-        cpf,        // Envia o CPF
-        password    // Envia a senha
+      const response = await axios.post(`${API_URL}/login`, {
+        cpf,
+        password
       });
       const { token } = response.data;
       localStorage.setItem('token', token);
@@ -64,7 +65,6 @@ const Login = ({ onLoginSuccess }) => {
       </form>
     </div>
   );
-  
 };
 
 export default Login;

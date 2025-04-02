@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
+const API_URL = process.env.REACT_APP_API_URL; // Variável de ambiente
+
 const ResetPasswordManual = () => {
   const [cpf, setCpf] = useState('');
   const [nome, setNome] = useState('');
@@ -25,7 +27,7 @@ const ResetPasswordManual = () => {
     }
     
     try {
-      const response = await axios.post('https://dashboard-v1-pp6t.onrender.com/api/reset-password-manual', {
+      const response = await axios.post(`${API_URL}/reset-password-manual`, {
         cpf,
         nome,
         data_nascimento: dataNascimento, // formato "YYYY-MM-DD"
@@ -34,8 +36,7 @@ const ResetPasswordManual = () => {
         newPassword,
       });
       setMessage(response.data.message);
-
-      // Limpa os campos do formulário
+      // Limpa os campos
       setCpf('');
       setNome('');
       setDataNascimento('');
@@ -43,7 +44,6 @@ const ResetPasswordManual = () => {
       setIdcliente('');
       setNewPassword('');
       setConfirmPassword('');
-
       // Redireciona para a tela de login após 2 segundos
       setTimeout(() => {
         navigate('/login');
