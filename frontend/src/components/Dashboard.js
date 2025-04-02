@@ -1,6 +1,6 @@
 // src/components/Dashboard.js
 import React, { useEffect, useState } from "react";
-import api from './api'; // Instância configurada do Axios
+import api from "./api"; // Instância configurada do Axios
 import { Bar, Pie } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -10,7 +10,7 @@ import {
   Title,
   Tooltip as ChartTooltip,
   Legend,
-  ArcElement
+  ArcElement,
 } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import "tailwindcss/tailwind.css";
@@ -24,7 +24,7 @@ import {
   FaArrowUp,
   FaArrowDown,
   FaBalanceScale,
-  FaSearch
+  FaSearch,
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
@@ -47,11 +47,11 @@ const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 // Função auxiliar para reordenar opções "sim"/"não"
 const reorderYesNo = (options) => {
   if (!options) return [];
-  const opts = options.map(o => String(o));
+  const opts = options.map((o) => String(o));
   if (opts.length === 2) {
-    const lower = opts.map(o => o.toLowerCase());
+    const lower = opts.map((o) => o.toLowerCase());
     if (lower.includes("sim") && lower.includes("não")) {
-      return opts.sort((a, b) => a.toLowerCase() === "sim" ? -1 : 1);
+      return opts.sort((a, b) => (a.toLowerCase() === "sim" ? -1 : 1));
     }
   }
   return opts;
@@ -65,7 +65,7 @@ const getIconColorFromBorder = (borderClass) => {
     "border-purple-500": "#8B5CF6",
     "border-yellow-500": "#FBBF24",
     "border-red-500": "#EF4444",
-    "border-black": "#000000"
+    "border-black": "#000000",
   };
   return mapping[borderClass] || "#000000";
 };
@@ -84,7 +84,9 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
       >
         <option value="">Todos</option>
         {orderedOptions?.map((option, idx) => (
-          <option key={idx} value={option}>{option}</option>
+          <option key={idx} value={option}>
+            {option}
+          </option>
         ))}
       </select>
     </label>
@@ -93,7 +95,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
-  
+
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
       return (
@@ -113,7 +115,9 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
   };
 
   return (
-    <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow h-28 flex flex-col items-center justify-center`}>
+    <div
+      className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow h-28 flex flex-col items-center justify-center`}
+    >
       <div className="text-2xl mb-1">{iconWithColor}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
       <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
@@ -139,7 +143,7 @@ const Dashboard = () => {
     matriculasPorTurno: {},
     escolasPorZona: {},
     ultimaAtualizacao: null,
-    tendenciaMatriculas: null
+    tendenciaMatriculas: null,
   });
 
   const [filters, setFilters] = useState({});
@@ -154,9 +158,10 @@ const Dashboard = () => {
     tipoMatricula: "",
     tipoTransporte: "",
     transporteEscolar: "",
-    idescola: ""
+    idescola: "",
   });
 
+  // selectedSchool guarda a escola selecionada
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -169,8 +174,8 @@ const Dashboard = () => {
 
   // Se o token não existir, redireciona para /login
   useEffect(() => {
-    if (!localStorage.getItem('token')) {
-      window.location.href = '/login';
+    if (!localStorage.getItem("token")) {
+      window.location.href = "/login";
       return;
     }
   }, []);
@@ -179,7 +184,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchClientName = async () => {
       try {
-        const response = await api.get('/client');
+        const response = await api.get("/client");
         setClientName(response.data.cliente);
       } catch (error) {
         console.error("Erro ao buscar nome do cliente:", error);
@@ -198,13 +203,14 @@ const Dashboard = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Função para carregar filtros (endpoint /filtros)
   const carregarFiltros = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/filtros');
+      const response = await api.get("/filtros");
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
-      setSelectedFilters(prev => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
+      setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
       await carregarDados({ ...selectedFilters, anoLetivo: ultimoAnoLetivo });
     } catch (error) {
       console.error("Erro ao carregar filtros:", error);
@@ -213,18 +219,19 @@ const Dashboard = () => {
     }
   };
 
+  // Função para carregar dados (totais, breakdowns, etc.)
   const carregarDados = async (filtros) => {
     try {
       setLoading(true);
-      setData(prev => ({ ...prev, comparativos: null }));
+      setData((prev) => ({ ...prev, comparativos: null }));
       const [totaisResponse, breakdownsResponse] = await Promise.all([
-        api.post('/totais', filtros),
-        api.post('/breakdowns', filtros)
+        api.post("/totais", filtros),
+        api.post("/breakdowns", filtros),
       ]);
-      setData(prev => ({
+      setData((prev) => ({
         ...prev,
         ...totaisResponse.data,
-        ...breakdownsResponse.data
+        ...breakdownsResponse.data,
       }));
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
@@ -233,6 +240,7 @@ const Dashboard = () => {
     }
   };
 
+  // Função para atualizar filtros quando o usuário interage com os selects
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     const updatedFilters = { ...selectedFilters, [name]: value };
@@ -253,6 +261,8 @@ const Dashboard = () => {
     carregarDados(updatedFilters);
   };
 
+  // Função para tratar o clique em uma escola
+  // Se a escola já estiver selecionada, desmarca e remove o filtro; caso contrário, define a escola selecionada
   const handleSchoolClick = (escola) => {
     const updatedFilters = { ...selectedFilters };
     if (selectedSchool && selectedSchool.idescola === escola.idescola) {
@@ -278,7 +288,7 @@ const Dashboard = () => {
     if (loading) {
       setProgress(0);
       interval = setInterval(() => {
-        setProgress(prev => (prev < 95 ? prev + 5 : prev));
+        setProgress((prev) => (prev < 95 ? prev + 5 : prev));
       }, 300);
     } else {
       setProgress(100);
@@ -334,16 +344,14 @@ const Dashboard = () => {
           </button>
         </div>
         <div className="flex-1 text-center">
-          <h1 className="text-2xl font-bold text-gray-800">
-            {clientName || "SEMED - TESTE"}
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-800">{clientName || "SEMED - TESTE"}</h1>
           <h2 className="text-lg text-gray-600">Painel de Matrículas</h2>
         </div>
         <div>
           <button
             onClick={() => {
-              localStorage.removeItem('token');
-              window.location.replace('/login');
+              localStorage.removeItem("token");
+              window.location.replace("/login");
             }}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
           >
@@ -369,8 +377,8 @@ const Dashboard = () => {
       {loading && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
           <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
-            <div 
-              className="bg-blue-600 text-center py-2 text-white font-bold" 
+            <div
+              className="bg-blue-600 text-center py-2 text-white font-bold"
               style={{ width: `${progress}%`, transition: "width 0.3s ease" }}
             >
               {progress}%
@@ -475,7 +483,7 @@ const Dashboard = () => {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {data.escolas
-                  .filter(escola =>
+                  .filter((escola) =>
                     escola.escola.toLowerCase().includes(searchTerm.toLowerCase())
                   )
                   .map((escola, index) => (
@@ -516,34 +524,34 @@ const Dashboard = () => {
                     label: "Entradas",
                     data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
                     backgroundColor: "#FBBF24",
-                    borderRadius: 6
+                    borderRadius: 6,
                   },
                   {
                     label: "Saídas",
                     data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
                     backgroundColor: "#EF4444",
-                    borderRadius: 6
-                  }
-                ]
+                    borderRadius: 6,
+                  },
+                ],
               }}
               options={{
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                   legend: { position: "top", labels: { color: "#6B7280" } },
-                  datalabels: { display: false }
+                  datalabels: { display: false },
                 },
                 scales: {
                   x: {
                     grid: { display: false },
-                    ticks: { color: "#6B7280", font: { weight: "bold" } }
+                    ticks: { color: "#6B7280", font: { weight: "bold" } },
                   },
                   y: {
                     grid: { color: "#E5E7EB" },
-                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) }
-                  }
+                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
+                  },
                 },
-                layout: { padding: { top: 20, bottom: 20 } }
+                layout: { padding: { top: 20, bottom: 20 } },
               }}
             />
           </div>
@@ -560,22 +568,27 @@ const Dashboard = () => {
                   {
                     label: "Sexo",
                     data: Object.values(data.matriculasPorSexo),
-                    backgroundColor: Object.keys(data.matriculasPorSexo).map(sexo => {
+                    backgroundColor: Object.keys(data.matriculasPorSexo).map((sexo) => {
                       if (sexo.toLowerCase().includes("masc")) return "#0000FF";
                       if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
                       return "#CCCCCC";
                     }),
-                    borderWidth: 0
-                  }
-                ]
+                    borderWidth: 0,
+                  },
+                ],
               }}
               options={{
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                   legend: { position: "bottom" },
-                  datalabels: { display: true, color: "#fff", font: { weight: "bold" }, formatter: (value) => formatNumber(value) }
-                }
+                  datalabels: {
+                    display: true,
+                    color: "#fff",
+                    font: { weight: "bold" },
+                    formatter: (value) => formatNumber(value),
+                  },
+                },
               }}
             />
           </div>
@@ -591,12 +604,20 @@ const Dashboard = () => {
                     label: "Turno",
                     data: Object.values(data.matriculasPorTurno),
                     backgroundColor: Object.keys(data.matriculasPorTurno).map((_, index) => {
-                      const turnoColors = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899"];
+                      const turnoColors = [
+                        "#4F46E5",
+                        "#10B981",
+                        "#F59E0B",
+                        "#EF4444",
+                        "#3B82F6",
+                        "#8B5CF6",
+                        "#EC4899",
+                      ];
                       return turnoColors[index % turnoColors.length];
                     }),
-                    borderRadius: 4
-                  }
-                ]
+                    borderRadius: 4,
+                  },
+                ],
               }}
               options={{
                 indexAxis: "y",
@@ -611,113 +632,23 @@ const Dashboard = () => {
                     anchor: "end",
                     align: "right",
                     offset: 4,
-                    formatter: (value) => formatNumber(value)
-                  }
+                    formatter: (value) => formatNumber(value),
+                  },
                 },
                 scales: {
                   x: {
                     grid: { color: "#E5E7EB" },
-                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) }
+                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
                   },
                   y: {
                     grid: { display: false },
-                    ticks: { color: "#6B7280", font: { weight: "bold" } }
-                  }
+                    ticks: { color: "#6B7280", font: { weight: "bold" } },
+                  },
                 },
-                layout: { padding: { left: 20, right: 20 } }
+                layout: { padding: { left: 20, right: 20 } },
               }}
             />
           </div>
-        </div>
-      </div>
-      <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${showSidebar ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out z-50`}>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
-          <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-gray-700 transition-colors">
-            ✕
-          </button>
-        </div>
-        <div className="space-y-4">
-          <FilterSelect
-            label="Ano Letivo"
-            name="anoLetivo"
-            options={filters.ano_letivo}
-            value={selectedFilters.anoLetivo}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Tipo Matrícula"
-            name="tipoMatricula"
-            options={filters.tipo_matricula}
-            value={selectedFilters.tipoMatricula}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Situação Matrícula"
-            name="situacaoMatricula"
-            options={filters.situacao_matricula}
-            value={selectedFilters.situacaoMatricula}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Grupo Etapa"
-            name="grupoEtapa"
-            options={filters.grupo_etapa}
-            value={selectedFilters.grupoEtapa}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Etapa Matrícula"
-            name="etapaMatricula"
-            options={
-              selectedFilters.grupoEtapa && filters.etapasMatriculaPorGrupo
-                ? filters.etapasMatriculaPorGrupo[selectedFilters.grupoEtapa] || []
-                : filters.etapa_matricula
-            }
-            disabled={selectedFilters.etapaTurma !== ""}
-            value={selectedFilters.etapaMatricula}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Etapa Turma"
-            name="etapaTurma"
-            options={
-              selectedFilters.grupoEtapa && filters.etapasTurmaPorGrupo
-                ? filters.etapasTurmaPorGrupo[selectedFilters.grupoEtapa] || []
-                : filters.etapa_turma
-            }
-            disabled={selectedFilters.etapaMatricula !== ""}
-            value={selectedFilters.etapaTurma}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Deficiência"
-            name="deficiencia"
-            options={filters.deficiencia}
-            value={selectedFilters.deficiencia}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Multissérie"
-            name="multisserie"
-            options={filters.multisserie}
-            value={selectedFilters.multisserie}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Transporte Escolar"
-            name="transporteEscolar"
-            options={filters.transporte_escolar}
-            value={selectedFilters.transporteEscolar}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Tipo Transporte"
-            name="tipoTransporte"
-            options={filters.tipo_transporte}
-            value={selectedFilters.tipoTransporte}
-            onChange={handleFilterChange}
-          />
         </div>
       </div>
     </div>
