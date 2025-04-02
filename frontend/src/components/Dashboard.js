@@ -184,7 +184,7 @@ const Dashboard = () => {
     const fetchClientName = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await axios.get(`${API_URL}/client`, {
+        const response = await axios.get(`${API_URL}/api/client`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setClientName(response.data.cliente);
@@ -207,7 +207,7 @@ const Dashboard = () => {
   const carregarFiltros = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_URL}/filtros`);
+      const response = await axios.get(`${API_URL}/api/filtros`);
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
       setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
@@ -224,8 +224,8 @@ const Dashboard = () => {
       setLoading(true);
       setData((prev) => ({ ...prev, comparativos: null }));
       const [totaisResponse, breakdownsResponse] = await Promise.all([
-        axios.post(`${API_URL}/totais`, filtros),
-        axios.post(`${API_URL}/breakdowns`, filtros)
+        axios.post(`${API_URL}/api/totais`, filtros),
+        axios.post(`${API_URL}/api/breakdowns`, filtros)
       ]);
       setData((prev) => ({
         ...prev,
@@ -341,7 +341,7 @@ const Dashboard = () => {
         </div>
         <div className="flex-1 text-center">
           <h1 className="text-2xl font-bold text-gray-800">
-            {clientName || "SEMED Itaituba-PA"}
+            {clientName || "SEMED - TESTE"}
           </h1>
           <h2 className="text-lg text-gray-600">Painel de Matrículas</h2>
         </div>
@@ -349,7 +349,7 @@ const Dashboard = () => {
           <button
             onClick={() => {
               localStorage.removeItem('token');
-              window.location.replace('/login');
+              window.location.replace('/api/login');
             }}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
           >

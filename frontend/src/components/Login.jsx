@@ -19,7 +19,7 @@ const Login = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      const response = await axios.post(`${API_URL}/login`, { cpf, password });
+      const response = await axios.post(`${API_URL}/api/login`, { cpf, password });
       console.log("Login response:", response.data); // Debug
       const { token } = response.data;
       if (!token) {
