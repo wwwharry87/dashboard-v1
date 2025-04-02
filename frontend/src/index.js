@@ -7,7 +7,10 @@ import reportWebVitals from './reportWebVitals';
 // Desregistra qualquer service worker antigo para evitar cache desatualizado
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((registrations) => {
-    registrations.forEach((registration) => registration.unregister());
+    registrations.forEach((registration) => {
+      registration.unregister();
+      console.log('Service Worker desregistrado:', registration);
+    });
   });
 }
 
@@ -20,3 +23,6 @@ root.render(
 );
 
 reportWebVitals();
+
+
+
