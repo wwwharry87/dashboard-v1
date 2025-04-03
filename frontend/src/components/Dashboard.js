@@ -95,7 +95,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
-
+  
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
       return (
@@ -115,9 +115,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
   };
 
   return (
-    <div
-      className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow h-28 flex flex-col items-center justify-center`}
-    >
+    <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow h-28 flex flex-col items-center justify-center`}>
       <div className="text-2xl mb-1">{iconWithColor}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
       <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
@@ -161,7 +159,7 @@ const Dashboard = () => {
     idescola: "",
   });
 
-  // selectedSchool guarda a escola selecionada
+  // Guarda a escola selecionada
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -199,11 +197,19 @@ const Dashboard = () => {
       await carregarFiltros();
     };
     initialize();
+    // Inclui "filterButton" para evitar fechar o sidebar ao clicar no botão de filtro
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Função para carregar filtros (endpoint /filtros)
+  // Função para fechar o sidebar se o clique não estiver no sidebar ou no botão de filtro
+  const handleClickOutside = (event) => {
+    if (!event.target.closest("#sidebar") && !event.target.closest("#filterButton")) {
+      setShowSidebar(false);
+    }
+  };
+
+  // Função para carregar os filtros do endpoint /filtros
   const carregarFiltros = async () => {
     try {
       setLoading(true);
@@ -240,7 +246,7 @@ const Dashboard = () => {
     }
   };
 
-  // Função para atualizar filtros quando o usuário interage com os selects
+  // Atualiza filtros quando o usuário interage com os selects
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     const updatedFilters = { ...selectedFilters, [name]: value };
@@ -261,8 +267,7 @@ const Dashboard = () => {
     carregarDados(updatedFilters);
   };
 
-  // Função para tratar o clique em uma escola
-  // Se a escola já estiver selecionada, desmarca e remove o filtro; caso contrário, define a escola selecionada
+  // Ao clicar em uma escola, alterna a seleção
   const handleSchoolClick = (escola) => {
     const updatedFilters = { ...selectedFilters };
     if (selectedSchool && selectedSchool.idescola === escola.idescola) {
@@ -274,12 +279,6 @@ const Dashboard = () => {
     }
     setSelectedFilters(updatedFilters);
     carregarDados(updatedFilters);
-  };
-
-  const handleClickOutside = (event) => {
-    if (!event.target.closest("#sidebar")) {
-      setShowSidebar(false);
-    }
   };
 
   // Progresso de carregamento
@@ -335,7 +334,7 @@ const Dashboard = () => {
       )}
       {/* Barra superior */}
       <div className="p-4 bg-white shadow-md flex items-center justify-between">
-        <div className="flex items-center">
+        <div id="filterButton" className="flex items-center">
           <button
             onClick={() => setShowSidebar(true)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md mr-4"
@@ -649,6 +648,96 @@ const Dashboard = () => {
               }}
             />
           </div>
+        </div>
+      </div>
+      <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${showSidebar ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out z-50`}>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
+          <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-gray-700 transition-colors">
+            ✕
+          </button>
+        </div>
+        <div className="space-y-4">
+          <FilterSelect
+            label="Ano Letivo"
+            name="anoLetivo"
+            options={filters.ano_letivo}
+            value={selectedFilters.anoLetivo}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Tipo Matrícula"
+            name="tipoMatricula"
+            options={filters.tipo_matricula}
+            value={selectedFilters.tipoMatricula}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Situação Matrícula"
+            name="situacaoMatricula"
+            options={filters.situacao_matricula}
+            value={selectedFilters.situacaoMatricula}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Grupo Etapa"
+            name="grupoEtapa"
+            options={filters.grupo_etapa}
+            value={selectedFilters.grupoEtapa}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Etapa Matrícula"
+            name="etapaMatricula"
+            options={
+              selectedFilters.grupoEtapa && filters.etapasMatriculaPorGrupo
+                ? filters.etapasMatriculaPorGrupo[selectedFilters.grupoEtapa] || []
+                : filters.etapa_matricula
+            }
+            disabled={selectedFilters.etapaTurma !== ""}
+            value={selectedFilters.etapaMatricula}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Etapa Turma"
+            name="etapaTurma"
+            options={
+              selectedFilters.grupoEtapa && filters.etapasTurmaPorGrupo
+                ? filters.etapasTurmaPorGrupo[selectedFilters.grupoEtapa] || []
+                : filters.etapa_turma
+            }
+            disabled={selectedFilters.etapaMatricula !== ""}
+            value={selectedFilters.etapaTurma}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Deficiência"
+            name="deficiencia"
+            options={filters.deficiencia}
+            value={selectedFilters.deficiencia}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Multissérie"
+            name="multisserie"
+            options={filters.multisserie}
+            value={selectedFilters.multisserie}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Transporte Escolar"
+            name="transporteEscolar"
+            options={filters.transporte_escolar}
+            value={selectedFilters.transporteEscolar}
+            onChange={handleFilterChange}
+          />
+          <FilterSelect
+            label="Tipo Transporte"
+            name="tipoTransporte"
+            options={filters.tipo_transporte}
+            value={selectedFilters.tipoTransporte}
+            onChange={handleFilterChange}
+          />
         </div>
       </div>
     </div>
