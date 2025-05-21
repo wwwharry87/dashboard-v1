@@ -79,18 +79,27 @@ const buscarTotais = async (req, res) => {
       totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
       totalVagas: `
         SELECT 
-          SUM(vagas) AS total_vagas
-        FROM (
-          SELECT 
-            escola, 
-            etapa_turma, 
-            idturma, 
-            limite_maximo_aluno, 
-            inep,
-            (limite_maximo_aluno - COUNT(*) FILTER (WHERE situacao_matricula = 'ATIVO')) AS vagas
-          ${queryBaseFiltrada}
-          GROUP BY escola, etapa_turma, idturma, limite_maximo_aluno, inep
-        ) AS sub
+    SUM(limite_maximo_aluno) - SUM(qtde_matriculas) AS total_vagas
+  FROM (
+    WITH turmas AS (
+      SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
+      ${queryBaseFiltrada}
+    ),
+    totalMatriculas AS (
+      SELECT idescola, COUNT(*) FILTER (
+        WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
+      ) AS qtde_matriculas
+      ${queryBaseFiltrada}
+      GROUP BY idescola
+    )
+    SELECT 
+      t.idescola,
+      SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
+      COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas
+    FROM turmas t
+    LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
+    GROUP BY t.idescola, tm.qtde_matriculas
+  ) AS sub
       `,
       totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
       totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`

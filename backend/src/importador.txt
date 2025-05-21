@@ -33,14 +33,18 @@ CREATE TEMP TABLE staging_matriculas (
   limite_minimo_aluno   integer,
   tipo_transporte       text,
   tp_deficiencia        text,
-  idcliente             integer
+  idcliente             integer,
+  idtipo                integer,  -- Nova coluna
+  idsituacao            integer   -- Nova coluna
 );
 
 -- 2. Importe os dados do CSV para a tabela de staging (delimitador ponto e vírgula)
+-- Nota: Se o CSV não tiver as colunas idtipo e idsituacao, você pode:
+-- a) Remover estas colunas da tabela staging, ou
+-- b) Manter e definir valores padrão (ex: NULL ou 0)
 \copy staging_matriculas FROM '/Users/wesleymelo/bw-solucoes-dashboard/backend/data/matriculas.csv' WITH (FORMAT csv, HEADER true, DELIMITER ';');
 
 -- 3. Insira (ou atualize) os dados na tabela de destino "dados_matriculas"
--- Aqui usamos DISTINCT ON para evitar duplicatas em idmatricula, mantendo o registro com a data_matricula mais recente
 INSERT INTO dados_matriculas (
   ano_letivo,
   escola,
@@ -72,7 +76,9 @@ INSERT INTO dados_matriculas (
   limite_minimo_aluno,
   tipo_transporte,
   tp_deficiencia,
-  idcliente
+  idcliente,
+  idtipo,               -- Nova coluna
+  idsituacao            -- Nova coluna
 )
 SELECT
   ano_letivo,
@@ -105,7 +111,9 @@ SELECT
   limite_minimo_aluno,
   tipo_transporte,
   tp_deficiencia,
-  idcliente
+  idcliente,
+  COALESCE(idtipo, 0),     -- Tratamento para NULL (pode ajustar o valor padrão)
+  COALESCE(idsituacao, 0)  -- Tratamento para NULL (pode ajustar o valor padrão)
 FROM (
   SELECT DISTINCT ON (idmatricula) *
   FROM staging_matriculas
@@ -141,4 +149,6 @@ ON CONFLICT (idmatricula) DO UPDATE SET
   limite_minimo_aluno  = EXCLUDED.limite_minimo_aluno,
   tipo_transporte      = EXCLUDED.tipo_transporte,
   tp_deficiencia       = EXCLUDED.tp_deficiencia,
-  idcliente            = EXCLUDED.idcliente;
+  idcliente            = EXCLUDED.idcliente,
+  idtipo               = EXCLUDED.idtipo,          -- Nova coluna
+  idsituacao           = EXCLUDED.idsituacao;      -- Nova coluna
