@@ -24,6 +24,7 @@ const buildWhereClause = (filters, user) => {
   addFilter(filters.tipoMatricula, "tipo_matricula");
   addFilter(filters.tipoTransporte, "tipo_transporte");
   addFilter(filters.transporteEscolar, "transporte_escolar");
+  addFilter(filters.idescola, "idescola");
 
   // Lógica de filtro por cliente: prioriza dados do token
   let clientFilterApplied = false;
