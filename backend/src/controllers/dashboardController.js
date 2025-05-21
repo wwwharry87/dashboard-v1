@@ -68,7 +68,8 @@ const buscarTotais = async (req, res) => {
       tipoMatricula: req.body.tipoMatricula,
       tipoTransporte: req.body.tipoTransporte,
       transporteEscolar: req.body.transporteEscolar,
-      idcliente: req.body.idcliente // Será ignorado se o token tiver filtro de cliente
+      idcliente: req.body.idcliente, // Será ignorado se o token tiver filtro de cliente
+      idescola: req.body.idescola // filtro da escola
     };
 
     const { clause, params } = buildWhereClause(filters, req.user);
