@@ -3,6 +3,7 @@ const pool = require('../config/db');
 // Nome da coluna que referencia o cliente na tabela dados_matriculas
 const clientField = 'idcliente';
 
+// Função para montar o WHERE com todos os filtros, inclusive idescola
 const buildWhereClause = (filters, user) => {
   const whereClauses = ["1=1"];
   const params = [];
@@ -13,7 +14,6 @@ const buildWhereClause = (filters, user) => {
     }
   };
 
-  // Aplica os filtros gerais (exceto o filtro de idcliente manual)
   addFilter(filters.anoLetivo, "ano_letivo");
   addFilter(filters.deficiencia, "deficiencia");
   addFilter(filters.grupoEtapa, "grupo_etapa");
@@ -24,38 +24,29 @@ const buildWhereClause = (filters, user) => {
   addFilter(filters.tipoMatricula, "tipo_matricula");
   addFilter(filters.tipoTransporte, "tipo_transporte");
   addFilter(filters.transporteEscolar, "transporte_escolar");
-  addFilter(filters.idescola, "idescola");
+  addFilter(filters.idescola, "idescola"); // <-- ESSA LINHA É O SEGREDO!
 
-  // Lógica de filtro por cliente: prioriza dados do token
+  // Lógica de filtro por cliente
   let clientFilterApplied = false;
   if (user) {
-    // Se existir user.clientId (usuário vinculado a UM cliente)
     if (user.clientId !== undefined && user.clientId !== null && user.clientId !== "") {
       addFilter(user.clientId, clientField);
       clientFilterApplied = true;
-    }
-    // Se não existir, mas o token tiver allowedClients (usuário com múltiplos clientes)
-    else if (user.allowedClients && user.allowedClients.length > 0) {
+    } else if (user.allowedClients && user.allowedClients.length > 0) {
       params.push(user.allowedClients);
       whereClauses.push(`${clientField} = ANY($${params.length}::integer[])`);
       clientFilterApplied = true;
     }
   }
-
-  // Se nenhum filtro de cliente foi aplicado pelo token, usa o filtro manual enviado no body
   if (!clientFilterApplied) {
     addFilter(filters.idcliente, clientField);
   }
-
-  console.log("Cláusula WHERE:", whereClauses.join(" AND "));
-  console.log("Parâmetros:", params);
   return { clause: whereClauses.join(" AND "), params };
 };
 
+// === FUNÇÃO PRINCIPAL DOS TOTAIS (INCLUINDO SEXO, TURNO, ZONA e COMPARATIVO) ===
 const buscarTotais = async (req, res) => {
   try {
-    console.log("req.user:", req.user);
-
     // Extrai os filtros do body
     const filters = {
       anoLetivo: req.body.anoLetivo,
@@ -68,40 +59,41 @@ const buscarTotais = async (req, res) => {
       tipoMatricula: req.body.tipoMatricula,
       tipoTransporte: req.body.tipoTransporte,
       transporteEscolar: req.body.transporteEscolar,
-      idcliente: req.body.idcliente, // Será ignorado se o token tiver filtro de cliente
-      idescola: req.body.idescola // filtro da escola
+      idcliente: req.body.idcliente,
+      idescola: req.body.idescola // <--- ESSENCIAL!
     };
 
     const { clause, params } = buildWhereClause(filters, req.user);
     const queryBase = `FROM dados_matriculas WHERE ${clause} `;
     const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
 
+    // 1. Cartões principais
     const queriesMain = {
       totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
       totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
       totalVagas: `
         SELECT 
-    SUM(limite_maximo_aluno) - SUM(qtde_matriculas) AS total_vagas
-  FROM (
-    WITH turmas AS (
-      SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-      ${queryBaseFiltrada}
-    ),
-    totalMatriculas AS (
-      SELECT idescola, COUNT(*) FILTER (
-        WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
-      ) AS qtde_matriculas
-      ${queryBaseFiltrada}
-      GROUP BY idescola
-    )
-    SELECT 
-      t.idescola,
-      SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
-      COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas
-    FROM turmas t
-    LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
-    GROUP BY t.idescola, tm.qtde_matriculas
-  ) AS sub
+          SUM(limite_maximo_aluno) - SUM(qtde_matriculas) AS total_vagas
+        FROM (
+          WITH turmas AS (
+            SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
+            ${queryBaseFiltrada}
+          ),
+          totalMatriculas AS (
+            SELECT idescola, COUNT(*) FILTER (
+              WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
+            ) AS qtde_matriculas
+            ${queryBaseFiltrada}
+            GROUP BY idescola
+          )
+          SELECT 
+            t.idescola,
+            SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
+            COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas
+          FROM turmas t
+          LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
+          GROUP BY t.idescola, tm.qtde_matriculas
+        ) AS sub
       `,
       totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
       totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
@@ -111,49 +103,31 @@ const buscarTotais = async (req, res) => {
       Object.values(queriesMain).map(q => pool.query(q, params))
     );
 
-    const ultimaAtualizacaoQuery = `
-      SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
-      AS ultima_atualizacao 
-      FROM dados_matriculas
-    `;
-    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
-    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
+    // 2. Matrículas por Zona
+    const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY zona_aluno `;
+    const resultZona = await pool.query(matriculasZonaQuery, params);
+    const matriculasPorZona = {};
+    resultZona.rows.forEach(row => {
+      matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
+    });
 
-    // Breakdown para registros com grupo_etapa "complementar"
-    let matriculasPorZona = {};
-    let matriculasPorSexo = {};
-    let matriculasPorTurno = {};
+    // 3. Matrículas por Sexo
+    const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada}GROUP BY sexo `;
+    const resultSexo = await pool.query(matriculasSexoQuery, params);
+    const matriculasPorSexo = {};
+    resultSexo.rows.forEach(row => {
+      matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
+    });
 
-    if (filters.grupoEtapa && filters.grupoEtapa.toLowerCase() === "complementar") {
-      try {
-        const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY zona_aluno `;
-        const resultZona = await pool.query(matriculasZonaQuery, params);
-        resultZona.rows.forEach(row => {
-          matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
-        });
-      } catch (err) {
-        console.error("Erro ao buscar matriculas por zona:", err);
-      }
-      try {
-        const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada}GROUP BY sexo `;
-        const resultSexo = await pool.query(matriculasSexoQuery, params);
-        resultSexo.rows.forEach(row => {
-          matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
-        });
-      } catch (err) {
-        console.error("Erro ao buscar matriculas por sexo:", err);
-      }
-      try {
-        const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno `;
-        const resultTurno = await pool.query(matriculasTurnoQuery, params);
-        resultTurno.rows.forEach(row => {
-          matriculasPorTurno[row.turno] = parseInt(row.total, 10);
-        });
-      } catch (err) {
-        console.error("Erro ao buscar matriculas por turno:", err);
-      }
-    }
+    // 4. Matrículas por Turno
+    const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno, cdturno ORDER BY cdturno `;
+    const resultTurno = await pool.query(matriculasTurnoQuery, params);
+    const matriculasPorTurno = {};
+    resultTurno.rows.forEach(row => {
+      matriculasPorTurno[row.turno] = parseInt(row.total, 10);
+    });
 
+    // 5. Lista de escolas (para tabela)
     const escolasQuery = `
       WITH turmas AS (
         SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
@@ -189,6 +163,7 @@ const buscarTotais = async (req, res) => {
       status_vagas: row.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
     }));
 
+    // 6. Gráfico de movimentação mensal
     const entradasSaidasQuery = `
       WITH entradas AS (
         SELECT 
@@ -216,13 +191,14 @@ const buscarTotais = async (req, res) => {
     const entradasSaidasPorMes = {};
     const nomesMeses = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
     entradasSaidasResult.rows.forEach(row => {
-      const mesIndex = row.mes - 1; 
+      const mesIndex = row.mes - 1;
       const mesAbreviado = nomesMeses[mesIndex] || row.mes;
       const entradas = parseInt(row.entradas, 10) || 0;
       const saidas = parseInt(row.saidas, 10) || 0;
       entradasSaidasPorMes[mesAbreviado] = { entradas, saidas };
     });
 
+    // 7. Escolas por Zona (cartão extra)
     const escolasZonaQuery = `SELECT zona_escola, COUNT(DISTINCT idescola) as total ${queryBase}GROUP BY zona_escola `;
     const resultEscolasZona = await pool.query(escolasZonaQuery, params);
     const escolasPorZona = {};
@@ -230,30 +206,18 @@ const buscarTotais = async (req, res) => {
       escolasPorZona[row.zona_escola] = parseInt(row.total, 10);
     });
 
+    // 8. Tendência/Comparativo de matrículas (cartão com filtro aplicado)
     let trendMatriculas = null;
     if (filters.anoLetivo) {
       const prevYear = (parseInt(filters.anoLetivo, 10) - 1).toString();
       const { clause: clausePrev, params: paramsPrev } = buildWhereClause({
-        anoLetivo: prevYear,
-        deficiencia: filters.deficiencia,
-        grupoEtapa: filters.grupoEtapa,
-        etapaMatricula: filters.etapaMatricula,
-        etapaTurma: filters.etapaTurma,
-        multisserie: filters.multisserie,
-        situacaoMatricula: filters.situacaoMatricula,
-        tipoMatricula: filters.tipoMatricula,
-        tipoTransporte: filters.tipoTransporte,
-        transporteEscolar: filters.transporteEscolar,
-        idcliente: filters.idcliente
+        ...filters,
+        anoLetivo: prevYear // Só troca o ano, mantém idescola e todos os filtros!
       }, req.user);
+
       const queryBasePrev = `FROM dados_matriculas WHERE ${clausePrev} `;
-      const queriesPrev = {
-        totalMatriculas: `SELECT COUNT(*) ${queryBasePrev}AND idetapa_matricula NOT IN (98,99)`
-      };
-      const resultsPrev = await Promise.all(
-        Object.values(queriesPrev).map(q => pool.query(q, paramsPrev))
-      );
-      const prevMat = parseInt(resultsPrev[0].rows[0].count, 10) || 0;
+      const resultPrev = await pool.query(`SELECT COUNT(*) ${queryBasePrev}AND idetapa_matricula NOT IN (98,99)`, paramsPrev);
+      const prevMat = parseInt(resultPrev.rows[0].count, 10) || 0;
       const currentMat = parseInt(resultsMain[0].rows[0].count, 10) || 0;
       if (prevMat > 0) {
         const diff = prevMat - currentMat;
@@ -266,6 +230,16 @@ const buscarTotais = async (req, res) => {
       }
     }
 
+    // 9. Última atualização (mantém igual)
+    const ultimaAtualizacaoQuery = `
+      SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
+      AS ultima_atualizacao 
+      FROM dados_matriculas
+    `;
+    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
+    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
+
+    // 10. Retorna todos os dados para o frontend
     res.json({
       totalMatriculas: parseInt(resultsMain[0].rows[0].count, 10) || 0,
       totalEscolas: parseInt(resultsMain[1].rows[0].count, 10) || 0,
@@ -288,15 +262,12 @@ const buscarTotais = async (req, res) => {
   }
 };
 
+// Mantém o buscarFiltros igual ao seu original (usando buildWhereClause)
 const buscarFiltros = async (req, res) => {
   try {
-    // Recebe os filtros enviados no body, se houver, ou usa objeto vazio
     const filters = req.body || {};
-
-    // Constrói a cláusula WHERE considerando os filtros e o usuário
     const { clause, params } = buildWhereClause(filters, req.user);
 
-    // Consulta os filtros aplicando a cláusula WHERE
     const filtrosResult = await pool.query(`
       SELECT DISTINCT 
         ano_letivo, deficiencia, grupo_etapa, etapa_matricula,
@@ -352,6 +323,7 @@ const buscarFiltros = async (req, res) => {
   }
 };
 
+// === BREAKDOWNS (filtros aplicados inclusive idescola) ===
 const buscarBreakdowns = async (req, res) => {
   try {
     const {
@@ -365,7 +337,8 @@ const buscarBreakdowns = async (req, res) => {
       tipoMatricula,
       tipoTransporte,
       transporteEscolar,
-      idcliente
+      idcliente,
+      idescola // ESSENCIAL!
     } = req.body;
 
     const { clause, params } = buildWhereClause({
@@ -379,12 +352,14 @@ const buscarBreakdowns = async (req, res) => {
       tipoMatricula,
       tipoTransporte,
       transporteEscolar,
-      idcliente
+      idcliente,
+      idescola
     }, req.user);
 
     const queryBase = `FROM dados_matriculas WHERE ${clause} `;
     const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
 
+    // Matrículas por Zona
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
     let matriculasPorTurno = {};
