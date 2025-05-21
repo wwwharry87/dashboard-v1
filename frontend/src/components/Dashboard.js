@@ -95,7 +95,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
 
 const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
   const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
-  
+
   const renderComparativo = () => {
     if (comparativo && comparativo.diff != null) {
       return (
@@ -358,6 +358,22 @@ const Dashboard = () => {
           </button>
         </div>
       </div>
+
+      {/* === ADICIONADO: badge para filtro de escola ativo === */}
+      {selectedSchool && (
+        <div className="text-center mb-2">
+          <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-bold">
+            Filtro ativo: {selectedSchool.escola}
+          </span>
+          <button
+            onClick={() => handleSchoolClick(selectedSchool)}
+            className="ml-2 text-red-600 hover:underline text-xs"
+          >
+            Remover filtro
+          </button>
+        </div>
+      )}
+
       {data.ultimaAtualizacao && (() => {
         const updatedDate = new Date(data.ultimaAtualizacao);
         updatedDate.setHours(updatedDate.getHours() + 3);
@@ -743,5 +759,4 @@ const Dashboard = () => {
     </div>
   );
 };
-
 export default Dashboard;
