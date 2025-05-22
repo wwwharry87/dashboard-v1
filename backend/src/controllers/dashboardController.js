@@ -72,36 +72,29 @@ const buscarTotais = async (req, res) => {
       totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
       totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
       totalVagas: `
-  SELECT 
-    SUM(
-      CASE 
-        WHEN (limite_maximo_aluno - COALESCE(qtde_matriculas, 0)) > 0
-        THEN (limite_maximo_aluno - COALESCE(qtde_matriculas, 0))
-        ELSE 0
-      END
-    ) AS total_vagas
-  FROM (
-    WITH turmas AS (
-      SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-      ${queryBaseFiltrada}
-    ),
-    totalMatriculas AS (
-      SELECT idescola, COUNT(*) FILTER (
-        WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
-      ) AS qtde_matriculas
-      ${queryBaseFiltrada}
-      GROUP BY idescola
-    )
-    SELECT 
-      t.idescola,
-      SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
-      COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas
-    FROM turmas t
-    LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
-    GROUP BY t.idescola, tm.qtde_matriculas
-  ) AS sub
-`,
-
+        SELECT 
+          SUM(limite_maximo_aluno) - SUM(qtde_matriculas) AS total_vagas
+        FROM (
+          WITH turmas AS (
+            SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
+            ${queryBaseFiltrada}
+          ),
+          totalMatriculas AS (
+            SELECT idescola, COUNT(*) FILTER (
+              WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
+            ) AS qtde_matriculas
+            ${queryBaseFiltrada}
+            GROUP BY idescola
+          )
+          SELECT 
+            t.idescola,
+            SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
+            COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas
+          FROM turmas t
+          LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
+          GROUP BY t.idescola, tm.qtde_matriculas
+        ) AS sub
+      `,
       totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
       totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
     };
