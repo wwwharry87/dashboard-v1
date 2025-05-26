@@ -38,10 +38,14 @@ const isValidCPF = (cpf) => {
 };
 
 // Toast simples com Tailwind e emoji
-const Toast = ({ message, show }) => (
+const Toast = ({ message, show, type = "info" }) => (
   show ? (
-    <div className="fixed top-5 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in">
-      <span role="img" aria-label="party">🎉</span>
+    <div className={`fixed top-5 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in
+      ${type === "success" ? "bg-green-600 text-white" : ""}
+      ${type === "error" ? "bg-red-600 text-white" : ""}
+      ${type === "info" ? "bg-blue-600 text-white" : ""}
+    `}>
+      <span role="img" aria-label="party">{type === "success" ? "🎉" : type === "error" ? "❌" : "🔔"}</span>
       {message}
       <style>
         {`
@@ -64,6 +68,8 @@ const Login = () => {
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [toastType, setToastType] = useState('info');
+  const [toastMsg, setToastMsg] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -92,6 +98,9 @@ const Login = () => {
       setLoading(false);
       return;
     }
+    setShowToast(true);
+    setToastType('info');
+    setToastMsg('Validando usuário, aguarde...');
     try {
       const response = await axios.post(`${API_URL}/login`, { cpf: rawCpf, password });
       const { token, nome } = response.data;
@@ -99,16 +108,18 @@ const Login = () => {
 
       localStorage.setItem('token', token);
 
-      setShowToast(true);
-
+      setToastType('success');
+      setToastMsg('Login realizado com sucesso! Bem-vindo(a)!');
       setTimeout(() => {
         setShowToast(false);
-        // Sempre passa um nome para o dashboard
         navigate('/dashboard', { state: { nome: nome ? nome : 'Usuário' } });
-      }, 1600);
+      }, 900); // Rápido, mas mostra sucesso
 
     } catch (err) {
+      setToastType('error');
+      setToastMsg(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
       setErro(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
+      setTimeout(() => setShowToast(false), 1800);
     } finally {
       setLoading(false);
     }
@@ -156,14 +167,14 @@ const Login = () => {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
             </svg>
           )}
-          {loading ? 'Entrando...' : 'Entrar'}
+          {loading ? 'Validando usuário...' : 'Entrar'}
         </button>
         <div className="mt-5 text-center">
           <Link to="/reset-password-manual" className="text-blue-500 hover:underline text-sm">
             Esqueci minha senha
           </Link>
         </div>
-        <Toast message="Bem-vindo(a)! Que bom ver você 🎉" show={showToast} />
+        <Toast message={toastMsg} show={showToast} type={toastType} />
       </form>
       <style>
         {`
