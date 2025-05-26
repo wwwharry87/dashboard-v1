@@ -1,10 +1,11 @@
 const pool = require('../config/db');
+const NodeCache = require('node-cache');
+const cache = new NodeCache({ stdTTL: 3600 }); // cache de 1 hora (ajuste se quiser)
 
-// Nome da coluna que referencia o cliente na tabela dados_matriculas
 const clientField = 'idcliente';
 
-// Função para montar o WHERE com todos os filtros, inclusive idescola
-const buildWhereClause = (filters, user) => {
+// Monta o WHERE e os params dos filtros
+function buildWhereClause(filters, user) {
   const whereClauses = ["1=1"];
   const params = [];
   const addFilter = (value, field) => {
@@ -13,7 +14,6 @@ const buildWhereClause = (filters, user) => {
       whereClauses.push(`${field} = $${params.length}`);
     }
   };
-
   addFilter(filters.anoLetivo, "ano_letivo");
   addFilter(filters.deficiencia, "deficiencia");
   addFilter(filters.grupoEtapa, "grupo_etapa");
@@ -24,9 +24,9 @@ const buildWhereClause = (filters, user) => {
   addFilter(filters.tipoMatricula, "tipo_matricula");
   addFilter(filters.tipoTransporte, "tipo_transporte");
   addFilter(filters.transporteEscolar, "transporte_escolar");
-  addFilter(filters.idescola, "idescola"); // <-- ESSA LINHA É O SEGREDO!
+  addFilter(filters.idescola, "idescola");
 
-  // Lógica de filtro por cliente
+  // Filtro de cliente
   let clientFilterApplied = false;
   if (user) {
     if (user.clientId !== undefined && user.clientId !== null && user.clientId !== "") {
@@ -42,12 +42,11 @@ const buildWhereClause = (filters, user) => {
     addFilter(filters.idcliente, clientField);
   }
   return { clause: whereClauses.join(" AND "), params };
-};
+}
 
-// === FUNÇÃO PRINCIPAL DOS TOTAIS (INCLUINDO SEXO, TURNO, ZONA e COMPARATIVO) ===
+// ========= TOTAIS (CARTÕES, TABELA, GRÁFICOS) =========
 const buscarTotais = async (req, res) => {
   try {
-    // Extrai os filtros do body
     const filters = {
       anoLetivo: req.body.anoLetivo,
       deficiencia: req.body.deficiencia,
@@ -60,84 +59,120 @@ const buscarTotais = async (req, res) => {
       tipoTransporte: req.body.tipoTransporte,
       transporteEscolar: req.body.transporteEscolar,
       idcliente: req.body.idcliente,
-      idescola: req.body.idescola // <--- ESSENCIAL!
+      idescola: req.body.idescola
     };
+
+    // --- 1. Busca data de última atualização ANTES de montar a chave do cache ---
+    const ultimaAtualizacaoQuery = `
+      SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
+      AS ultima_atualizacao 
+      FROM dados_matriculas
+    `;
+    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
+    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
+
+    // --- 2. Gera chave do cache com filtros + data de última atualização ---
+    const cacheKey = JSON.stringify({
+      filtros: filters,
+      user: req.user,
+      page: req.body.offset,
+      ultimaAtualizacao
+    });
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
 
     const { clause, params } = buildWhereClause(filters, req.user);
-    const queryBase = `FROM dados_matriculas WHERE ${clause} `;
-    const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
 
-    // 1. Cartões principais
-    const queriesMain = {
-      totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
-      totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
-      totalVagas: `
-        SELECT 
-          SUM(limite_maximo_aluno) - SUM(qtde_matriculas) AS total_vagas
-        FROM (
-          WITH turmas AS (
-            SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-            ${queryBaseFiltrada}
-          ),
-          totalMatriculas AS (
-            SELECT idescola, COUNT(*) FILTER (
-              WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
-            ) AS qtde_matriculas
-            ${queryBaseFiltrada}
-            GROUP BY idescola
-          )
-          SELECT 
-            t.idescola,
-            SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
-            COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas
-          FROM turmas t
-          LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
-          GROUP BY t.idescola, tm.qtde_matriculas
-        ) AS sub
-      `,
-      totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
-      totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
-    };
+    // --- Cartões principais (tudo numa só query!) ---
+    const queryTotais = `
+      SELECT
+        COUNT(*) FILTER (WHERE idetapa_matricula NOT IN (98,99)) AS total_matriculas,
+        COUNT(DISTINCT idescola) AS total_escolas,
+        COUNT(*) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-') AS total_entradas,
+        COUNT(*) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-') AS total_saidas
+      FROM dados_matriculas
+      WHERE ${clause}
+    `;
+    const resultTotais = await pool.query(queryTotais, params);
+    const totais = resultTotais.rows[0];
 
-    const resultsMain = await Promise.all(
-      Object.values(queriesMain).map(q => pool.query(q, params))
-    );
-
-    // 2. Matrículas por Zona
-    const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY zona_aluno `;
-    const resultZona = await pool.query(matriculasZonaQuery, params);
-    const matriculasPorZona = {};
-    resultZona.rows.forEach(row => {
-      matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
-    });
-
-    // 3. Matrículas por Sexo
-    const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada}GROUP BY sexo `;
-    const resultSexo = await pool.query(matriculasSexoQuery, params);
-    const matriculasPorSexo = {};
-    resultSexo.rows.forEach(row => {
-      matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
-    });
-
-    // 4. Matrículas por Turno
-    const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno, cdturno ORDER BY cdturno `;
-    const resultTurno = await pool.query(matriculasTurnoQuery, params);
-    const matriculasPorTurno = {};
-    resultTurno.rows.forEach(row => {
-      matriculasPorTurno[row.turno] = parseInt(row.total, 10);
-    });
-
-    // 5. Lista de escolas (para tabela)
-    const escolasQuery = `
+    // --- Total de Vagas ---
+    const vagasQuery = `
       WITH turmas AS (
         SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-        ${queryBaseFiltrada}
+        FROM dados_matriculas
+        WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
       ),
       totalMatriculas AS (
         SELECT idescola, COUNT(*) FILTER (
           WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
         ) AS qtde_matriculas
-        ${queryBaseFiltrada}
+        FROM dados_matriculas
+        WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
+        GROUP BY idescola
+      )
+      SELECT 
+        SUM(t.limite_maximo_aluno) - SUM(COALESCE(tm.qtde_matriculas,0)) AS total_vagas
+      FROM turmas t
+      LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
+    `;
+    const resultVagas = await pool.query(vagasQuery, params);
+    const totalVagas = resultVagas.rows[0].total_vagas || 0;
+
+    // --- Matrículas por Zona ---
+    const zonaQuery = `
+      SELECT zona_aluno, COUNT(*) as total
+      FROM dados_matriculas
+      WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
+      GROUP BY zona_aluno
+    `;
+    const resultZona = await pool.query(zonaQuery, params);
+    const matriculasPorZona = {};
+    resultZona.rows.forEach(row => {
+      matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
+    });
+
+    // --- Matrículas por Sexo ---
+    const sexoQuery = `
+      SELECT sexo, COUNT(*) as total
+      FROM dados_matriculas
+      WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
+      GROUP BY sexo
+    `;
+    const resultSexo = await pool.query(sexoQuery, params);
+    const matriculasPorSexo = {};
+    resultSexo.rows.forEach(row => {
+      matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
+    });
+
+    // --- Matrículas por Turno ---
+    const turnoQuery = `
+      SELECT turno, COUNT(*) as total
+      FROM dados_matriculas
+      WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
+      GROUP BY turno
+    `;
+    const resultTurno = await pool.query(turnoQuery, params);
+    const matriculasPorTurno = {};
+    resultTurno.rows.forEach(row => {
+      matriculasPorTurno[row.turno] = parseInt(row.total, 10);
+    });
+
+    // --- Lista de escolas (com paginação) ---
+    const limit = parseInt(req.body.limit, 10) || 30;
+    const offset = parseInt(req.body.offset, 10) || 0;
+    const escolasQuery = `
+      WITH turmas AS (
+        SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
+        FROM dados_matriculas
+        WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
+      ),
+      totalMatriculas AS (
+        SELECT idescola, COUNT(*) FILTER (
+          WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
+        ) AS qtde_matriculas
+        FROM dados_matriculas
+        WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
         GROUP BY idescola
       )
       SELECT 
@@ -151,8 +186,9 @@ const buscarTotais = async (req, res) => {
       LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
       GROUP BY t.escola, t.idescola, tm.qtde_matriculas
       ORDER BY qtde_matriculas DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
-    const escolasResult = await pool.query(escolasQuery, params);
+    const escolasResult = await pool.query(escolasQuery, [...params, limit, offset]);
     const escolas = escolasResult.rows.map(row => ({
       escola: row.escola,
       idescola: row.idescola,
@@ -163,20 +199,22 @@ const buscarTotais = async (req, res) => {
       status_vagas: row.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
     }));
 
-    // 6. Gráfico de movimentação mensal
+    // --- Movimentação Mensal ---
     const entradasSaidasQuery = `
       WITH entradas AS (
         SELECT 
           SUBSTRING(entrada_mes_tipo, 1, 2)::INT AS mes,
           COUNT(*) AS total_entradas
-        ${queryBase} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'
+        FROM dados_matriculas
+        WHERE ${clause} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'
         GROUP BY mes
       ),
       saidas AS (
         SELECT 
           SUBSTRING(saida_mes_situacao, 1, 2)::INT AS mes,
           COUNT(*) AS total_saidas
-        ${queryBase} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'
+        FROM dados_matriculas
+        WHERE ${clause} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'
         GROUP BY mes
       )
       SELECT
@@ -193,32 +231,41 @@ const buscarTotais = async (req, res) => {
     entradasSaidasResult.rows.forEach(row => {
       const mesIndex = row.mes - 1;
       const mesAbreviado = nomesMeses[mesIndex] || row.mes;
-      const entradas = parseInt(row.entradas, 10) || 0;
-      const saidas = parseInt(row.saidas, 10) || 0;
-      entradasSaidasPorMes[mesAbreviado] = { entradas, saidas };
+      entradasSaidasPorMes[mesAbreviado] = {
+        entradas: parseInt(row.entradas, 10) || 0,
+        saidas: parseInt(row.saidas, 10) || 0,
+      };
     });
 
-    // 7. Escolas por Zona (cartão extra)
-    const escolasZonaQuery = `SELECT zona_escola, COUNT(DISTINCT idescola) as total ${queryBase}GROUP BY zona_escola `;
+    // --- Escolas por Zona ---
+    const escolasZonaQuery = `
+      SELECT zona_escola, COUNT(DISTINCT idescola) as total
+      FROM dados_matriculas
+      WHERE ${clause}
+      GROUP BY zona_escola
+    `;
     const resultEscolasZona = await pool.query(escolasZonaQuery, params);
     const escolasPorZona = {};
     resultEscolasZona.rows.forEach(row => {
       escolasPorZona[row.zona_escola] = parseInt(row.total, 10);
     });
 
-    // 8. Tendência/Comparativo de matrículas (cartão com filtro aplicado)
+    // --- Tendência de matrículas ano anterior ---
     let trendMatriculas = null;
     if (filters.anoLetivo) {
       const prevYear = (parseInt(filters.anoLetivo, 10) - 1).toString();
       const { clause: clausePrev, params: paramsPrev } = buildWhereClause({
         ...filters,
-        anoLetivo: prevYear // Só troca o ano, mantém idescola e todos os filtros!
+        anoLetivo: prevYear
       }, req.user);
-
-      const queryBasePrev = `FROM dados_matriculas WHERE ${clausePrev} `;
-      const resultPrev = await pool.query(`SELECT COUNT(*) ${queryBasePrev}AND idetapa_matricula NOT IN (98,99)`, paramsPrev);
-      const prevMat = parseInt(resultPrev.rows[0].count, 10) || 0;
-      const currentMat = parseInt(resultsMain[0].rows[0].count, 10) || 0;
+      const trendQuery = `
+        SELECT COUNT(*) AS total
+        FROM dados_matriculas
+        WHERE ${clausePrev} AND idetapa_matricula NOT IN (98,99)
+      `;
+      const resultPrev = await pool.query(trendQuery, paramsPrev);
+      const prevMat = parseInt(resultPrev.rows[0].total, 10) || 0;
+      const currentMat = parseInt(totais.total_matriculas, 10) || 0;
       if (prevMat > 0) {
         const diff = prevMat - currentMat;
         const percentMissing = (Math.abs(diff) / prevMat) * 100;
@@ -230,22 +277,12 @@ const buscarTotais = async (req, res) => {
       }
     }
 
-    // 9. Última atualização (mantém igual)
-    const ultimaAtualizacaoQuery = `
-      SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
-      AS ultima_atualizacao 
-      FROM dados_matriculas
-    `;
-    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
-    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
-
-    // 10. Retorna todos os dados para o frontend
-    res.json({
-      totalMatriculas: parseInt(resultsMain[0].rows[0].count, 10) || 0,
-      totalEscolas: parseInt(resultsMain[1].rows[0].count, 10) || 0,
-      totalVagas: parseInt(resultsMain[2].rows[0].total_vagas, 10) || 0,
-      totalEntradas: parseInt(resultsMain[3].rows[0].count, 10) || 0,
-      totalSaidas: parseInt(resultsMain[4].rows[0].count, 10) || 0,
+    const resposta = {
+      totalMatriculas: parseInt(totais.total_matriculas, 10) || 0,
+      totalEscolas: parseInt(totais.total_escolas, 10) || 0,
+      totalVagas: parseInt(totalVagas, 10) || 0,
+      totalEntradas: parseInt(totais.total_entradas, 10) || 0,
+      totalSaidas: parseInt(totais.total_saidas, 10) || 0,
       escolas,
       entradasSaidasPorMes,
       comparativos: { totalMatriculas: trendMatriculas },
@@ -255,14 +292,18 @@ const buscarTotais = async (req, res) => {
       escolasPorZona,
       ultimaAtualizacao,
       tendenciaMatriculas: trendMatriculas
-    });
+    };
+    // Salva cache:
+    cache.set(cacheKey, resposta);
+
+    res.json(resposta);
   } catch (err) {
     console.error("Erro ao buscar totais:", err);
     res.status(500).json({ error: "Erro ao buscar dados da dashboard", details: err.message });
   }
 };
 
-// Mantém o buscarFiltros igual ao seu original (usando buildWhereClause)
+// ========= FILTROS DINÂMICOS =========
 const buscarFiltros = async (req, res) => {
   try {
     const filters = req.body || {};
@@ -323,7 +364,7 @@ const buscarFiltros = async (req, res) => {
   }
 };
 
-// === BREAKDOWNS (filtros aplicados inclusive idescola) ===
+// ========= BREAKDOWNS (GRÁFICOS SIMPLES) =========
 const buscarBreakdowns = async (req, res) => {
   try {
     const {
@@ -338,7 +379,7 @@ const buscarBreakdowns = async (req, res) => {
       tipoTransporte,
       transporteEscolar,
       idcliente,
-      idescola // ESSENCIAL!
+      idescola
     } = req.body;
 
     const { clause, params } = buildWhereClause({
@@ -356,8 +397,7 @@ const buscarBreakdowns = async (req, res) => {
       idescola
     }, req.user);
 
-    const queryBase = `FROM dados_matriculas WHERE ${clause} `;
-    const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
+    const queryBaseFiltrada = `FROM dados_matriculas WHERE ${clause} AND idetapa_matricula NOT IN (98,99)`;
 
     // Matrículas por Zona
     let matriculasPorZona = {};
@@ -365,7 +405,7 @@ const buscarBreakdowns = async (req, res) => {
     let matriculasPorTurno = {};
 
     try {
-      const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY zona_aluno `;
+      const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada} GROUP BY zona_aluno`;
       const resultZona = await pool.query(matriculasZonaQuery, params);
       resultZona.rows.forEach(row => {
         matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
@@ -374,7 +414,7 @@ const buscarBreakdowns = async (req, res) => {
       console.error("Erro ao buscar matriculas por zona:", err);
     }
     try {
-      const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada}GROUP BY sexo `;
+      const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada} GROUP BY sexo`;
       const resultSexo = await pool.query(matriculasSexoQuery, params);
       resultSexo.rows.forEach(row => {
         matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
@@ -383,7 +423,7 @@ const buscarBreakdowns = async (req, res) => {
       console.error("Erro ao buscar matriculas por sexo:", err);
     }
     try {
-      const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno, cdturno ORDER BY cdturno `;
+      const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada} GROUP BY turno`;
       const resultTurno = await pool.query(matriculasTurnoQuery, params);
       resultTurno.rows.forEach(row => {
         matriculasPorTurno[row.turno] = parseInt(row.total, 10);
