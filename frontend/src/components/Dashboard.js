@@ -1,7 +1,6 @@
-// src/components/Dashboard.js
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import api from "./api"; // Instância configurada do Axios
+import api from "./api";
 import { Bar, Pie } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -30,7 +29,7 @@ import {
 import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 
-// ===== TOAST DE BOAS-VINDAS =====
+// Toast personalizado
 const Toast = ({ message, show }) =>
   show ? (
     <div className="fixed top-7 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in">
@@ -50,10 +49,8 @@ const Toast = ({ message, show }) =>
     </div>
   ) : null;
 
-// Função para formatar números com separador de milhar
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
 
-// Função auxiliar para reordenar opções "sim"/"não"
 const reorderYesNo = (options) => {
   if (!options) return [];
   const opts = options.map((o) => String(o));
@@ -66,7 +63,6 @@ const reorderYesNo = (options) => {
   return opts;
 };
 
-// Função auxiliar para obter a cor do ícone a partir da classe de borda
 const getIconColorFromBorder = (borderClass) => {
   const mapping = {
     "border-blue-500": "#3B82F6",
@@ -93,7 +89,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
       >
         <option value="">Todos</option>
         {orderedOptions?.map((option, idx) => (
-          <option key={idx} value={option}>
+          <option key={option} value={option}>
             {option}
           </option>
         ))}
@@ -189,7 +185,7 @@ const Dashboard = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [clientName, setClientName] = useState("");
 
-  // ===== TOAST DE BOAS-VINDAS =====
+  // Toast de boas-vindas
   const location = useLocation();
   const [showToast, setShowToast] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState("");
@@ -223,7 +219,9 @@ const Dashboard = () => {
 
   useEffect(() => {
     const initialize = async () => {
+      setLoading(true);
       await carregarFiltros();
+      setLoading(false);
     };
     initialize();
     document.addEventListener("mousedown", handleClickOutside);
@@ -384,7 +382,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* === ADICIONADO: badge para filtro de escola ativo === */}
+      {/* Badge para filtro de escola ativo */}
       {selectedSchool && (
         <div className="text-center mb-2">
           <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-bold">
@@ -526,16 +524,14 @@ const Dashboard = () => {
                   .filter((escola) =>
                     escola.escola.toLowerCase().includes(searchTerm.toLowerCase())
                   )
-                  .map((escola, index) => (
+                  .map((escola) => (
                     <tr
-                      key={index}
+                      key={escola.idescola}
                       onClick={() => handleSchoolClick(escola)}
                       className={`cursor-pointer hover:bg-gray-50 ${
                         selectedSchool && selectedSchool.idescola === escola.idescola
                           ? "bg-blue-100"
-                          : index % 2 === 0
-                          ? "bg-white"
-                          : "bg-gray-50"
+                          : ""
                       }`}
                     >
                       <td className="px-2 py-2 text-sm text-gray-700 break-words">{escola.escola}</td>
@@ -557,6 +553,7 @@ const Dashboard = () => {
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1 overflow-hidden">
             <Bar
+              key={JSON.stringify(data.entradasSaidasPorMes)}
               data={{
                 labels: Object.keys(data.entradasSaidasPorMes),
                 datasets: [
@@ -602,6 +599,7 @@ const Dashboard = () => {
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
           <div className="flex-1">
             <Pie
+              key={JSON.stringify(data.matriculasPorSexo)}
               data={{
                 labels: Object.keys(data.matriculasPorSexo),
                 datasets: [
@@ -637,6 +635,7 @@ const Dashboard = () => {
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
           <div className="flex-1">
             <Bar
+              key={JSON.stringify(data.matriculasPorTurno)}
               data={{
                 labels: Object.keys(data.matriculasPorTurno),
                 datasets: [

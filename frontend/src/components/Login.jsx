@@ -4,48 +4,42 @@ import { Link, useNavigate } from 'react-router-dom';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
-// Função para aplicar a máscara de CPF
 const formatCPF = (value) => {
   const digits = value.replace(/\D/g, '').slice(0, 11);
-  if (digits.length > 9) {
-    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4");
-  } else if (digits.length > 6) {
-    return digits.replace(/(\d{3})(\d{3})(\d{0,3})/, "$1.$2.$3");
-  } else if (digits.length > 3) {
-    return digits.replace(/(\d{3})(\d{0,3})/, "$1.$2");
-  }
+  if (digits.length > 9) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4");
+  else if (digits.length > 6) return digits.replace(/(\d{3})(\d{3})(\d{0,3})/, "$1.$2.$3");
+  else if (digits.length > 3) return digits.replace(/(\d{3})(\d{0,3})/, "$1.$2");
   return digits;
 };
 
-// Função para validar CPF
 const isValidCPF = (cpf) => {
   cpf = cpf.replace(/[^\d]+/g, '');
   if (cpf.length !== 11 || !!cpf.match(/(\d)\1{10}/)) return false;
   let sum = 0;
-  for (let i = 0; i < 9; i++) {
-    sum += parseInt(cpf.charAt(i)) * (10 - i);
-  }
+  for (let i = 0; i < 9; i++) sum += parseInt(cpf.charAt(i)) * (10 - i);
   let checkDigit1 = 11 - (sum % 11);
   if (checkDigit1 >= 10) checkDigit1 = 0;
   if (checkDigit1 !== parseInt(cpf.charAt(9))) return false;
   sum = 0;
-  for (let i = 0; i < 10; i++) {
-    sum += parseInt(cpf.charAt(i)) * (11 - i);
-  }
+  for (let i = 0; i < 10; i++) sum += parseInt(cpf.charAt(i)) * (11 - i);
   let checkDigit2 = 11 - (sum % 11);
   if (checkDigit2 >= 10) checkDigit2 = 0;
   return checkDigit2 === parseInt(cpf.charAt(10));
 };
 
-// Toast simples com Tailwind e emoji
 const Toast = ({ message, show, type = "info" }) => (
   show ? (
-    <div className={`fixed top-5 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in
-      ${type === "success" ? "bg-green-600 text-white" : ""}
-      ${type === "error" ? "bg-red-600 text-white" : ""}
-      ${type === "info" ? "bg-blue-600 text-white" : ""}
-    `}>
-      <span role="img" aria-label="party">{type === "success" ? "🎉" : type === "error" ? "❌" : "🔔"}</span>
+    <div
+      key={type} // <<--- Key única para cada tipo de toast
+      className={`
+        fixed top-5 left-1/2 transform -translate-x-1/2
+        px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in
+        ${type === "success" ? "bg-green-600 text-white" : ""}
+        ${type === "error" ? "bg-red-600 text-white" : ""}
+        ${type === "info" ? "bg-blue-600 text-white" : ""}
+      `}
+    >
+      <span role="img" aria-label="icon">{type === "success" ? "🎉" : type === "error" ? "❌" : "🔔"}</span>
       {message}
       <style>
         {`
@@ -67,9 +61,7 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showToast, setShowToast] = useState(false);
-  const [toastType, setToastType] = useState('info');
-  const [toastMsg, setToastMsg] = useState('');
+  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -77,10 +69,7 @@ const Login = () => {
     delete axios.defaults.headers.common['Authorization'];
   }, []);
 
-  const handleCpfChange = (e) => {
-    const formattedValue = formatCPF(e.target.value);
-    setCpf(formattedValue);
-  };
+  const handleCpfChange = (e) => setCpf(formatCPF(e.target.value));
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -98,9 +87,9 @@ const Login = () => {
       setLoading(false);
       return;
     }
-    setShowToast(true);
-    setToastType('info');
-    setToastMsg('Validando usuário, aguarde...');
+
+    setToast({ show: true, message: 'Validando usuário, aguarde...', type: 'info' });
+
     try {
       const response = await axios.post(`${API_URL}/login`, { cpf: rawCpf, password });
       const { token, nome } = response.data;
@@ -108,18 +97,17 @@ const Login = () => {
 
       localStorage.setItem('token', token);
 
-      setToastType('success');
-      setToastMsg('Login realizado com sucesso! Bem-vindo(a)!');
+      setToast({ show: true, message: 'Login realizado com sucesso! Bem-vindo(a)!', type: 'success' });
+
       setTimeout(() => {
-        setShowToast(false);
+        setToast({ show: false, message: '', type: 'success' });
         navigate('/dashboard', { state: { nome: nome ? nome : 'Usuário' } });
-      }, 900); // Rápido, mas mostra sucesso
+      }, 900);
 
     } catch (err) {
-      setToastType('error');
-      setToastMsg(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
-      setErro(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
-      setTimeout(() => setShowToast(false), 1800);
+      setToast({ show: true, message: err.response?.data?.error || 'Credenciais inválidas. Verifique e tente novamente.', type: 'error' });
+      setErro(err.response?.data?.error || 'Credenciais inválidas. Verifique e tente novamente.');
+      setTimeout(() => setToast({ show: false, message: '', type: 'error' }), 1800);
     } finally {
       setLoading(false);
     }
@@ -129,7 +117,7 @@ const Login = () => {
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100">
       <form onSubmit={handleSubmit} className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md relative">
         <h2 className="text-3xl font-bold mb-6 text-center text-blue-600">Bem-vindo 👋</h2>
-        {erro && <p className="mb-4 text-red-500 text-center">{erro}</p>}
+        {erro && <p key="erro-msg" className="mb-4 text-red-500 text-center">{erro}</p>}
         <div className="mb-5">
           <label htmlFor="cpf" className="block mb-1 font-semibold text-gray-700">CPF:</label>
           <input
@@ -174,7 +162,7 @@ const Login = () => {
             Esqueci minha senha
           </Link>
         </div>
-        <Toast message={toastMsg} show={showToast} type={toastType} />
+        <Toast message={toast.message} show={toast.show} type={toast.type} />
       </form>
       <style>
         {`
