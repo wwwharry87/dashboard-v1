@@ -396,21 +396,28 @@ const Dashboard = () => {
   return (
     <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
       <Toast message={`Bem-vindo(a), ${nomeUsuario || 'usuário'}! 🎉`} show={showToast} />
+
+      {/* Topo com botão filtro à esquerda e sair à direita */}
       <div className="p-4 bg-white shadow-md flex items-center justify-between">
-        <div>
-          <button
-            onClick={sair}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
-          >
-            <FaSignOutAlt size={20} />
-            <span className="ml-2">Sair</span>
-          </button>
-        </div>
+        <button
+          id="filterButton"
+          onClick={() => setShowSidebar(true)}
+          className="bg-blue-600 text-white rounded-full shadow-lg p-3 hover:bg-blue-700 transition-colors"
+          style={{ boxShadow: "0 6px 16px rgba(59,130,246,.17)" }}
+        >
+          <FaFilter size={24} />
+        </button>
         <div className="flex-1 text-center">
           <h1 className="text-2xl font-bold text-gray-800">{clientName || "SEMED - TESTE"}</h1>
           <h2 className="text-lg text-gray-600">Painel de Matrículas</h2>
         </div>
-        <div></div>
+        <button
+          onClick={sair}
+          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center"
+        >
+          <FaSignOutAlt size={20} />
+          <span className="ml-2">Sair</span>
+        </button>
       </div>
 
       {/* Badge para filtro de escola ativo */}
@@ -744,14 +751,6 @@ const Dashboard = () => {
         </div>
       </div>
       {/* Sidebar de Filtros */}
-      <button
-        id="filterButton"
-        onClick={() => setShowSidebar(true)}
-        className="fixed left-4 bottom-4 z-50 bg-blue-600 text-white rounded-full shadow-lg p-3 hover:bg-blue-700 transition-colors md:hidden"
-        style={{ boxShadow: "0 6px 16px rgba(59,130,246,.17)" }}
-      >
-        <FaFilter size={24} />
-      </button>
       <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${showSidebar ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out z-50`}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
