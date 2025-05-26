@@ -1,5 +1,5 @@
 if (navigator.serviceWorker) {
-    navigator.serviceWorker.register('/service-worker.js')
+    navigator.serviceWorker.register('./public/service-worker.js')
       .then(registration => {
         registration.onupdatefound = () => {
           const installingWorker = registration.installing;
