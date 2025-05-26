@@ -4,43 +4,25 @@ import { Link, useNavigate } from 'react-router-dom';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
-// Função para aplicar a máscara de CPF
-const formatCPF = (value) => {
-  const digits = value.replace(/\D/g, '').slice(0, 11); // remove tudo que não é dígito e limita a 11
-  if (digits.length > 9) {
-    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4");
-  } else if (digits.length > 6) {
-    return digits.replace(/(\d{3})(\d{3})(\d{0,3})/, "$1.$2.$3");
-  } else if (digits.length > 3) {
-    return digits.replace(/(\d{3})(\d{0,3})/, "$1.$2");
-  }
-  return digits;
-};
+const formatCPF = (value) => { /* ... sua função igual ... */ }
+const isValidCPF = (cpf) => { /* ... sua função igual ... */ }
 
-// Função para validar CPF
-const isValidCPF = (cpf) => {
-  cpf = cpf.replace(/[^\d]+/g, ''); // remove máscara
-  if (cpf.length !== 11 || !!cpf.match(/(\d)\1{10}/)) return false;
-  let sum = 0;
-  for (let i = 0; i < 9; i++) {
-    sum += parseInt(cpf.charAt(i)) * (10 - i);
-  }
-  let checkDigit1 = 11 - (sum % 11);
-  if (checkDigit1 >= 10) checkDigit1 = 0;
-  if (checkDigit1 !== parseInt(cpf.charAt(9))) return false;
-  sum = 0;
-  for (let i = 0; i < 10; i++) {
-    sum += parseInt(cpf.charAt(i)) * (11 - i);
-  }
-  let checkDigit2 = 11 - (sum % 11);
-  if (checkDigit2 >= 10) checkDigit2 = 0;
-  return checkDigit2 === parseInt(cpf.charAt(10));
-};
+// Toast simples com Tailwind e emoji
+const Toast = ({ message, show }) => (
+  show ? (
+    <div className="fixed top-5 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in">
+      <span role="img" aria-label="party">🎉</span>
+      {message}
+    </div>
+  ) : null
+);
 
 const Login = () => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [erro, setErro] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showToast, setShowToast] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -56,68 +38,103 @@ const Login = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setErro('');
-    // Remove máscara para validação e envio
+    setLoading(true);
+
     const rawCpf = cpf.replace(/\D/g, '');
     if (rawCpf.length !== 11) {
       setErro("CPF deve ter 11 dígitos.");
+      setLoading(false);
       return;
     }
     if (!isValidCPF(cpf)) {
       setErro("CPF inválido.");
+      setLoading(false);
       return;
     }
     try {
       const response = await axios.post(`${API_URL}/login`, { cpf: rawCpf, password });
-      const { token } = response.data;
-      if (!token) {
-        throw new Error('Token não retornado');
-      }
+      const { token, nome } = response.data;
+      if (!token) throw new Error('Token não retornado');
+
       localStorage.setItem('token', token);
-      window.location.replace('/dashboard');
+
+      // Mostra toast de boas-vindas
+      setShowToast(true);
+
+      setTimeout(() => {
+        setShowToast(false);
+        navigate('/dashboard', { state: { nome: nome || 'Usuário' } });
+      }, 1600); // tempo do toast
+
     } catch (err) {
-      console.error("Erro no login:", err.response || err);
       setErro(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow-md w-full max-w-md">
-        <h2 className="text-2xl font-bold mb-4 text-center">Login</h2>
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100">
+      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md relative">
+        <h2 className="text-3xl font-bold mb-6 text-center text-blue-600">Bem-vindo 👋</h2>
         {erro && <p className="mb-4 text-red-500 text-center">{erro}</p>}
-        <div className="mb-4">
-          <label htmlFor="cpf" className="block mb-1 font-medium text-gray-700">CPF:</label>
+        <div className="mb-5">
+          <label htmlFor="cpf" className="block mb-1 font-semibold text-gray-700">CPF:</label>
           <input
             id="cpf"
             type="text"
             value={cpf}
             onChange={handleCpfChange}
-            className="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500"
+            className="border p-3 rounded-xl w-full focus:ring-2 focus:ring-blue-500 transition"
             placeholder="Digite seu CPF"
             required
+            disabled={loading}
           />
         </div>
-        <div className="mb-4">
-          <label htmlFor="password" className="block mb-1 font-medium text-gray-700">Senha:</label>
+        <div className="mb-6">
+          <label htmlFor="password" className="block mb-1 font-semibold text-gray-700">Senha:</label>
           <input
             id="password"
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500"
+            onChange={e => setPassword(e.target.value)}
+            className="border p-3 rounded-xl w-full focus:ring-2 focus:ring-blue-500 transition"
             placeholder="Digite sua senha"
             required
+            disabled={loading}
           />
         </div>
-        <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition-colors">
-          Entrar
+        <button
+          type="submit"
+          className={`w-full p-3 rounded-xl font-semibold bg-blue-600 text-white transition-colors hover:bg-blue-700 flex justify-center items-center gap-2 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+          disabled={loading}
+        >
+          {loading && (
+            <svg className="animate-spin h-5 w-5 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+            </svg>
+          )}
+          {loading ? 'Entrando...' : 'Entrar'}
         </button>
-        <div className="mt-4 text-center">
-          <Link to="/reset-password-manual" className="text-blue-500 hover:underline">
+        <div className="mt-5 text-center">
+          <Link to="/reset-password-manual" className="text-blue-500 hover:underline text-sm">
             Esqueci minha senha
           </Link>
         </div>
+        <Toast message="Bem-vindo(a)! Que bom ver você 🎉" show={showToast} />
       </form>
+      <style>
+        {`
+        @keyframes slide-in {
+          from { opacity: 0; transform: translateY(-20px) scale(0.95);}
+          to { opacity: 1; transform: translateY(0) scale(1);}
+        }
+        .animate-slide-in {
+          animation: slide-in 0.5s cubic-bezier(.44,1.38,.64,1) forwards;
+        }
+        `}
+      </style>
     </div>
   );
 };

@@ -1,5 +1,6 @@
 // src/components/Dashboard.js
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import api from "./api"; // Instância configurada do Axios
 import { Bar, Pie } from "react-chartjs-2";
 import {
@@ -29,17 +30,25 @@ import {
 import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 
-// Registrar componentes do Chart.js, incluindo datalabels
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  ChartTooltip,
-  Legend,
-  ArcElement,
-  ChartDataLabels
-);
+// ===== TOAST DE BOAS-VINDAS =====
+const Toast = ({ message, show }) =>
+  show ? (
+    <div className="fixed top-7 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in">
+      <span role="img" aria-label="party">🎉</span>
+      {message}
+      <style>
+        {`
+        @keyframes slide-in {
+          from { opacity: 0; transform: translateY(-20px) scale(0.95);}
+          to { opacity: 1; transform: translateY(0) scale(1);}
+        }
+        .animate-slide-in {
+          animation: slide-in 0.5s cubic-bezier(.44,1.38,.64,1) forwards;
+        }
+        `}
+      </style>
+    </div>
+  ) : null;
 
 // Função para formatar números com separador de milhar
 const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
@@ -126,6 +135,17 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
   );
 };
 
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  ChartTooltip,
+  Legend,
+  ArcElement,
+  ChartDataLabels
+);
+
 const Dashboard = () => {
   const [data, setData] = useState({
     totalMatriculas: 0,
@@ -159,7 +179,6 @@ const Dashboard = () => {
     idescola: "",
   });
 
-  // Guarda a escola selecionada
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -170,7 +189,19 @@ const Dashboard = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [clientName, setClientName] = useState("");
 
-  // Se o token não existir, redireciona para /login
+  // ===== TOAST DE BOAS-VINDAS =====
+  const location = useLocation();
+  const [showToast, setShowToast] = useState(false);
+  const [nomeUsuario, setNomeUsuario] = useState("");
+
+  useEffect(() => {
+    if (location.state && location.state.nome) {
+      setNomeUsuario(location.state.nome);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 1800);
+    }
+  }, [location]);
+
   useEffect(() => {
     if (!localStorage.getItem("token")) {
       window.location.href = "/login";
@@ -178,7 +209,6 @@ const Dashboard = () => {
     }
   }, []);
 
-  // Buscar o nome do cliente
   useEffect(() => {
     const fetchClientName = async () => {
       try {
@@ -191,25 +221,21 @@ const Dashboard = () => {
     fetchClientName();
   }, []);
 
-  // Carregar filtros e dados ao inicializar
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
     };
     initialize();
-    // Inclui "filterButton" para evitar fechar o sidebar ao clicar no botão de filtro
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Função para fechar o sidebar se o clique não estiver no sidebar ou no botão de filtro
   const handleClickOutside = (event) => {
     if (!event.target.closest("#sidebar") && !event.target.closest("#filterButton")) {
       setShowSidebar(false);
     }
   };
 
-  // Função para carregar os filtros do endpoint /filtros
   const carregarFiltros = async () => {
     try {
       setLoading(true);
@@ -225,7 +251,6 @@ const Dashboard = () => {
     }
   };
 
-  // Função para carregar dados (totais, breakdowns, etc.)
   const carregarDados = async (filtros) => {
     try {
       setLoading(true);
@@ -246,7 +271,6 @@ const Dashboard = () => {
     }
   };
 
-  // Atualiza filtros quando o usuário interage com os selects
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     const updatedFilters = { ...selectedFilters, [name]: value };
@@ -267,7 +291,6 @@ const Dashboard = () => {
     carregarDados(updatedFilters);
   };
 
-  // Ao clicar em uma escola, alterna a seleção
   const handleSchoolClick = (escola) => {
     const updatedFilters = { ...selectedFilters };
     if (selectedSchool && selectedSchool.idescola === escola.idescola) {
@@ -281,7 +304,6 @@ const Dashboard = () => {
     carregarDados(updatedFilters);
   };
 
-  // Progresso de carregamento
   useEffect(() => {
     let interval;
     if (loading) {
@@ -324,6 +346,9 @@ const Dashboard = () => {
 
   return (
     <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
+      {/* Toast de boas-vindas */}
+      <Toast message={`Bem-vindo(a), ${nomeUsuario || 'usuário'}! 🎉`} show={showToast} />
+
       {updateAvailable && (
         <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
           <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
@@ -759,4 +784,5 @@ const Dashboard = () => {
     </div>
   );
 };
+
 export default Dashboard;
