@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "./api";
 import { Bar, Pie } from "react-chartjs-2";
 import {
@@ -143,6 +143,7 @@ ChartJS.register(
 );
 
 const Dashboard = () => {
+  const navigate = useNavigate(); // <-- Adicionado
   const [data, setData] = useState({
     totalMatriculas: 0,
     totalEscolas: 0,
@@ -199,13 +200,11 @@ const Dashboard = () => {
   }, [location]);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      // Use navigate em vez de window.location para uma transição mais suave
-      navigate("/login", { replace: true });
+    if (!localStorage.getItem("token")) {
+      navigate("/login", { replace: true }); // Agora usando navigate
+      return;
     }
-  }, [navigate]); // Adicione navigate como dependência
-
+  }, [navigate]);
 
   useEffect(() => {
     const fetchClientName = async () => {
@@ -375,7 +374,7 @@ const Dashboard = () => {
           <button
             onClick={() => {
               localStorage.removeItem("token");
-              window.location.replace("/login");
+              navigate("/login", { replace: true }); // Agora usando navigate
             }}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
           >
