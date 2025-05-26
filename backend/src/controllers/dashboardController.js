@@ -1,9 +1,6 @@
 const pool = require('../config/db');
-const NodeCache = require('node-cache');
-const cache = new NodeCache({ stdTTL: 3600 }); // cache 1h
 
-const clientField = 'idcliente';
-
+// Função para montar WHERE dos filtros
 function buildWhereClause(filters, user) {
   const whereClauses = ["1=1"];
   const params = [];
@@ -29,22 +26,41 @@ function buildWhereClause(filters, user) {
   let clientFilterApplied = false;
   if (user) {
     if (user.clientId !== undefined && user.clientId !== null && user.clientId !== "") {
-      addFilter(user.clientId, clientField);
+      addFilter(user.clientId, 'idcliente');
       clientFilterApplied = true;
     } else if (user.allowedClients && user.allowedClients.length > 0) {
       params.push(user.allowedClients);
-      whereClauses.push(`${clientField} = ANY($${params.length}::integer[])`);
+      whereClauses.push(`idcliente = ANY($${params.length}::integer[])`);
       clientFilterApplied = true;
     }
   }
   if (!clientFilterApplied) {
-    addFilter(filters.idcliente, clientField);
+    addFilter(filters.idcliente, 'idcliente');
   }
   return { clause: whereClauses.join(" AND "), params };
 }
 
+// ================== CARTÕES PRINCIPAIS USANDO VIEW ===================
 const buscarTotais = async (req, res) => {
   try {
+    const idcliente = req.body.idcliente || (req.user && req.user.clientId);
+    const ano_letivo = req.body.anoLetivo;
+
+    if (!idcliente || !ano_letivo) {
+      return res.status(400).json({ error: "É necessário informar idcliente e anoLetivo!" });
+    }
+
+    // Cartões principais: consulta a materialized view
+    const queryTotais = `
+      SELECT *
+      FROM dashboard_totais_mv
+      WHERE idcliente = $1 AND ano_letivo = $2
+      LIMIT 1
+    `;
+    const resultTotais = await pool.query(queryTotais, [idcliente, ano_letivo]);
+    const totais = resultTotais.rows[0] || {};
+
+    // Demais métricas (tabela de escolas, gráficos etc.) continuam usando a tabela principal
     const filters = {
       anoLetivo: req.body.anoLetivo,
       deficiencia: req.body.deficiencia,
@@ -60,63 +76,9 @@ const buscarTotais = async (req, res) => {
       idescola: req.body.idescola
     };
 
-    // 1. Busca a data da última atualização para cache
-    const ultimaAtualizacaoQuery = `
-      SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
-      AS ultima_atualizacao 
-      FROM dados_matriculas
-    `;
-    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
-    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
-
-    // 2. Chave de cache com filtros e data da última atualização
-    const cacheKey = JSON.stringify({
-      filtros: filters,
-      user: req.user,
-      page: req.body.offset,
-      ultimaAtualizacao
-    });
-    const cached = cache.get(cacheKey);
-    if (cached) return res.json(cached);
-
     const { clause, params } = buildWhereClause(filters, req.user);
 
-    // --- Cartões principais (totais rápidos em UMA query) ---
-    const queryTotais = `
-      SELECT
-        COUNT(*) FILTER (WHERE idetapa_matricula NOT IN (98,99)) AS total_matriculas,
-        COUNT(DISTINCT idescola) AS total_escolas,
-        COUNT(*) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-') AS total_entradas,
-        COUNT(*) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-') AS total_saidas
-      FROM dados_matriculas
-      WHERE ${clause}
-    `;
-    const resultTotais = await pool.query(queryTotais, params);
-    const totais = resultTotais.rows[0];
-
-    // --- Total de vagas (sem duplicação, correto e rápido) ---
-    const vagasQuery = `
-      SELECT
-        COALESCE(SUM(limite_maximo_aluno),0) AS total_vagas,
-        COALESCE(SUM(qtde_matriculas),0) AS total_matriculas
-      FROM (
-        SELECT
-          idturma,
-          MAX(limite_maximo_aluno) AS limite_maximo_aluno,
-          COUNT(*) FILTER (
-            WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
-          ) AS qtde_matriculas
-        FROM dados_matriculas
-        WHERE ${clause}
-        GROUP BY idturma
-      ) sub
-    `;
-    const vagasResult = await pool.query(vagasQuery, params);
-    const totalVagasRaw = parseInt(vagasResult.rows[0].total_vagas, 10) || 0;
-    const totalMatriculasRaw = parseInt(vagasResult.rows[0].total_matriculas, 10) || 0;
-    const totalVagas = totalVagasRaw - totalMatriculasRaw;
-
-    // --- Matrículas por Zona ---
+    // Matrículas por Zona
     const zonaQuery = `
       SELECT zona_aluno, COUNT(*) as total
       FROM dados_matriculas
@@ -129,7 +91,7 @@ const buscarTotais = async (req, res) => {
       matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
     });
 
-    // --- Matrículas por Sexo ---
+    // Matrículas por Sexo
     const sexoQuery = `
       SELECT sexo, COUNT(*) as total
       FROM dados_matriculas
@@ -142,7 +104,7 @@ const buscarTotais = async (req, res) => {
       matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
     });
 
-    // --- Matrículas por Turno ---
+    // Matrículas por Turno
     const turnoQuery = `
       SELECT turno, COUNT(*) as total
       FROM dados_matriculas
@@ -155,7 +117,7 @@ const buscarTotais = async (req, res) => {
       matriculasPorTurno[row.turno] = parseInt(row.total, 10);
     });
 
-    // --- Lista de escolas (paginação) ---
+    // Lista de escolas (paginação)
     const limit = parseInt(req.body.limit, 10) || 30;
     const offset = parseInt(req.body.offset, 10) || 0;
     const escolasQuery = `
@@ -196,7 +158,7 @@ const buscarTotais = async (req, res) => {
       status_vagas: row.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
     }));
 
-    // --- Movimentação Mensal ---
+    // Movimentação Mensal
     const entradasSaidasQuery = `
       WITH entradas AS (
         SELECT 
@@ -234,7 +196,7 @@ const buscarTotais = async (req, res) => {
       };
     });
 
-    // --- Escolas por Zona ---
+    // Escolas por Zona
     const escolasZonaQuery = `
       SELECT zona_escola, COUNT(DISTINCT idescola) as total
       FROM dados_matriculas
@@ -247,7 +209,7 @@ const buscarTotais = async (req, res) => {
       escolasPorZona[row.zona_escola] = parseInt(row.total, 10);
     });
 
-    // --- Tendência de matrículas ano anterior ---
+    // Tendência de matrículas ano anterior
     let trendMatriculas = null;
     if (filters.anoLetivo) {
       const prevYear = (parseInt(filters.anoLetivo, 10) - 1).toString();
@@ -274,10 +236,19 @@ const buscarTotais = async (req, res) => {
       }
     }
 
-    const resposta = {
+    // Última atualização
+    const ultimaAtualizacaoQuery = `
+      SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
+      AS ultima_atualizacao 
+      FROM dados_matriculas
+    `;
+    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
+    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
+
+    // Resposta completa para o frontend
+    res.json({
       totalMatriculas: parseInt(totais.total_matriculas, 10) || 0,
       totalEscolas: parseInt(totais.total_escolas, 10) || 0,
-      totalVagas: totalVagas,
       totalEntradas: parseInt(totais.total_entradas, 10) || 0,
       totalSaidas: parseInt(totais.total_saidas, 10) || 0,
       escolas,
@@ -289,17 +260,14 @@ const buscarTotais = async (req, res) => {
       escolasPorZona,
       ultimaAtualizacao,
       tendenciaMatriculas: trendMatriculas
-    };
-
-    cache.set(cacheKey, resposta);
-    res.json(resposta);
+    });
   } catch (err) {
     console.error("Erro ao buscar totais:", err);
     res.status(500).json({ error: "Erro ao buscar dados da dashboard", details: err.message });
   }
 };
 
-// ========= FILTROS DINÂMICOS =========
+// ================== FILTROS ===================
 const buscarFiltros = async (req, res) => {
   try {
     const filters = req.body || {};
@@ -360,7 +328,7 @@ const buscarFiltros = async (req, res) => {
   }
 };
 
-// ========= BREAKDOWNS (GRÁFICOS SIMPLES) =========
+// ================== BREAKDOWNS ===================
 const buscarBreakdowns = async (req, res) => {
   try {
     const {
@@ -395,7 +363,6 @@ const buscarBreakdowns = async (req, res) => {
 
     const queryBaseFiltrada = `FROM dados_matriculas WHERE ${clause} AND idetapa_matricula NOT IN (98,99)`;
 
-    // Matrículas por Zona
     let matriculasPorZona = {};
     let matriculasPorSexo = {};
     let matriculasPorTurno = {};
