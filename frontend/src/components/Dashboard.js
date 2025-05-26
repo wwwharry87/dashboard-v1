@@ -199,11 +199,13 @@ const Dashboard = () => {
   }, [location]);
 
   useEffect(() => {
-    if (!localStorage.getItem("token")) {
-      window.location.href = "/login";
-      return;
+    const token = localStorage.getItem("token");
+    if (!token) {
+      // Use navigate em vez de window.location para uma transição mais suave
+      navigate("/login", { replace: true });
     }
-  }, []);
+  }, [navigate]); // Adicione navigate como dependência
+
 
   useEffect(() => {
     const fetchClientName = async () => {

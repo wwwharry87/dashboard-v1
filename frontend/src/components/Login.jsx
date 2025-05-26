@@ -30,7 +30,7 @@ const isValidCPF = (cpf) => {
 const Toast = ({ message, show, type = "info" }) => (
   show ? (
     <div
-      key={type} // <<--- Key única para cada tipo de toast
+      key={type}
       className={`
         fixed top-5 left-1/2 transform -translate-x-1/2
         px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in
@@ -65,6 +65,7 @@ const Login = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Limpa o token ao carregar a página de login
     localStorage.removeItem('token');
     delete axios.defaults.headers.common['Authorization'];
   }, []);
@@ -95,14 +96,17 @@ const Login = () => {
       const { token, nome } = response.data;
       if (!token) throw new Error('Token não retornado');
 
+      // Armazena o token e configura o header de autorização
       localStorage.setItem('token', token);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
       setToast({ show: true, message: 'Login realizado com sucesso! Bem-vindo(a)!', type: 'success' });
 
+      // Redireciona após um pequeno delay para garantir que o token foi armazenado
       setTimeout(() => {
-        setToast({ show: false, message: '', type: 'success' });
-        navigate('/dashboard', { state: { nome: nome ? nome : 'Usuário' } });
-      }, 900);
+        // Força uma recarga completa para garantir que o Dashboard pegue o token
+        window.location.href = '/dashboard';
+      }, 1000);
 
     } catch (err) {
       setToast({ show: true, message: err.response?.data?.error || 'Credenciais inválidas. Verifique e tente novamente.', type: 'error' });
@@ -164,17 +168,6 @@ const Login = () => {
         </div>
         <Toast message={toast.message} show={toast.show} type={toast.type} />
       </form>
-      <style>
-        {`
-        @keyframes slide-in {
-          from { opacity: 0; transform: translateY(-20px) scale(0.95);}
-          to { opacity: 1; transform: translateY(0) scale(1);}
-        }
-        .animate-slide-in {
-          animation: slide-in 0.5s cubic-bezier(.44,1.38,.64,1) forwards;
-        }
-        `}
-      </style>
     </div>
   );
 };
