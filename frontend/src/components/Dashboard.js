@@ -29,7 +29,14 @@ import {
 import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 
-// Toast personalizado
+// Spinner para loading individual
+const Spinner = () => (
+  <svg className="animate-spin h-5 w-5 mx-auto text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+  </svg>
+);
+
 const Toast = ({ message, show }) =>
   show ? (
     <div className="fixed top-7 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in">
@@ -49,7 +56,10 @@ const Toast = ({ message, show }) =>
     </div>
   ) : null;
 
-const formatNumber = (num) => Number(num).toLocaleString("pt-BR");
+const formatNumber = (num) =>
+  num === null || num === undefined || num === "Erro"
+    ? num
+    : Number(num).toLocaleString("pt-BR");
 
 const reorderYesNo = (options) => {
   if (!options) return [];
@@ -88,7 +98,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
         className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500"
       >
         <option value="">Todos</option>
-        {orderedOptions?.map((option, idx) => (
+        {orderedOptions?.map((option) => (
           <option key={option} value={option}>
             {option}
           </option>
@@ -98,7 +108,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "" }) => {
+const Card = ({ label, value, icon, borderColor, comparativo, loading, disableFormat, valueColor = "" }) => {
   const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
 
   const renderComparativo = () => {
@@ -124,7 +134,7 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
       <div className="text-2xl mb-1">{iconWithColor}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
       <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
-        {disableFormat ? value : formatNumber(value)}
+        {loading ? <Spinner /> : disableFormat ? value : formatNumber(value)}
       </span>
       {renderComparativo()}
     </div>
@@ -143,24 +153,9 @@ ChartJS.register(
 );
 
 const Dashboard = () => {
-  const navigate = useNavigate(); // <-- Adicionado
-  const [data, setData] = useState({
-    totalMatriculas: 0,
-    totalEscolas: 0,
-    totalVagas: 0,
-    totalEntradas: 0,
-    totalSaidas: 0,
-    escolas: [],
-    entradasSaidasPorMes: {},
-    comparativos: {},
-    matriculasPorZona: {},
-    matriculasPorSexo: {},
-    matriculasPorTurno: {},
-    escolasPorZona: {},
-    ultimaAtualizacao: null,
-    tendenciaMatriculas: null,
-  });
+  const navigate = useNavigate();
 
+  // States
   const [filters, setFilters] = useState({});
   const [selectedFilters, setSelectedFilters] = useState({
     anoLetivo: "",
@@ -175,22 +170,47 @@ const Dashboard = () => {
     transporteEscolar: "",
     idescola: "",
   });
-
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [tableGraphHeight, setTableGraphHeight] = useState("h-96");
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [clientName, setClientName] = useState("");
-
-  // Toast de boas-vindas
-  const location = useLocation();
   const [showToast, setShowToast] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState("");
+  const location = useLocation();
 
+  // Loading individual para cada bloco/elemento
+  const [loadingCards, setLoadingCards] = useState({
+    totalMatriculas: true,
+    totalEscolas: true,
+    totalVagas: true,
+    totalEntradas: true,
+    totalSaidas: true,
+  });
+  const [loadingTable, setLoadingTable] = useState(true);
+  const [loadingGraphMov, setLoadingGraphMov] = useState(true);
+  const [loadingPieSexo, setLoadingPieSexo] = useState(true);
+  const [loadingBarTurno, setLoadingBarTurno] = useState(true);
+
+  const [data, setData] = useState({
+    totalMatriculas: null,
+    totalEscolas: null,
+    totalVagas: null,
+    totalEntradas: null,
+    totalSaidas: null,
+    escolas: [],
+    entradasSaidasPorMes: {},
+    comparativos: {},
+    matriculasPorZona: {},
+    matriculasPorSexo: {},
+    matriculasPorTurno: {},
+    escolasPorZona: {},
+    ultimaAtualizacao: null,
+    tendenciaMatriculas: null,
+  });
+
+  // Toast boas-vindas
   useEffect(() => {
     if (location.state && location.state.nome) {
       setNomeUsuario(location.state.nome);
@@ -199,9 +219,10 @@ const Dashboard = () => {
     }
   }, [location]);
 
+  // Protege o acesso
   useEffect(() => {
     if (!localStorage.getItem("token")) {
-      navigate("/login", { replace: true }); // Agora usando navigate
+      navigate("/login", { replace: true });
       return;
     }
   }, [navigate]);
@@ -211,8 +232,8 @@ const Dashboard = () => {
       try {
         const response = await api.get("/client");
         setClientName(response.data.cliente);
-      } catch (error) {
-        console.error("Erro ao buscar nome do cliente:", error);
+      } catch {
+        setClientName("");
       }
     };
     fetchClientName();
@@ -220,9 +241,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     const initialize = async () => {
-      setLoading(true);
       await carregarFiltros();
-      setLoading(false);
     };
     initialize();
     document.addEventListener("mousedown", handleClickOutside);
@@ -237,23 +256,29 @@ const Dashboard = () => {
 
   const carregarFiltros = async () => {
     try {
-      setLoading(true);
       const response = await api.get("/filtros");
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
       setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
       await carregarDados({ ...selectedFilters, anoLetivo: ultimoAnoLetivo });
-    } catch (error) {
-      console.error("Erro ao carregar filtros:", error);
-    } finally {
-      setLoading(false);
-    }
+    } catch {}
   };
 
+  // Carregamento individual de cada bloco/tabela/gráfico
   const carregarDados = async (filtros) => {
+    setLoadingCards({
+      totalMatriculas: true,
+      totalEscolas: true,
+      totalVagas: true,
+      totalEntradas: true,
+      totalSaidas: true,
+    });
+    setLoadingTable(true);
+    setLoadingGraphMov(true);
+    setLoadingPieSexo(true);
+    setLoadingBarTurno(true);
+
     try {
-      setLoading(true);
-      setData((prev) => ({ ...prev, comparativos: null }));
       const [totaisResponse, breakdownsResponse] = await Promise.all([
         api.post("/totais", filtros),
         api.post("/breakdowns", filtros),
@@ -263,10 +288,42 @@ const Dashboard = () => {
         ...totaisResponse.data,
         ...breakdownsResponse.data,
       }));
+
+      setLoadingCards({
+        totalMatriculas: false,
+        totalEscolas: false,
+        totalVagas: false,
+        totalEntradas: false,
+        totalSaidas: false,
+      });
+      setLoadingTable(false);
+      setLoadingGraphMov(false);
+      setLoadingPieSexo(false);
+      setLoadingBarTurno(false);
     } catch (error) {
-      console.error("Erro ao carregar dados:", error);
-    } finally {
-      setLoading(false);
+      setData((prev) => ({
+        ...prev,
+        totalMatriculas: "Erro",
+        totalEscolas: "Erro",
+        totalVagas: "Erro",
+        totalEntradas: "Erro",
+        totalSaidas: "Erro",
+        escolas: [],
+        entradasSaidasPorMes: {},
+        matriculasPorSexo: {},
+        matriculasPorTurno: {},
+      }));
+      setLoadingCards({
+        totalMatriculas: false,
+        totalEscolas: false,
+        totalVagas: false,
+        totalEntradas: false,
+        totalSaidas: false,
+      });
+      setLoadingTable(false);
+      setLoadingGraphMov(false);
+      setLoadingPieSexo(false);
+      setLoadingBarTurno(false);
     }
   };
 
@@ -304,22 +361,6 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    let interval;
-    if (loading) {
-      setProgress(0);
-      interval = setInterval(() => {
-        setProgress((prev) => (prev < 95 ? prev + 5 : prev));
-      }, 300);
-    } else {
-      setProgress(100);
-      const delay = isMobile ? 800 : 500;
-      const timeout = setTimeout(() => setProgress(0), delay);
-      return () => clearTimeout(timeout);
-    }
-    return () => clearInterval(interval);
-  }, [loading]);
-
-  useEffect(() => {
     const handleResize = () => {
       setTableGraphHeight(
         window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-64" : "h-96"
@@ -330,6 +371,7 @@ const Dashboard = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // Lógica do comparativo/trend
   let trendValue = "N/A";
   let trendValueColor = "";
   if (data.tendenciaMatriculas) {
@@ -343,44 +385,29 @@ const Dashboard = () => {
     }
   }
 
+  const sair = () => {
+    localStorage.removeItem("token");
+    navigate("/login", { replace: true });
+  };
+
   return (
     <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
-      {/* Toast de boas-vindas */}
       <Toast message={`Bem-vindo(a), ${nomeUsuario || 'usuário'}! 🎉`} show={showToast} />
-
-      {updateAvailable && (
-        <div className="fixed top-0 left-0 right-0 bg-yellow-300 p-2 flex justify-between items-center z-50">
-          <span className="text-gray-800 font-semibold">Nova versão disponível!</span>
-          <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-4 py-1 rounded">
-            Atualizar
-          </button>
-        </div>
-      )}
-      {/* Barra superior */}
       <div className="p-4 bg-white shadow-md flex items-center justify-between">
-        <div id="filterButton" className="flex items-center">
+        <div>
           <button
-            onClick={() => setShowSidebar(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md mr-4"
+            onClick={sair}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
           >
-            <FaFilter size={20} />
+            <FaSignOutAlt size={20} />
+            <span className="ml-2">Sair</span>
           </button>
         </div>
         <div className="flex-1 text-center">
           <h1 className="text-2xl font-bold text-gray-800">{clientName || "SEMED - TESTE"}</h1>
           <h2 className="text-lg text-gray-600">Painel de Matrículas</h2>
         </div>
-        <div>
-          <button
-            onClick={() => {
-              localStorage.removeItem("token");
-              navigate("/login", { replace: true }); // Agora usando navigate
-            }}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md"
-          >
-            <FaSignOutAlt size={20} />
-          </button>
-        </div>
+        <div></div>
       </div>
 
       {/* Badge para filtro de escola ativo */}
@@ -413,21 +440,7 @@ const Dashboard = () => {
           </div>
         );
       })()}
-      {loading && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center z-50">
-          <div className="w-1/3 bg-gray-300 rounded-full overflow-hidden">
-            <div
-              className="bg-blue-600 text-center py-2 text-white font-bold"
-              style={{ width: `${progress}%`, transition: "width 0.3s ease" }}
-            >
-              {progress}%
-            </div>
-          </div>
-          <p className="mt-4 text-white">
-            {updateAvailable ? "Atualizando versão..." : "Carregando dados..."}
-          </p>
-        </div>
-      )}
+
       {/* Grid de Cartões */}
       <div className="grid grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
         <div
@@ -440,6 +453,7 @@ const Dashboard = () => {
             icon={<FaUserGraduate />}
             borderColor="border-blue-500"
             comparativo={data.comparativos ? data.comparativos.totalMatriculas : null}
+            loading={loadingCards.totalMatriculas}
           />
           <Tooltip id="matriculas-tooltip" />
         </div>
@@ -452,6 +466,7 @@ const Dashboard = () => {
             comparativo={null}
             disableFormat
             valueColor={trendValueColor}
+            loading={false}
           />
         </div>
         <div
@@ -464,6 +479,7 @@ const Dashboard = () => {
             icon={<FaSchool />}
             borderColor="border-green-500"
             comparativo={data.comparativos ? data.comparativos.totalEscolas : null}
+            loading={loadingCards.totalEscolas}
           />
           <Tooltip id="escolas-tooltip" />
         </div>
@@ -473,6 +489,7 @@ const Dashboard = () => {
           icon={<FaChalkboardTeacher />}
           borderColor="border-purple-500"
           comparativo={data.comparativos ? data.comparativos.totalVagas : null}
+          loading={loadingCards.totalVagas}
         />
         <Card
           label="Entradas"
@@ -480,6 +497,7 @@ const Dashboard = () => {
           icon={<FaSignInAlt />}
           borderColor="border-yellow-500"
           comparativo={data.comparativos ? data.comparativos.totalEntradas : null}
+          loading={loadingCards.totalEntradas}
         />
         <Card
           label="Saídas"
@@ -487,10 +505,12 @@ const Dashboard = () => {
           icon={<FaSignOutAlt />}
           borderColor="border-red-500"
           comparativo={data.comparativos ? data.comparativos.totalSaidas : null}
+          loading={loadingCards.totalSaidas}
         />
       </div>
+
+      {/* Tabela Detalhes por Escola */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        {/* Tabela – scroll vertical */}
         <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
           <div className="p-4 bg-gray-100 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
@@ -511,186 +531,219 @@ const Dashboard = () => {
             </div>
           )}
           <div className="overflow-x-hidden">
-            <table className="min-w-full table-fixed">
-              <thead className="bg-gray-50 sticky top-0 z-10">
-                <tr>
-                  <th className="w-1/2 px-2 py-2 text-left text-sm font-medium text-gray-700">Escola</th>
-                  <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Turmas</th>
-                  <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Matrículas</th>
-                  <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Vagas</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {data.escolas
-                  .filter((escola) =>
-                    escola.escola.toLowerCase().includes(searchTerm.toLowerCase())
-                  )
-                  .map((escola) => (
-                    <tr
-                      key={escola.idescola}
-                      onClick={() => handleSchoolClick(escola)}
-                      className={`cursor-pointer hover:bg-gray-50 ${
-                        selectedSchool && selectedSchool.idescola === escola.idescola
-                          ? "bg-blue-100"
-                          : ""
-                      }`}
-                    >
-                      <td className="px-2 py-2 text-sm text-gray-700 break-words">{escola.escola}</td>
-                      <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_turmas}</td>
-                      <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                      <td className={`px-2 py-2 text-sm font-semibold ${
-                        escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
-                      }`}>
-                        {escola.vagas_disponiveis}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+            {loadingTable ? (
+              <div className="flex justify-center items-center h-32">
+                <Spinner />
+                <span className="ml-3 text-gray-500">Carregando escolas...</span>
+              </div>
+            ) : (
+              <table className="min-w-full table-fixed">
+                <thead className="bg-gray-50 sticky top-0 z-10">
+                  <tr>
+                    <th className="w-1/2 px-2 py-2 text-left text-sm font-medium text-gray-700">Escola</th>
+                    <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Turmas</th>
+                    <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Matrículas</th>
+                    <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Vagas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {data.escolas
+                    .filter((escola) =>
+                      escola.escola.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                    .map((escola) => (
+                      <tr
+                        key={escola.idescola}
+                        onClick={() => handleSchoolClick(escola)}
+                        className={`cursor-pointer hover:bg-gray-50 ${
+                          selectedSchool && selectedSchool.idescola === escola.idescola
+                            ? "bg-blue-100"
+                            : ""
+                        }`}
+                      >
+                        <td className="px-2 py-2 text-sm text-gray-700 break-words">{escola.escola}</td>
+                        <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_turmas}</td>
+                        <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_matriculas}</td>
+                        <td className={`px-2 py-2 text-sm font-semibold ${
+                          escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
+                        }`}>
+                          {escola.vagas_disponiveis}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
-        {/* Gráfico – Movimentação Mensal */}
+
+        {/* Gráfico Movimentação Mensal */}
         <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1 overflow-hidden">
-            <Bar
-              key={JSON.stringify(data.entradasSaidasPorMes)}
-              data={{
-                labels: Object.keys(data.entradasSaidasPorMes),
-                datasets: [
-                  {
-                    label: "Entradas",
-                    data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
-                    backgroundColor: "#FBBF24",
-                    borderRadius: 6,
+            {loadingGraphMov ? (
+              <div className="flex justify-center items-center h-full">
+                <Spinner />
+                <span className="ml-3 text-gray-500">Carregando gráfico...</span>
+              </div>
+            ) : (
+              <Bar
+                key={JSON.stringify(data.entradasSaidasPorMes)}
+                data={{
+                  labels: Object.keys(data.entradasSaidasPorMes),
+                  datasets: [
+                    {
+                      label: "Entradas",
+                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
+                      backgroundColor: "#FBBF24",
+                      borderRadius: 6,
+                    },
+                    {
+                      label: "Saídas",
+                      data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
+                      backgroundColor: "#EF4444",
+                      borderRadius: 6,
+                    },
+                  ],
+                }}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: { position: "top", labels: { color: "#6B7280" } },
+                    datalabels: { display: false },
                   },
-                  {
-                    label: "Saídas",
-                    data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
-                    backgroundColor: "#EF4444",
-                    borderRadius: 6,
+                  scales: {
+                    x: {
+                      grid: { display: false },
+                      ticks: { color: "#6B7280", font: { weight: "bold" } },
+                    },
+                    y: {
+                      grid: { color: "#E5E7EB" },
+                      ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
+                    },
                   },
-                ],
-              }}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { position: "top", labels: { color: "#6B7280" } },
-                  datalabels: { display: false },
-                },
-                scales: {
-                  x: {
-                    grid: { display: false },
-                    ticks: { color: "#6B7280", font: { weight: "bold" } },
-                  },
-                  y: {
-                    grid: { color: "#E5E7EB" },
-                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
-                  },
-                },
-                layout: { padding: { top: 20, bottom: 20 } },
-              }}
-            />
+                  layout: { padding: { top: 20, bottom: 20 } },
+                }}
+              />
+            )}
           </div>
         </div>
       </div>
+
+      {/* Gráficos adicionais (Matrículas por Sexo e Turno) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4">
         <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
           <div className="flex-1">
-            <Pie
-              key={JSON.stringify(data.matriculasPorSexo)}
-              data={{
-                labels: Object.keys(data.matriculasPorSexo),
-                datasets: [
-                  {
-                    label: "Sexo",
-                    data: Object.values(data.matriculasPorSexo),
-                    backgroundColor: Object.keys(data.matriculasPorSexo).map((sexo) => {
-                      if (sexo.toLowerCase().includes("masc")) return "#0000FF";
-                      if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
-                      return "#CCCCCC";
-                    }),
-                    borderWidth: 0,
+            {loadingPieSexo ? (
+              <div className="flex justify-center items-center h-full">
+                <Spinner />
+                <span className="ml-3 text-gray-500">Carregando gráfico...</span>
+              </div>
+            ) : (
+              <Pie
+                key={JSON.stringify(data.matriculasPorSexo)}
+                data={{
+                  labels: Object.keys(data.matriculasPorSexo),
+                  datasets: [
+                    {
+                      label: "Sexo",
+                      data: Object.values(data.matriculasPorSexo),
+                      backgroundColor: Object.keys(data.matriculasPorSexo).map((sexo) => {
+                        if (sexo.toLowerCase().includes("masc")) return "#0000FF";
+                        if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
+                        return "#CCCCCC";
+                      }),
+                      borderWidth: 0,
+                    },
+                  ],
+                }}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: { position: "bottom" },
+                    datalabels: {
+                      display: true,
+                      color: "#fff",
+                      font: { weight: "bold" },
+                      formatter: (value) => formatNumber(value),
+                    },
                   },
-                ],
-              }}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { position: "bottom" },
-                  datalabels: {
-                    display: true,
-                    color: "#fff",
-                    font: { weight: "bold" },
-                    formatter: (value) => formatNumber(value),
-                  },
-                },
-              }}
-            />
+                }}
+              />
+            )}
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
           <div className="flex-1">
-            <Bar
-              key={JSON.stringify(data.matriculasPorTurno)}
-              data={{
-                labels: Object.keys(data.matriculasPorTurno),
-                datasets: [
-                  {
-                    label: "Turno",
-                    data: Object.values(data.matriculasPorTurno),
-                    backgroundColor: Object.keys(data.matriculasPorTurno).map((_, index) => {
-                      const turnoColors = [
-                        "#4F46E5",
-                        "#10B981",
-                        "#F59E0B",
-                        "#EF4444",
-                        "#3B82F6",
-                        "#8B5CF6",
-                        "#EC4899",
-                      ];
-                      return turnoColors[index % turnoColors.length];
-                    }),
-                    borderRadius: 4,
+            {loadingBarTurno ? (
+              <div className="flex justify-center items-center h-full">
+                <Spinner />
+                <span className="ml-3 text-gray-500">Carregando gráfico...</span>
+              </div>
+            ) : (
+              <Bar
+                key={JSON.stringify(data.matriculasPorTurno)}
+                data={{
+                  labels: Object.keys(data.matriculasPorTurno),
+                  datasets: [
+                    {
+                      label: "Turno",
+                      data: Object.values(data.matriculasPorTurno),
+                      backgroundColor: Object.keys(data.matriculasPorTurno).map((_, index) => {
+                        const turnoColors = [
+                          "#4F46E5",
+                          "#10B981",
+                          "#F59E0B",
+                          "#EF4444",
+                          "#3B82F6",
+                          "#8B5CF6",
+                          "#EC4899",
+                        ];
+                        return turnoColors[index % turnoColors.length];
+                      }),
+                      borderRadius: 4,
+                    },
+                  ],
+                }}
+                options={{
+                  indexAxis: "y",
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                      display: true,
+                      color: "#fff",
+                      font: { weight: "bold" },
+                      anchor: "end",
+                      align: "right",
+                      offset: 4,
+                      formatter: (value) => formatNumber(value),
+                    },
                   },
-                ],
-              }}
-              options={{
-                indexAxis: "y",
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { display: false },
-                  datalabels: {
-                    display: true,
-                    color: "#fff",
-                    font: { weight: "bold" },
-                    anchor: "end",
-                    align: "right",
-                    offset: 4,
-                    formatter: (value) => formatNumber(value),
+                  scales: {
+                    x: {
+                      grid: { color: "#E5E7EB" },
+                      ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
+                    },
+                    y: {
+                      grid: { display: false },
+                      ticks: { color: "#6B7280", font: { weight: "bold" } },
+                    },
                   },
-                },
-                scales: {
-                  x: {
-                    grid: { color: "#E5E7EB" },
-                    ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
-                  },
-                  y: {
-                    grid: { display: false },
-                    ticks: { color: "#6B7280", font: { weight: "bold" } },
-                  },
-                },
-                layout: { padding: { left: 20, right: 20 } },
-              }}
-            />
+                  layout: { padding: { left: 20, right: 20 } },
+                }}
+              />
+            )}
           </div>
         </div>
       </div>
+
+      {/* Sidebar de Filtros */}
       <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${showSidebar ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out z-50`}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
