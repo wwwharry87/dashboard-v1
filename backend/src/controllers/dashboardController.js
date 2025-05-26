@@ -1,10 +1,9 @@
 const pool = require('../config/db');
 const NodeCache = require('node-cache');
-const cache = new NodeCache({ stdTTL: 3600 }); // cache de 1 hora (ajuste se quiser)
+const cache = new NodeCache({ stdTTL: 3600 }); // cache 1h
 
 const clientField = 'idcliente';
 
-// Monta o WHERE e os params dos filtros
 function buildWhereClause(filters, user) {
   const whereClauses = ["1=1"];
   const params = [];
@@ -44,7 +43,6 @@ function buildWhereClause(filters, user) {
   return { clause: whereClauses.join(" AND "), params };
 }
 
-// ========= TOTAIS (CARTÕES, TABELA, GRÁFICOS) =========
 const buscarTotais = async (req, res) => {
   try {
     const filters = {
@@ -62,7 +60,7 @@ const buscarTotais = async (req, res) => {
       idescola: req.body.idescola
     };
 
-    // --- 1. Busca data de última atualização ANTES de montar a chave do cache ---
+    // 1. Busca a data da última atualização para cache
     const ultimaAtualizacaoQuery = `
       SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
       AS ultima_atualizacao 
@@ -71,7 +69,7 @@ const buscarTotais = async (req, res) => {
     const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
     const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
 
-    // --- 2. Gera chave do cache com filtros + data de última atualização ---
+    // 2. Chave de cache com filtros e data da última atualização
     const cacheKey = JSON.stringify({
       filtros: filters,
       user: req.user,
@@ -83,7 +81,7 @@ const buscarTotais = async (req, res) => {
 
     const { clause, params } = buildWhereClause(filters, req.user);
 
-    // --- Cartões principais (tudo numa só query!) ---
+    // --- Cartões principais (totais rápidos em UMA query) ---
     const queryTotais = `
       SELECT
         COUNT(*) FILTER (WHERE idetapa_matricula NOT IN (98,99)) AS total_matriculas,
@@ -96,28 +94,27 @@ const buscarTotais = async (req, res) => {
     const resultTotais = await pool.query(queryTotais, params);
     const totais = resultTotais.rows[0];
 
-    // --- Total de Vagas ---
+    // --- Total de vagas (sem duplicação, correto e rápido) ---
     const vagasQuery = `
-      WITH turmas AS (
-        SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
+      SELECT
+        COALESCE(SUM(limite_maximo_aluno),0) AS total_vagas,
+        COALESCE(SUM(qtde_matriculas),0) AS total_matriculas
+      FROM (
+        SELECT
+          idturma,
+          MAX(limite_maximo_aluno) AS limite_maximo_aluno,
+          COUNT(*) FILTER (
+            WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
+          ) AS qtde_matriculas
         FROM dados_matriculas
-        WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
-      ),
-      totalMatriculas AS (
-        SELECT idescola, COUNT(*) FILTER (
-          WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
-        ) AS qtde_matriculas
-        FROM dados_matriculas
-        WHERE ${clause} AND idetapa_matricula NOT IN (98,99)
-        GROUP BY idescola
-      )
-      SELECT 
-        SUM(t.limite_maximo_aluno) - SUM(COALESCE(tm.qtde_matriculas,0)) AS total_vagas
-      FROM turmas t
-      LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
+        WHERE ${clause}
+        GROUP BY idturma
+      ) sub
     `;
-    const resultVagas = await pool.query(vagasQuery, params);
-    const totalVagas = resultVagas.rows[0].total_vagas || 0;
+    const vagasResult = await pool.query(vagasQuery, params);
+    const totalVagasRaw = parseInt(vagasResult.rows[0].total_vagas, 10) || 0;
+    const totalMatriculasRaw = parseInt(vagasResult.rows[0].total_matriculas, 10) || 0;
+    const totalVagas = totalVagasRaw - totalMatriculasRaw;
 
     // --- Matrículas por Zona ---
     const zonaQuery = `
@@ -158,7 +155,7 @@ const buscarTotais = async (req, res) => {
       matriculasPorTurno[row.turno] = parseInt(row.total, 10);
     });
 
-    // --- Lista de escolas (com paginação) ---
+    // --- Lista de escolas (paginação) ---
     const limit = parseInt(req.body.limit, 10) || 30;
     const offset = parseInt(req.body.offset, 10) || 0;
     const escolasQuery = `
@@ -280,7 +277,7 @@ const buscarTotais = async (req, res) => {
     const resposta = {
       totalMatriculas: parseInt(totais.total_matriculas, 10) || 0,
       totalEscolas: parseInt(totais.total_escolas, 10) || 0,
-      totalVagas: parseInt(totalVagas, 10) || 0,
+      totalVagas: totalVagas,
       totalEntradas: parseInt(totais.total_entradas, 10) || 0,
       totalSaidas: parseInt(totais.total_saidas, 10) || 0,
       escolas,
@@ -293,9 +290,8 @@ const buscarTotais = async (req, res) => {
       ultimaAtualizacao,
       tendenciaMatriculas: trendMatriculas
     };
-    // Salva cache:
-    cache.set(cacheKey, resposta);
 
+    cache.set(cacheKey, resposta);
     res.json(resposta);
   } catch (err) {
     console.error("Erro ao buscar totais:", err);
