@@ -4,8 +4,38 @@ import { Link, useNavigate } from 'react-router-dom';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
-const formatCPF = (value) => { /* ... sua função igual ... */ }
-const isValidCPF = (cpf) => { /* ... sua função igual ... */ }
+// Função para aplicar a máscara de CPF
+const formatCPF = (value) => {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length > 9) {
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4");
+  } else if (digits.length > 6) {
+    return digits.replace(/(\d{3})(\d{3})(\d{0,3})/, "$1.$2.$3");
+  } else if (digits.length > 3) {
+    return digits.replace(/(\d{3})(\d{0,3})/, "$1.$2");
+  }
+  return digits;
+};
+
+// Função para validar CPF
+const isValidCPF = (cpf) => {
+  cpf = cpf.replace(/[^\d]+/g, '');
+  if (cpf.length !== 11 || !!cpf.match(/(\d)\1{10}/)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cpf.charAt(i)) * (10 - i);
+  }
+  let checkDigit1 = 11 - (sum % 11);
+  if (checkDigit1 >= 10) checkDigit1 = 0;
+  if (checkDigit1 !== parseInt(cpf.charAt(9))) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cpf.charAt(i)) * (11 - i);
+  }
+  let checkDigit2 = 11 - (sum % 11);
+  if (checkDigit2 >= 10) checkDigit2 = 0;
+  return checkDigit2 === parseInt(cpf.charAt(10));
+};
 
 // Toast simples com Tailwind e emoji
 const Toast = ({ message, show }) => (
@@ -13,6 +43,17 @@ const Toast = ({ message, show }) => (
     <div className="fixed top-5 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in">
       <span role="img" aria-label="party">🎉</span>
       {message}
+      <style>
+        {`
+        @keyframes slide-in {
+          from { opacity: 0; transform: translateY(-20px) scale(0.95);}
+          to { opacity: 1; transform: translateY(0) scale(1);}
+        }
+        .animate-slide-in {
+          animation: slide-in 0.5s cubic-bezier(.44,1.38,.64,1) forwards;
+        }
+        `}
+      </style>
     </div>
   ) : null
 );
@@ -58,13 +99,13 @@ const Login = () => {
 
       localStorage.setItem('token', token);
 
-      // Mostra toast de boas-vindas
       setShowToast(true);
 
       setTimeout(() => {
         setShowToast(false);
-        navigate('/dashboard', { state: { nome: nome || 'Usuário' } });
-      }, 1600); // tempo do toast
+        // Sempre passa um nome para o dashboard
+        navigate('/dashboard', { state: { nome: nome ? nome : 'Usuário' } });
+      }, 1600);
 
     } catch (err) {
       setErro(err.response?.data?.message || 'Credenciais inválidas. Verifique e tente novamente.');
