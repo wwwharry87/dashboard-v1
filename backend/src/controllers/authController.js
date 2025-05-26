@@ -43,8 +43,12 @@ const login = async (req, res) => {
 
     const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '1d' });
     console.timeEnd('LOGIN');
-    return res.json({ token, nome: user.nome });
-    
+    return res.json({ 
+      token, 
+      nome: user.nome,
+      idcliente: allowedClients[0] || null  // <-- ADICIONE ISSO
+    });
+
   } catch (error) {
     console.error('Erro no login:', error);
     console.timeEnd('LOGIN');
