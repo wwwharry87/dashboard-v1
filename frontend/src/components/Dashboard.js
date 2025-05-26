@@ -108,7 +108,7 @@ const FilterSelect = ({ label, name, options, disabled = false, value, onChange 
   );
 };
 
-const Card = ({ label, value, icon, borderColor, comparativo, loading, disableFormat, valueColor = "" }) => {
+const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "", loading }) => {
   const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
 
   const renderComparativo = () => {
@@ -154,8 +154,9 @@ ChartJS.register(
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // States
+  // === STATES ===
   const [filters, setFilters] = useState({});
   const [selectedFilters, setSelectedFilters] = useState({
     anoLetivo: "",
@@ -178,9 +179,8 @@ const Dashboard = () => {
   const [clientName, setClientName] = useState("");
   const [showToast, setShowToast] = useState(false);
   const [nomeUsuario, setNomeUsuario] = useState("");
-  const location = useLocation();
 
-  // Loading individual para cada bloco/elemento
+  // === Loading individual ===
   const [loadingCards, setLoadingCards] = useState({
     totalMatriculas: true,
     totalEscolas: true,
@@ -210,7 +210,7 @@ const Dashboard = () => {
     tendenciaMatriculas: null,
   });
 
-  // Toast boas-vindas
+  // === Toast boas-vindas ===
   useEffect(() => {
     if (location.state && location.state.nome) {
       setNomeUsuario(location.state.nome);
@@ -219,7 +219,7 @@ const Dashboard = () => {
     }
   }, [location]);
 
-  // Protege o acesso
+  // === Protege o acesso ===
   useEffect(() => {
     if (!localStorage.getItem("token")) {
       navigate("/login", { replace: true });
@@ -227,6 +227,7 @@ const Dashboard = () => {
     }
   }, [navigate]);
 
+  // === Nome do cliente ===
   useEffect(() => {
     const fetchClientName = async () => {
       try {
@@ -239,6 +240,7 @@ const Dashboard = () => {
     fetchClientName();
   }, []);
 
+  // === Filtros iniciais ===
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
@@ -264,7 +266,7 @@ const Dashboard = () => {
     } catch {}
   };
 
-  // Carregamento individual de cada bloco/tabela/gráfico
+  // === Carregamento individual de cada bloco/tabela/gráfico ===
   const carregarDados = async (filtros) => {
     setLoadingCards({
       totalMatriculas: true,
@@ -371,7 +373,7 @@ const Dashboard = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Lógica do comparativo/trend
+  // === Lógica do comparativo/trend ===
   let trendValue = "N/A";
   let trendValueColor = "";
   if (data.tendenciaMatriculas) {
@@ -390,6 +392,7 @@ const Dashboard = () => {
     navigate("/login", { replace: true });
   };
 
+  // === RENDER ===
   return (
     <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
       <Toast message={`Bem-vindo(a), ${nomeUsuario || 'usuário'}! 🎉`} show={showToast} />
@@ -576,7 +579,6 @@ const Dashboard = () => {
             )}
           </div>
         </div>
-
         {/* Gráfico Movimentação Mensal */}
         <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
@@ -630,8 +632,7 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-
-      {/* Gráficos adicionais (Matrículas por Sexo e Turno) */}
+      {/* Gráficos adicionais */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4">
         <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
@@ -742,8 +743,15 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-
       {/* Sidebar de Filtros */}
+      <button
+        id="filterButton"
+        onClick={() => setShowSidebar(true)}
+        className="fixed left-4 bottom-4 z-50 bg-blue-600 text-white rounded-full shadow-lg p-3 hover:bg-blue-700 transition-colors md:hidden"
+        style={{ boxShadow: "0 6px 16px rgba(59,130,246,.17)" }}
+      >
+        <FaFilter size={24} />
+      </button>
       <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${showSidebar ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out z-50`}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
