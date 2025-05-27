@@ -436,28 +436,28 @@ return (
   <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-violet-500 via-pink-400 to-blue-400`}>
     <Toast message={toastMsg} show={showToast} type={toastType} />
 
-    {/* TOPO NOVO */}
+    {/* TOPO NOVO, SÓ CLIENTE NO CENTRO */}
     <div className="w-full bg-white/80 rounded-b-2xl shadow-md mb-2 flex items-center justify-between px-2 py-3 md:px-8 md:py-5 md:mb-4">
-      {/* Esquerda: Filtro e Bem-vindo(a) */}
-      <div className="flex flex-col items-start">
+      
+      {/* Esquerda: Filtro */}
+      <div className="flex items-center">
         <button
           id="filterButton"
           onClick={() => setShowSidebar(true)}
-          className="bg-violet-600 text-white rounded-full shadow-xl flex items-center justify-center p-4 hover:bg-pink-500 transition-colors mb-1"
-          style={{ fontSize: 36, minWidth: 56, minHeight: 56 }}
+          className="bg-violet-600 text-white rounded-full shadow-xl flex items-center justify-center p-3 hover:bg-pink-500 transition-colors"
+          style={{ fontSize: 28, minWidth: 48, minHeight: 48 }}
           title="Filtrar"
         >
           <FaFilter />
         </button>
-        <span className="text-lg md:text-xl font-bold text-gray-700 mt-1 ml-1">Bem-vindo(a)</span>
       </div>
 
-      {/* Centro: Nome do cliente (sempre visível) */}
+      {/* Centro: Nome do cliente */}
       <div className="flex-1 flex flex-col items-center justify-center">
         <h1
           className="font-bold text-center text-gray-800 drop-shadow-sm"
           style={{
-            fontSize: 'clamp(1rem, 2.5vw, 2rem)', // Ajusta entre mobile e desktop
+            fontSize: 'clamp(1.1rem, 2.8vw, 2.1rem)', // responsivo
             lineHeight: 1.2,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -476,7 +476,7 @@ return (
           onClick={sair}
           className="bg-red-600 text-white rounded-full shadow-md flex items-center justify-center p-3 hover:bg-red-700 transition-colors"
           title="Sair"
-          style={{ fontSize: 26, minWidth: 48, minHeight: 48 }}
+          style={{ fontSize: 28, minWidth: 48, minHeight: 48 }}
         >
           <FaSignOutAlt />
         </button>
