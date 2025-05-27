@@ -13,7 +13,7 @@ import {
   ArcElement,
 } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
-import "tailwindcss/tailwind.css";
+import "../App.css";
 import {
   FaUserGraduate,
   FaSchool,
