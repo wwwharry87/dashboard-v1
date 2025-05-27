@@ -432,42 +432,57 @@ const Dashboard = () => {
   };
 
   // === RENDER ===
-  return (
-    <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-violet-500 via-pink-400 to-blue-400`}>
-      <Toast message={toastMsg} show={showToast} type={toastType} />
+return (
+  <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-violet-500 via-pink-400 to-blue-400`}>
+    <Toast message={toastMsg} show={showToast} type={toastType} />
 
-      {/* Saudação do usuário, topo bonito e responsivo */}
-      <div className="w-full flex flex-col items-center py-3 bg-white/80 rounded-b-2xl shadow-md mb-2
-  md:flex-row md:justify-between md:px-8 md:py-5 md:mb-4
-">
-  <div className="flex items-center justify-center md:justify-start w-full md:w-auto gap-3">
-    <button
-      id="filterButton"
-      onClick={() => setShowSidebar(true)}
-      className="bg-violet-600 text-white rounded-full shadow-xl p-4 hover:bg-pink-500 transition-colors flex items-center justify-center"
-      style={{ fontSize: 32 }}
-      title="Filtrar"
-    >
-      <FaFilter />
-    </button>
-    <span className="text-xl md:text-2xl font-bold text-gray-700 ml-2">Bem-vindo(a)</span>
-  </div>
-  <div className="hidden md:flex flex-1 justify-center">
-    <div>
-      <h1 className="text-2xl font-bold text-gray-800 drop-shadow-sm text-center">{clientName || "SEMED - TESTE"}</h1>
-      <h2 className="text-lg text-gray-600 text-center">Painel de Matrículas</h2>
+    {/* TOPO NOVO */}
+    <div className="w-full bg-white/80 rounded-b-2xl shadow-md mb-2 flex items-center justify-between px-2 py-3 md:px-8 md:py-5 md:mb-4">
+      {/* Esquerda: Filtro e Bem-vindo(a) */}
+      <div className="flex flex-col items-start">
+        <button
+          id="filterButton"
+          onClick={() => setShowSidebar(true)}
+          className="bg-violet-600 text-white rounded-full shadow-xl flex items-center justify-center p-4 hover:bg-pink-500 transition-colors mb-1"
+          style={{ fontSize: 36, minWidth: 56, minHeight: 56 }}
+          title="Filtrar"
+        >
+          <FaFilter />
+        </button>
+        <span className="text-lg md:text-xl font-bold text-gray-700 mt-1 ml-1">Bem-vindo(a)</span>
+      </div>
+
+      {/* Centro: Nome do cliente (sempre visível) */}
+      <div className="flex-1 flex flex-col items-center justify-center">
+        <h1
+          className="font-bold text-center text-gray-800 drop-shadow-sm"
+          style={{
+            fontSize: 'clamp(1rem, 2.5vw, 2rem)', // Ajusta entre mobile e desktop
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: '94vw'
+          }}
+        >
+          {clientName || "SEMED - TESTE"}
+        </h1>
+        <span className="text-[0.95rem] md:text-lg text-gray-600 text-center -mt-1">Painel de Matrículas</span>
+      </div>
+
+      {/* Direita: Sair só ícone */}
+      <div className="flex items-center">
+        <button
+          onClick={sair}
+          className="bg-red-600 text-white rounded-full shadow-md flex items-center justify-center p-3 hover:bg-red-700 transition-colors"
+          title="Sair"
+          style={{ fontSize: 26, minWidth: 48, minHeight: 48 }}
+        >
+          <FaSignOutAlt />
+        </button>
+      </div>
     </div>
-  </div>
-  <div className="flex gap-2 mt-4 md:mt-0">
-    <button
-      onClick={sair}
-      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center gap-2"
-    >
-      <FaSignOutAlt size={18} />
-      <span className="font-semibold hidden md:inline">Sair</span>
-    </button>
-  </div>
-</div>
+
 
       {/* Badge para filtro de escola ativo */}
       {selectedSchool && (
