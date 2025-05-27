@@ -28,29 +28,35 @@ import {
 } from "react-icons/fa";
 import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
+import { motion, AnimatePresence } from "framer-motion";
 
-// Spinner para loading individual
+// Spinner com animação centralizada
 const Spinner = () => (
-  <svg className="animate-spin h-5 w-5 mx-auto text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+  <svg className="animate-spin h-8 w-8 text-violet-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
   </svg>
 );
 
-const Toast = ({ message, show }) =>
+// Toast animado e reutilizável
+const Toast = ({ message, show, type = "success" }) =>
   show ? (
-    <div className="fixed top-7 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-slide-in">
-      <span role="img" aria-label="party">🎉</span>
+    <div className={`
+      fixed top-8 left-1/2 transform -translate-x-1/2
+      ${type === "success" ? "bg-green-600" : "bg-blue-600"}
+      text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-2 z-50 animate-slide-in text-lg font-semibold
+      `}>
+      <span role="img" aria-label="party">{type === "success" ? "🎉" : "🔍"}</span>
       {message}
       <style>
         {`
-        @keyframes slide-in {
-          from { opacity: 0; transform: translateY(-20px) scale(0.95);}
-          to { opacity: 1; transform: translateY(0) scale(1);}
-        }
-        .animate-slide-in {
-          animation: slide-in 0.5s cubic-bezier(.44,1.38,.64,1) forwards;
-        }
+          @keyframes slide-in {
+            from { opacity: 0; transform: translateY(-20px) scale(0.95);}
+            to { opacity: 1; transform: translateY(0) scale(1);}
+          }
+          .animate-slide-in {
+            animation: slide-in 0.5s cubic-bezier(.44,1.38,.64,1) forwards;
+          }
         `}
       </style>
     </div>
@@ -88,14 +94,14 @@ const getIconColorFromBorder = (borderClass) => {
 const FilterSelect = ({ label, name, options, disabled = false, value, onChange }) => {
   const orderedOptions = reorderYesNo(options);
   return (
-    <label className="block mt-4">
+    <label className="block mt-2">
       <span className="text-sm font-medium text-gray-700">{label}:</span>
       <select
         name={name}
         value={value}
         onChange={onChange}
         disabled={disabled}
-        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500"
+        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-violet-500"
       >
         <option value="">Todos</option>
         {orderedOptions?.map((option) => (
@@ -130,14 +136,25 @@ const Card = ({ label, value, icon, borderColor, comparativo, disableFormat, val
   };
 
   return (
-    <div className={`shadow-lg rounded-xl p-3 text-center border-l-4 ${borderColor} hover:shadow-xl transition-shadow h-28 flex flex-col items-center justify-center`}>
-      <div className="text-2xl mb-1">{iconWithColor}</div>
+    <motion.div
+      initial={{ opacity: 0, y: 15 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className={`
+        shadow-xl rounded-2xl p-4 text-center border-l-8 ${borderColor}
+        h-32 flex flex-col items-center justify-center
+        bg-white/70 backdrop-blur-md ring-1 ring-gray-200
+        hover:shadow-2xl transition-all cursor-pointer select-none
+      `}
+      style={{ boxShadow: "0 6px 28px 0 rgba(140, 82, 255, 0.13)" }}
+    >
+      <div className={`text-3xl mb-1 ${loading ? "animate-pulse" : ""}`}>{iconWithColor}</div>
       <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span className="text-xl font-bold text-gray-800 max-[430px]:text-sm" style={{ color: valueColor }}>
+      <span className={`text-xl font-bold max-[430px]:text-sm`} style={{ color: valueColor }}>
         {loading ? <Spinner /> : disableFormat ? value : formatNumber(value)}
       </span>
       {renderComparativo()}
-    </div>
+    </motion.div>
   );
 };
 
@@ -178,6 +195,8 @@ const Dashboard = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [clientName, setClientName] = useState("");
   const [showToast, setShowToast] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
+  const [toastType, setToastType] = useState("success");
   const [nomeUsuario, setNomeUsuario] = useState("");
 
   // === Loading individual ===
@@ -210,16 +229,18 @@ const Dashboard = () => {
     tendenciaMatriculas: null,
   });
 
-  // === Toast boas-vindas ===
+  // Toast boas-vindas + uso para filtros também
   useEffect(() => {
     if (location.state && location.state.nome) {
       setNomeUsuario(location.state.nome);
+      setToastMsg(`Bem-vindo(a), ${location.state.nome}! 🎉`);
+      setToastType("success");
       setShowToast(true);
       setTimeout(() => setShowToast(false), 1800);
     }
   }, [location]);
 
-  // === Protege o acesso ===
+  // Protege o acesso
   useEffect(() => {
     if (!localStorage.getItem("token")) {
       navigate("/login", { replace: true });
@@ -227,7 +248,7 @@ const Dashboard = () => {
     }
   }, [navigate]);
 
-  // === Nome do cliente ===
+  // Nome do cliente
   useEffect(() => {
     const fetchClientName = async () => {
       try {
@@ -240,7 +261,7 @@ const Dashboard = () => {
     fetchClientName();
   }, []);
 
-  // === Filtros iniciais ===
+  // Filtros iniciais
   useEffect(() => {
     const initialize = async () => {
       await carregarFiltros();
@@ -266,7 +287,7 @@ const Dashboard = () => {
     } catch {}
   };
 
-  // === Carregamento individual de cada bloco/tabela/gráfico ===
+  // Carregamento individual de cada bloco/tabela/gráfico
   const carregarDados = async (filtros) => {
     setLoadingCards({
       totalMatriculas: true,
@@ -302,6 +323,14 @@ const Dashboard = () => {
       setLoadingGraphMov(false);
       setLoadingPieSexo(false);
       setLoadingBarTurno(false);
+
+      // Toast suave para filtros aplicados
+      if (Object.keys(filtros).length > 0) {
+        setToastMsg("Filtros aplicados com sucesso! 🔍");
+        setToastType("info");
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 1300);
+      }
     } catch (error) {
       setData((prev) => ({
         ...prev,
@@ -373,7 +402,7 @@ const Dashboard = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // === Lógica do comparativo/trend ===
+  // Lógica do comparativo/trend
   let trendValue = "N/A";
   let trendValueColor = "";
   if (data.tendenciaMatriculas) {
@@ -394,40 +423,47 @@ const Dashboard = () => {
 
   // === RENDER ===
   return (
-    <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50`}>
-      <Toast message={`Bem-vindo(a), ${nomeUsuario || 'usuário'}! 🎉`} show={showToast} />
+    <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-violet-500 via-pink-400 to-blue-400`}>
+      <Toast message={toastMsg} show={showToast} type={toastType} />
 
-      {/* Topo com botão filtro à esquerda e sair à direita */}
-      <div className="p-4 bg-white shadow-md flex items-center justify-between">
+      {/* Topo com saudação, filtro à esquerda e sair à direita */}
+      <div className="p-4 bg-white/80 shadow-lg flex items-center justify-between rounded-b-xl">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-600 to-blue-500 flex items-center justify-center text-white text-xl font-bold shadow-md ring-2 ring-pink-200">
+            {nomeUsuario ? nomeUsuario.charAt(0).toUpperCase() : 'U'}
+          </div>
+          <span className="font-medium text-gray-700 text-lg">{`Olá, ${nomeUsuario || 'Usuário'}`}</span>
+        </div>
         <button
           id="filterButton"
           onClick={() => setShowSidebar(true)}
-          className="bg-blue-600 text-white rounded-full shadow-lg p-3 hover:bg-blue-700 transition-colors"
-          style={{ boxShadow: "0 6px 16px rgba(59,130,246,.17)" }}
+          className="bg-violet-600 text-white rounded-full shadow-xl p-3 hover:bg-pink-500 transition-colors"
+          style={{ boxShadow: "0 8px 18px rgba(139,92,246,.19)" }}
         >
           <FaFilter size={24} />
         </button>
         <div className="flex-1 text-center">
-          <h1 className="text-2xl font-bold text-gray-800">{clientName || "SEMED - TESTE"}</h1>
+          <h1 className="text-2xl font-bold text-gray-800 drop-shadow-sm">{clientName || "SEMED - TESTE"}</h1>
           <h2 className="text-lg text-gray-600">Painel de Matrículas</h2>
         </div>
         <button
           onClick={sair}
-          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center"
+          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center gap-2"
         >
           <FaSignOutAlt size={18} />
+          <span className="font-semibold">Sair</span>
         </button>
       </div>
 
       {/* Badge para filtro de escola ativo */}
       {selectedSchool && (
-        <div className="text-center mb-2">
-          <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-bold">
+        <div className="text-center my-2">
+          <span className="bg-violet-100 text-violet-800 px-4 py-1 rounded-full text-sm font-bold shadow">
             Filtro ativo: {selectedSchool.escola}
           </span>
           <button
             onClick={() => handleSchoolClick(selectedSchool)}
-            className="ml-2 text-red-600 hover:underline text-xs"
+            className="ml-2 text-red-600 hover:underline text-xs font-semibold"
           >
             Remover filtro
           </button>
@@ -444,14 +480,14 @@ const Dashboard = () => {
         const minutes = updatedDate.getMinutes().toString().padStart(2, "0");
         const seconds = updatedDate.getSeconds().toString().padStart(2, "0");
         return (
-          <div className="p-2 bg-blue-100 text-center text-sm text-gray-700">
+          <div className="p-2 bg-violet-100/90 text-center text-sm text-gray-700 rounded-xl mx-4 mt-2 shadow">
             Dados atualizados: {`${day}/${month}/${year} às ${hours}:${minutes}:${seconds}`}
           </div>
         );
       })()}
 
       {/* Grid de Cartões */}
-      <div className="grid grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-6 gap-3 mb-4 px-4 pt-4">
+      <div className="grid grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-6 gap-3 mb-4 px-4 pt-6">
         <div
           data-tooltip-id="matriculas-tooltip"
           data-tooltip-content={`Urbana: ${data.matriculasPorZona?.["URBANA"] || 0}\nRural: ${data.matriculasPorZona?.["RURAL"] || 0}`}
@@ -520,8 +556,8 @@ const Dashboard = () => {
 
       {/* Tabela Detalhes por Escola */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        <div className={`bg-white rounded-xl shadow-lg overflow-y-auto ${tableGraphHeight}`}>
-          <div className="p-4 bg-gray-100 border-b flex justify-between items-center">
+        <div className={`bg-white/75 rounded-2xl shadow-2xl overflow-y-auto ${tableGraphHeight} ring-1 ring-violet-100`}>
+          <div className="p-4 bg-gray-50/60 border-b flex justify-between items-center rounded-t-2xl">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
             <button onClick={() => setShowSearch(!showSearch)}>
               <FaSearch size={20} className="text-gray-700 cursor-pointer" />
@@ -541,9 +577,11 @@ const Dashboard = () => {
           )}
           <div className="overflow-x-hidden">
             {loadingTable ? (
-              <div className="flex justify-center items-center h-32">
+              <div className="flex flex-col justify-center items-center h-32">
                 <Spinner />
-                <span className="ml-3 text-gray-500">Carregando escolas...</span>
+                <span className="mt-3 text-violet-700 font-semibold animate-pulse">
+                  {`Carregando dados para você, ${nomeUsuario || 'usuário'}...`}
+                </span>
               </div>
             ) : (
               <table className="min-w-full table-fixed">
@@ -564,9 +602,9 @@ const Dashboard = () => {
                       <tr
                         key={escola.idescola}
                         onClick={() => handleSchoolClick(escola)}
-                        className={`cursor-pointer hover:bg-gray-50 ${
+                        className={`cursor-pointer hover:bg-violet-50 transition-all ${
                           selectedSchool && selectedSchool.idescola === escola.idescola
-                            ? "bg-blue-100"
+                            ? "bg-violet-100"
                             : ""
                         }`}
                       >
@@ -586,13 +624,15 @@ const Dashboard = () => {
           </div>
         </div>
         {/* Gráfico Movimentação Mensal */}
-        <div className={`bg-white rounded-xl shadow-lg p-4 flex flex-col ${tableGraphHeight}`}>
+        <div className={`bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col ${tableGraphHeight} ring-1 ring-violet-100`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1 overflow-hidden">
             {loadingGraphMov ? (
-              <div className="flex justify-center items-center h-full">
+              <div className="flex flex-col justify-center items-center h-full">
                 <Spinner />
-                <span className="ml-3 text-gray-500">Carregando gráfico...</span>
+                <span className="mt-3 text-violet-700 font-semibold animate-pulse">
+                  {`Preparando o gráfico para você, ${nomeUsuario || 'usuário'}...`}
+                </span>
               </div>
             ) : (
               <Bar
@@ -639,14 +679,16 @@ const Dashboard = () => {
         </div>
       </div>
       {/* Gráficos adicionais */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-4">
-        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-6">
+        <div className="bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col h-[250px] ring-1 ring-violet-100">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
           <div className="flex-1">
             {loadingPieSexo ? (
-              <div className="flex justify-center items-center h-full">
+              <div className="flex flex-col justify-center items-center h-full">
                 <Spinner />
-                <span className="ml-3 text-gray-500">Carregando gráfico...</span>
+                <span className="mt-3 text-violet-700 font-semibold animate-pulse">
+                  {`Carregando gráfico para você, ${nomeUsuario || 'usuário'}...`}
+                </span>
               </div>
             ) : (
               <Pie
@@ -683,13 +725,15 @@ const Dashboard = () => {
             )}
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-[250px]">
+        <div className="bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col h-[250px] ring-1 ring-violet-100">
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
           <div className="flex-1">
             {loadingBarTurno ? (
-              <div className="flex justify-center items-center h-full">
+              <div className="flex flex-col justify-center items-center h-full">
                 <Spinner />
-                <span className="ml-3 text-gray-500">Carregando gráfico...</span>
+                <span className="mt-3 text-violet-700 font-semibold animate-pulse">
+                  {`Carregando gráfico para você, ${nomeUsuario || 'usuário'}...`}
+                </span>
               </div>
             ) : (
               <Bar
@@ -749,97 +793,110 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-      {/* Sidebar de Filtros */}
-      <div id="sidebar" className={`fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl transform ${showSidebar ? "translate-x-0" : "-translate-x-full"} transition-transform duration-300 ease-in-out z-50`}>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
-          <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-gray-700 transition-colors">
-            ✕
-          </button>
-        </div>
-        <div className="space-y-4">
-          <FilterSelect
-            label="Ano Letivo"
-            name="anoLetivo"
-            options={filters.ano_letivo}
-            value={selectedFilters.anoLetivo}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Tipo Matrícula"
-            name="tipoMatricula"
-            options={filters.tipo_matricula}
-            value={selectedFilters.tipoMatricula}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Situação Matrícula"
-            name="situacaoMatricula"
-            options={filters.situacao_matricula}
-            value={selectedFilters.situacaoMatricula}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Grupo Etapa"
-            name="grupoEtapa"
-            options={filters.grupo_etapa}
-            value={selectedFilters.grupoEtapa}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Etapa Matrícula"
-            name="etapaMatricula"
-            options={
-              selectedFilters.grupoEtapa && filters.etapasMatriculaPorGrupo
-                ? filters.etapasMatriculaPorGrupo[selectedFilters.grupoEtapa] || []
-                : filters.etapa_matricula
-            }
-            disabled={selectedFilters.etapaTurma !== ""}
-            value={selectedFilters.etapaMatricula}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Etapa Turma"
-            name="etapaTurma"
-            options={
-              selectedFilters.grupoEtapa && filters.etapasTurmaPorGrupo
-                ? filters.etapasTurmaPorGrupo[selectedFilters.grupoEtapa] || []
-                : filters.etapa_turma
-            }
-            disabled={selectedFilters.etapaMatricula !== ""}
-            value={selectedFilters.etapaTurma}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Deficiência"
-            name="deficiencia"
-            options={filters.deficiencia}
-            value={selectedFilters.deficiencia}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Multissérie"
-            name="multisserie"
-            options={filters.multisserie}
-            value={selectedFilters.multisserie}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Transporte Escolar"
-            name="transporteEscolar"
-            options={filters.transporte_escolar}
-            value={selectedFilters.transporteEscolar}
-            onChange={handleFilterChange}
-          />
-          <FilterSelect
-            label="Tipo Transporte"
-            name="tipoTransporte"
-            options={filters.tipo_transporte}
-            value={selectedFilters.tipoTransporte}
-            onChange={handleFilterChange}
-          />
-        </div>
-      </div>
+
+      {/* Sidebar de Filtros com animação */}
+      <AnimatePresence>
+        {showSidebar && (
+          <motion.div
+            id="sidebar"
+            initial={{ x: -350, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -350, opacity: 0 }}
+            transition={{ duration: 0.32, type: "spring", bounce: 0.19 }}
+            className="fixed inset-y-0 left-0 bg-white w-64 md:w-80 p-6 shadow-2xl z-50 ring-1 ring-violet-200"
+            style={{ willChange: "transform" }}
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
+              <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-violet-600 transition-colors text-2xl">
+                ✕
+              </button>
+            </div>
+            <div className="space-y-2">
+              <FilterSelect
+                label="Ano Letivo"
+                name="anoLetivo"
+                options={filters.ano_letivo}
+                value={selectedFilters.anoLetivo}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Tipo Matrícula"
+                name="tipoMatricula"
+                options={filters.tipo_matricula}
+                value={selectedFilters.tipoMatricula}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Situação Matrícula"
+                name="situacaoMatricula"
+                options={filters.situacao_matricula}
+                value={selectedFilters.situacaoMatricula}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Grupo Etapa"
+                name="grupoEtapa"
+                options={filters.grupo_etapa}
+                value={selectedFilters.grupoEtapa}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Etapa Matrícula"
+                name="etapaMatricula"
+                options={
+                  selectedFilters.grupoEtapa && filters.etapasMatriculaPorGrupo
+                    ? filters.etapasMatriculaPorGrupo[selectedFilters.grupoEtapa] || []
+                    : filters.etapa_matricula
+                }
+                disabled={selectedFilters.etapaTurma !== ""}
+                value={selectedFilters.etapaMatricula}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Etapa Turma"
+                name="etapaTurma"
+                options={
+                  selectedFilters.grupoEtapa && filters.etapasTurmaPorGrupo
+                    ? filters.etapasTurmaPorGrupo[selectedFilters.grupoEtapa] || []
+                    : filters.etapa_turma
+                }
+                disabled={selectedFilters.etapaMatricula !== ""}
+                value={selectedFilters.etapaTurma}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Deficiência"
+                name="deficiencia"
+                options={filters.deficiencia}
+                value={selectedFilters.deficiencia}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Multissérie"
+                name="multisserie"
+                options={filters.multisserie}
+                value={selectedFilters.multisserie}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Transporte Escolar"
+                name="transporteEscolar"
+                options={filters.transporte_escolar}
+                value={selectedFilters.transporteEscolar}
+                onChange={handleFilterChange}
+              />
+              <FilterSelect
+                label="Tipo Transporte"
+                name="tipoTransporte"
+                options={filters.tipo_transporte}
+                value={selectedFilters.tipoTransporte}
+                onChange={handleFilterChange}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
