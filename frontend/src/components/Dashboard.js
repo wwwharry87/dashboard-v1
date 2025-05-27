@@ -438,40 +438,36 @@ const Dashboard = () => {
 
       {/* Saudação do usuário, topo bonito e responsivo */}
       <div className="w-full flex flex-col items-center py-3 bg-white/80 rounded-b-2xl shadow-md mb-2
-        md:flex-row md:justify-between md:px-8 md:py-5 md:mb-4
-      ">
-        <div className="flex flex-col items-center md:flex-row md:items-center gap-3 md:gap-4 w-full md:w-auto">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-600 to-blue-500 flex items-center justify-center text-white text-3xl font-bold shadow-lg ring-4 ring-pink-200 transition-all duration-200">
-            {nomeUsuario ? nomeUsuario[0].toUpperCase() : 'U'}
-          </div>
-          <div className="flex flex-col items-center md:items-start">
-            <span className="text-sm text-gray-400 mb-0.5">Bem-vindo(a)</span>
-            <span className="text-xl md:text-2xl font-bold text-gray-700 break-all max-w-xs md:max-w-none">{nomeUsuario || "Usuário"}</span>
-          </div>
-        </div>
-        <div className="hidden md:flex flex-1 justify-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800 drop-shadow-sm text-center">{clientName || "SEMED - TESTE"}</h1>
-            <h2 className="text-lg text-gray-600 text-center">Painel de Matrículas</h2>
-          </div>
-        </div>
-        <div className="flex gap-2 mt-4 md:mt-0">
-          <button
-            id="filterButton"
-            onClick={() => setShowSidebar(true)}
-            className="bg-violet-600 text-white rounded-full shadow-xl p-3 hover:bg-pink-500 transition-colors"
-          >
-            <FaFilter size={24} />
-          </button>
-          <button
-            onClick={sair}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center gap-2"
-          >
-            <FaSignOutAlt size={18} />
-            <span className="font-semibold hidden md:inline">Sair</span>
-          </button>
-        </div>
-      </div>
+  md:flex-row md:justify-between md:px-8 md:py-5 md:mb-4
+">
+  <div className="flex items-center justify-center md:justify-start w-full md:w-auto gap-3">
+    <button
+      id="filterButton"
+      onClick={() => setShowSidebar(true)}
+      className="bg-violet-600 text-white rounded-full shadow-xl p-4 hover:bg-pink-500 transition-colors flex items-center justify-center"
+      style={{ fontSize: 32 }}
+      title="Filtrar"
+    >
+      <FaFilter />
+    </button>
+    <span className="text-xl md:text-2xl font-bold text-gray-700 ml-2">Bem-vindo(a)</span>
+  </div>
+  <div className="hidden md:flex flex-1 justify-center">
+    <div>
+      <h1 className="text-2xl font-bold text-gray-800 drop-shadow-sm text-center">{clientName || "SEMED - TESTE"}</h1>
+      <h2 className="text-lg text-gray-600 text-center">Painel de Matrículas</h2>
+    </div>
+  </div>
+  <div className="flex gap-2 mt-4 md:mt-0">
+    <button
+      onClick={sair}
+      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shadow-md flex items-center gap-2"
+    >
+      <FaSignOutAlt size={18} />
+      <span className="font-semibold hidden md:inline">Sair</span>
+    </button>
+  </div>
+</div>
 
       {/* Badge para filtro de escola ativo */}
       {selectedSchool && (
