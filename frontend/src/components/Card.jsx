@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { motion } from 'framer-motion';
 import { FaArrowUp, FaArrowDown } from 'react-icons/fa';
+import { Tooltip } from 'react-tooltip';
 
 // Função para formatar números
 const formatNumber = (num) =>
@@ -50,7 +51,9 @@ const Card = ({
   disableFormat, 
   valueColor = "", 
   loading = false,
-  isComparativo = false
+  isComparativo = false,
+  tooltipId = null,
+  tooltipContent = null
 }) => {
   // Se for o cartão de comparativo e não tiver dados ou estiver carregando, mostrar skeleton
   if (isComparativo && (loading || !value || value === "N/A")) {
@@ -85,29 +88,34 @@ const Card = ({
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className={`
-        shadow-xl rounded-2xl p-4 text-center border-l-8 ${borderColor}
-        h-32 flex flex-col items-center justify-center
-        bg-white/70 backdrop-blur-md ring-1 ring-gray-200
-        hover:shadow-2xl transition-all cursor-pointer select-none
-        ${isComparativo ? 'hover:bg-gray-50' : ''}
-      `}
-      style={{ boxShadow: "0 6px 28px 0 rgba(140, 82, 255, 0.13)" }}
-    >
-      <div className="text-3xl mb-1">{iconWithColor}</div>
-      <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span 
-        className={`text-xl font-bold max-[430px]:text-sm ${isComparativo ? 'mt-1' : ''}`} 
-        style={{ color: valueColor || (isComparativo ? '#4B5563' : '') }}
+    <>
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className={`
+          shadow-xl rounded-2xl p-4 text-center border-l-8 ${borderColor}
+          h-32 flex flex-col items-center justify-center
+          bg-white/70 backdrop-blur-md ring-1 ring-gray-200
+          hover:shadow-2xl transition-all cursor-pointer select-none
+          ${isComparativo ? 'hover:bg-gray-50' : ''}
+        `}
+        style={{ boxShadow: "0 6px 28px 0 rgba(140, 82, 255, 0.13)" }}
+        data-tooltip-id={tooltipId}
+        data-tooltip-content={tooltipContent}
       >
-        {disableFormat ? value : formatNumber(value)}
-      </span>
-      {renderComparativo()}
-    </motion.div>
+        <div className="text-3xl mb-1">{iconWithColor}</div>
+        <h3 className="text-md font-semibold text-gray-600">{label}</h3>
+        <span 
+          className={`text-xl font-bold max-[430px]:text-sm ${isComparativo ? 'mt-1' : ''}`} 
+          style={{ color: valueColor || (isComparativo ? '#4B5563' : '') }}
+        >
+          {disableFormat ? value : formatNumber(value)}
+        </span>
+        {renderComparativo()}
+      </motion.div>
+      {tooltipId && <Tooltip id={tooltipId} />}
+    </>
   );
 };
 
