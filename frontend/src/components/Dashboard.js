@@ -34,7 +34,8 @@ import { motion, AnimatePresence } from "framer-motion";
 const EscolasTable = lazy(() => import('./components/EscolasTable'));
 const MovimentacaoChart = lazy(() => import('./components/MovimentacaoChart'));
 const SexoChart = lazy(() => import('./components/SexoChart'));
-const TurnoChart = lazy(() => import('./components/TurnoChart'));
+//const TurnoChart = lazy(() => import('./components/TurnoChart'));
+const TurnoChart = lazy(()=> import('./TurnoChart'));
 
 // Spinner com melhor feedback visual
 const Spinner = () => (
