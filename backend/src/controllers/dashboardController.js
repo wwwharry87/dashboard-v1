@@ -195,7 +195,7 @@ const buscarTotais = async (req, res) => {
         (SELECT total_entradas FROM totais) AS total_entradas,
         (SELECT total_saidas FROM totais) AS total_saidas,
         (SELECT ultima_atualizacao FROM ultima_atualizacao) AS ultima_atualizacao,
-        (SELECT json_agg(escolas_detalhes.*) FROM escolas_detalhes) AS escolas,
+        (SELECT json_agg(escolas_detalhes.*) FROM escolas_detalhes ORDER BY qtde_matriculas DESC) AS escolas,
         (SELECT json_object_agg(mes, json_build_object('entradas', entradas, 'saidas', saidas)) 
          FROM entradas_saidas_mes) AS entradas_saidas_por_mes,
         (SELECT json_object_agg(zona_aluno, total) FROM matriculas_por_zona) AS matriculas_por_zona,
@@ -225,22 +225,15 @@ const buscarTotais = async (req, res) => {
     }
     
     // Cálculo da tendência de matrículas (comparativo com ano anterior)
+    // Ajustado para aplicar todos os filtros exceto o ano letivo
     let trendMatriculas = null;
     if (filters.anoLetivo) {
       const prevYear = (parseInt(filters.anoLetivo, 10) - 1).toString();
-      const { clause: clausePrev, params: paramsPrev } = buildWhereClause({
-        anoLetivo: prevYear,
-        deficiencia: filters.deficiencia,
-        grupoEtapa: filters.grupoEtapa,
-        etapaMatricula: filters.etapaMatricula,
-        etapaTurma: filters.etapaTurma,
-        multisserie: filters.multisserie,
-        situacaoMatricula: filters.situacaoMatricula,
-        tipoMatricula: filters.tipoMatricula,
-        tipoTransporte: filters.tipoTransporte,
-        transporteEscolar: filters.transporteEscolar,
-        idcliente: filters.idcliente
-      }, req.user);
+      
+      // Cria uma cópia dos filtros atuais para o ano anterior, mantendo todos os outros filtros
+      const prevYearFilters = { ...filters, anoLetivo: prevYear };
+      
+      const { clause: clausePrev, params: paramsPrev } = buildWhereClause(prevYearFilters, req.user);
       
       const prevQuery = `SELECT COUNT(*) FROM dados_matriculas WHERE ${clausePrev} AND idetapa_matricula NOT IN (98,99)`;
       const prevResult = await pool.query(prevQuery, paramsPrev);
@@ -375,7 +368,8 @@ const buscarBreakdowns = async (req, res) => {
       tipoMatricula: req.body.tipoMatricula,
       tipoTransporte: req.body.tipoTransporte,
       transporteEscolar: req.body.transporteEscolar,
-      idcliente: req.body.idcliente
+      idcliente: req.body.idcliente,
+      idescola: req.body.idescola
     };
     
     // Gera chave de cache para os breakdowns

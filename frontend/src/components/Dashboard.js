@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api";
-import { Bar, Pie } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -30,11 +29,15 @@ import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Importação dos componentes otimizados
+import FilterSelect from './FilterSelect';
+import Card from './Card';
+
 // Lazy loading de componentes
 const EscolasTable = lazy(() => import('./EscolasTable'));
 const MovimentacaoChart = lazy(() => import('./MovimentacaoChart'));
 const SexoChart = lazy(() => import('./SexoChart'));
-const TurnoChart = lazy(()=> import('./TurnoChart'));
+const TurnoChart = lazy(() => import('./TurnoChart'));
 
 // Spinner com melhor feedback visual
 const Spinner = () => (
@@ -48,16 +51,6 @@ const Spinner = () => (
 );
 
 // Skeleton loaders para melhor feedback visual
-const CardSkeleton = () => (
-  <div className="shadow-xl rounded-2xl p-4 text-center border-l-8 border-gray-300
-    h-32 flex flex-col items-center justify-center
-    bg-white/70 backdrop-blur-md ring-1 ring-gray-200 animate-pulse">
-    <div className="w-8 h-8 rounded-full bg-gray-300 mb-2"></div>
-    <div className="h-4 w-24 bg-gray-300 rounded mb-2"></div>
-    <div className="h-6 w-16 bg-gray-300 rounded"></div>
-  </div>
-);
-
 const TableSkeleton = () => (
   <div className="animate-pulse">
     <div className="h-10 bg-gray-200 rounded-t-lg mb-2"></div>
@@ -100,104 +93,6 @@ const formatNumber = (num) =>
   num === null || num === undefined || num === "Erro"
     ? num
     : Number(num).toLocaleString("pt-BR");
-
-const reorderYesNo = (options) => {
-  if (!options) return [];
-  const opts = options.map((o) => String(o));
-  if (opts.length === 2) {
-    const lower = opts.map((o) => o.toLowerCase());
-    if (lower.includes("sim") && lower.includes("não")) {
-      return opts.sort((a, b) => (a.toLowerCase() === "sim" ? -1 : 1));
-    }
-  }
-  return opts;
-};
-
-const getIconColorFromBorder = (borderClass) => {
-  const mapping = {
-    "border-blue-500": "#3B82F6",
-    "border-green-500": "#10B981",
-    "border-purple-500": "#8B5CF6",
-    "border-yellow-500": "#FBBF24",
-    "border-red-500": "#EF4444",
-    "border-black": "#000000",
-  };
-  return mapping[borderClass] || "#000000";
-};
-
-// Componente FilterSelect otimizado com memo
-const FilterSelect = React.memo(({ label, name, options, disabled = false, value, onChange }) => {
-  const orderedOptions = useMemo(() => reorderYesNo(options), [options]);
-  
-  return (
-    <label className="block mt-2">
-      <span className="text-sm font-medium text-gray-700">{label}:</span>
-      <select
-        name={name}
-        value={value}
-        onChange={onChange}
-        disabled={disabled}
-        className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-violet-500"
-      >
-        <option value="">Todos</option>
-        {orderedOptions?.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-});
-
-// Componente Card otimizado com memo
-const Card = React.memo(({ label, value, icon, borderColor, comparativo, disableFormat, valueColor = "", loading }) => {
-  const iconWithColor = React.cloneElement(icon, { style: { color: getIconColorFromBorder(borderColor) } });
-
-  const renderComparativo = () => {
-    if (comparativo && comparativo.diff != null) {
-      return (
-        <div className="flex items-center justify-center mt-1">
-          {comparativo.arrow === "up" ? (
-            <FaArrowUp className="mr-1" style={{ color: "green" }} />
-          ) : (
-            <FaArrowDown className="mr-1" style={{ color: "red" }} />
-          )}
-          <span style={{ color: comparativo.arrow === "up" ? "green" : "red", fontSize: "0.8rem" }}>
-            {comparativo.diff}%
-          </span>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  if (loading) {
-    return <CardSkeleton />;
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className={`
-        shadow-xl rounded-2xl p-4 text-center border-l-8 ${borderColor}
-        h-32 flex flex-col items-center justify-center
-        bg-white/70 backdrop-blur-md ring-1 ring-gray-200
-        hover:shadow-2xl transition-all cursor-pointer select-none
-      `}
-      style={{ boxShadow: "0 6px 28px 0 rgba(140, 82, 255, 0.13)" }}
-    >
-      <div className="text-3xl mb-1">{iconWithColor}</div>
-      <h3 className="text-md font-semibold text-gray-600">{label}</h3>
-      <span className="text-xl font-bold max-[430px]:text-sm" style={{ color: valueColor }}>
-        {disableFormat ? value : formatNumber(value)}
-      </span>
-      {renderComparativo()}
-    </motion.div>
-  );
-});
 
 ChartJS.register(
   CategoryScale,
@@ -778,7 +673,8 @@ const Dashboard = () => {
             comparativo={null}
             disableFormat
             valueColor={trendData.color}
-            loading={false}
+            loading={loadingCards.totalMatriculas}
+            isComparativo={true}
           />
         </div>
         <div
@@ -857,39 +753,13 @@ const Dashboard = () => {
               </div>
             ) : (
               <Suspense fallback={<TableSkeleton />}>
-                <table className="min-w-full table-fixed">
-                  <thead className="bg-gray-50 sticky top-0 z-10">
-                    <tr>
-                      <th className="w-1/2 px-2 py-2 text-left text-sm font-medium text-gray-700">Escola</th>
-                      <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Turmas</th>
-                      <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Matrículas</th>
-                      <th className="w-1/6 px-2 py-2 text-left text-sm font-medium text-gray-700">Vagas</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {filteredEscolas.map((escola) => (
-                      <motion.tr
-                        key={escola.idescola}
-                        onClick={() => handleSchoolClick(escola)}
-                        className={`cursor-pointer hover:bg-violet-50 transition-all ${
-                          selectedSchool && selectedSchool.idescola === escola.idescola
-                            ? "bg-violet-100"
-                            : ""
-                        }`}
-                        whileHover={{ backgroundColor: "rgba(139, 92, 246, 0.1)" }}
-                      >
-                        <td className="px-2 py-2 text-sm text-gray-700 break-words">{escola.escola}</td>
-                        <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_turmas}</td>
-                        <td className="px-2 py-2 text-sm text-gray-700">{escola.qtde_matriculas}</td>
-                        <td className={`px-2 py-2 text-sm font-semibold ${
-                          escola.status_vagas === "disponivel" ? "text-green-600" : "text-red-600"
-                        }`}>
-                          {escola.vagas_disponiveis}
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
+                <EscolasTable 
+                  escolas={filteredEscolas}
+                  searchTerm={searchTerm}
+                  selectedSchool={selectedSchool}
+                  handleSchoolClick={handleSchoolClick}
+                  loading={loadingTable}
+                />
               </Suspense>
             )}
           </div>
@@ -903,10 +773,10 @@ const Dashboard = () => {
               <ChartSkeleton />
             ) : (
               <Suspense fallback={<ChartSkeleton />}>
-                <Bar
-                  key={`movimentacao-${JSON.stringify(chartData.movimentacao.labels)}`}
+                <MovimentacaoChart 
                   data={chartData.movimentacao}
                   options={chartOptions.movimentacao}
+                  loading={loadingGraphMov}
                 />
               </Suspense>
             )}
@@ -924,10 +794,10 @@ const Dashboard = () => {
               <ChartSkeleton />
             ) : (
               <Suspense fallback={<ChartSkeleton />}>
-                <Pie
-                  key={`sexo-${JSON.stringify(chartData.sexo.labels)}`}
+                <SexoChart 
                   data={chartData.sexo}
                   options={chartOptions.sexo}
+                  loading={loadingPieSexo}
                 />
               </Suspense>
             )}
@@ -942,10 +812,10 @@ const Dashboard = () => {
               <ChartSkeleton />
             ) : (
               <Suspense fallback={<ChartSkeleton />}>
-                <Bar
-                  key={`turno-${JSON.stringify(chartData.turno.labels)}`}
+                <TurnoChart 
                   data={chartData.turno}
                   options={chartOptions.turno}
+                  loading={loadingBarTurno}
                 />
               </Suspense>
             )}
