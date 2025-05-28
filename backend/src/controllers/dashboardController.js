@@ -1,4 +1,11 @@
 const pool = require('../config/db');
+const NodeCache = require('node-cache');
+
+// Configuração do cache
+const cache = new NodeCache({ 
+  stdTTL: 300, // 5 minutos de TTL padrão
+  checkperiod: 60 // Verificar expiração a cada 60 segundos
+});
 
 // Nome da coluna que referencia o cliente na tabela dados_matriculas
 const clientField = 'idcliente';
@@ -47,15 +54,23 @@ const buildWhereClause = (filters, user) => {
     addFilter(filters.idcliente, clientField);
   }
 
-  console.log("Cláusula WHERE:", whereClauses.join(" AND "));
-  console.log("Parâmetros:", params);
   return { clause: whereClauses.join(" AND "), params };
+};
+
+// Função auxiliar para gerar chave de cache baseada nos filtros
+const generateCacheKey = (prefix, filters, user) => {
+  const userKey = user ? 
+    (user.clientId || (user.allowedClients ? user.allowedClients.join(',') : '')) : '';
+  
+  return `${prefix}_${userKey}_${Object.entries(filters)
+    .filter(([_, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}:${value}`)
+    .sort()
+    .join('_')}`;
 };
 
 const buscarTotais = async (req, res) => {
   try {
-    console.log("req.user:", req.user);
-
     // Extrai os filtros do body
     const filters = {
       anoLetivo: req.body.anoLetivo,
@@ -68,168 +83,148 @@ const buscarTotais = async (req, res) => {
       tipoMatricula: req.body.tipoMatricula,
       tipoTransporte: req.body.tipoTransporte,
       transporteEscolar: req.body.transporteEscolar,
-      idcliente: req.body.idcliente, // Será ignorado se o token tiver filtro de cliente
-      idescola: req.body.idescola // filtro da escola
+      idcliente: req.body.idcliente,
+      idescola: req.body.idescola
     };
 
-    const { clause, params } = buildWhereClause(filters, req.user);
-    const queryBase = `FROM dados_matriculas WHERE ${clause} `;
-    const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
-
-    const queriesMain = {
-      totalMatriculas: `SELECT COUNT(*) ${queryBaseFiltrada}`,
-      totalEscolas: `SELECT COUNT(DISTINCT idescola) ${queryBase}`,
-      totalVagas: `
-        SELECT 
-    SUM(limite_maximo_aluno) - SUM(qtde_matriculas) AS total_vagas
-  FROM (
-    WITH turmas AS (
-      SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-      ${queryBaseFiltrada}
-    ),
-    totalMatriculas AS (
-      SELECT idescola, COUNT(*) FILTER (
-        WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
-      ) AS qtde_matriculas
-      ${queryBaseFiltrada}
-      GROUP BY idescola
-    )
-    SELECT 
-      t.idescola,
-      SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
-      COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas
-    FROM turmas t
-    LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
-    GROUP BY t.idescola, tm.qtde_matriculas
-  ) AS sub
-      `,
-      totalEntradas: `SELECT COUNT(*) ${queryBase}AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'`,
-      totalSaidas: `SELECT COUNT(*) ${queryBase}AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'`
-    };
-
-    const resultsMain = await Promise.all(
-      Object.values(queriesMain).map(q => pool.query(q, params))
-    );
-
-    const ultimaAtualizacaoQuery = `
-      SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') 
-      AS ultima_atualizacao 
-      FROM dados_matriculas
-    `;
-    const ultimaAtualizacaoResult = await pool.query(ultimaAtualizacaoQuery);
-    const ultimaAtualizacao = ultimaAtualizacaoResult.rows[0].ultima_atualizacao;
-
-    // Breakdown para registros com grupo_etapa "complementar"
-    let matriculasPorZona = {};
-    let matriculasPorSexo = {};
-    let matriculasPorTurno = {};
-
-    if (filters.grupoEtapa && filters.grupoEtapa.toLowerCase() === "complementar") {
-      try {
-        const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY zona_aluno `;
-        const resultZona = await pool.query(matriculasZonaQuery, params);
-        resultZona.rows.forEach(row => {
-          matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
-        });
-      } catch (err) {
-        console.error("Erro ao buscar matriculas por zona:", err);
-      }
-      try {
-        const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada}GROUP BY sexo `;
-        const resultSexo = await pool.query(matriculasSexoQuery, params);
-        resultSexo.rows.forEach(row => {
-          matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
-        });
-      } catch (err) {
-        console.error("Erro ao buscar matriculas por sexo:", err);
-      }
-      try {
-        const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno `;
-        const resultTurno = await pool.query(matriculasTurnoQuery, params);
-        resultTurno.rows.forEach(row => {
-          matriculasPorTurno[row.turno] = parseInt(row.total, 10);
-        });
-      } catch (err) {
-        console.error("Erro ao buscar matriculas por turno:", err);
-      }
+    // Gera chave de cache baseada nos filtros
+    const cacheKey = generateCacheKey('totais', filters, req.user);
+    
+    // Verifica se os dados já estão em cache
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
     }
 
-    const escolasQuery = `
-      WITH turmas AS (
-        SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
-        ${queryBaseFiltrada}
+    // Se não estiver em cache, busca do banco de dados
+    const { clause, params } = buildWhereClause(filters, req.user);
+
+    // Consulta otimizada usando CTE (Common Table Expressions)
+    const query = `
+      WITH base_filtrada AS (
+        SELECT * FROM dados_matriculas WHERE ${clause}
       ),
-      totalMatriculas AS (
-        SELECT idescola, COUNT(*) FILTER (
-          WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)
-        ) AS qtde_matriculas
-        ${queryBaseFiltrada}
+      base_sem_especiais AS (
+        SELECT * FROM base_filtrada WHERE idetapa_matricula NOT IN (98,99)
+      ),
+      totais AS (
+        SELECT 
+          COUNT(*) AS total_matriculas,
+          COUNT(DISTINCT idescola) AS total_escolas,
+          COUNT(*) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-') AS total_entradas,
+          COUNT(*) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-') AS total_saidas
+        FROM base_sem_especiais
+      ),
+      turmas AS (
+        SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
+        FROM base_sem_especiais
+      ),
+      total_matriculas_por_escola AS (
+        SELECT 
+          idescola, 
+          COUNT(*) FILTER (WHERE situacao_matricula = 'ATIVO' AND idetapa_matricula NOT IN (98,99)) AS qtde_matriculas
+        FROM base_sem_especiais
         GROUP BY idescola
+      ),
+      escolas_detalhes AS (
+        SELECT 
+          t.escola,
+          t.idescola,
+          COUNT(t.idturma) AS qtde_turmas,
+          COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas,
+          SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
+          SUM(t.limite_maximo_aluno) - COALESCE(tm.qtde_matriculas, 0) AS vagas_disponiveis
+        FROM turmas t
+        LEFT JOIN total_matriculas_por_escola tm ON t.idescola = tm.idescola
+        GROUP BY t.escola, t.idescola, tm.qtde_matriculas
+      ),
+      total_vagas AS (
+        SELECT SUM(vagas_disponiveis) AS total_vagas FROM escolas_detalhes
+      ),
+      entradas_saidas_mes AS (
+        SELECT 
+          COALESCE(e.mes, s.mes) AS mes,
+          COALESCE(e.total_entradas, 0) AS entradas,
+          COALESCE(s.total_saidas, 0) AS saidas
+        FROM (
+          SELECT 
+            SUBSTRING(entrada_mes_tipo, 1, 2)::INT AS mes,
+            COUNT(*) AS total_entradas
+          FROM base_filtrada
+          WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'
+          GROUP BY mes
+        ) e
+        FULL JOIN (
+          SELECT 
+            SUBSTRING(saida_mes_situacao, 1, 2)::INT AS mes,
+            COUNT(*) AS total_saidas
+          FROM base_filtrada
+          WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'
+          GROUP BY mes
+        ) s ON e.mes = s.mes
+      ),
+      matriculas_por_zona AS (
+        SELECT zona_aluno, COUNT(*) as total 
+        FROM base_sem_especiais
+        GROUP BY zona_aluno
+      ),
+      matriculas_por_sexo AS (
+        SELECT sexo, COUNT(*) as total 
+        FROM base_sem_especiais
+        GROUP BY sexo
+      ),
+      matriculas_por_turno AS (
+        SELECT turno, COUNT(*) as total 
+        FROM base_sem_especiais
+        GROUP BY turno, cdturno 
+        ORDER BY cdturno
+      ),
+      escolas_por_zona AS (
+        SELECT zona_escola, COUNT(DISTINCT idescola) as total 
+        FROM base_filtrada
+        GROUP BY zona_escola
+      ),
+      ultima_atualizacao AS (
+        SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') AS ultima_atualizacao 
+        FROM dados_matriculas
       )
       SELECT 
-        t.escola,
-        t.idescola,
-        COUNT(t.idturma) AS qtde_turmas,
-        COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas,
-        SUM(t.limite_maximo_aluno) AS limite_maximo_aluno,
-        SUM(t.limite_maximo_aluno) - COALESCE(tm.qtde_matriculas, 0) AS vagas_disponiveis
-      FROM turmas t
-      LEFT JOIN totalMatriculas tm ON t.idescola = tm.idescola
-      GROUP BY t.escola, t.idescola, tm.qtde_matriculas
-      ORDER BY qtde_matriculas DESC
+        (SELECT total_matriculas FROM totais) AS total_matriculas,
+        (SELECT total_escolas FROM totais) AS total_escolas,
+        (SELECT total_vagas FROM total_vagas) AS total_vagas,
+        (SELECT total_entradas FROM totais) AS total_entradas,
+        (SELECT total_saidas FROM totais) AS total_saidas,
+        (SELECT ultima_atualizacao FROM ultima_atualizacao) AS ultima_atualizacao,
+        (SELECT json_agg(escolas_detalhes.*) FROM escolas_detalhes) AS escolas,
+        (SELECT json_object_agg(mes, json_build_object('entradas', entradas, 'saidas', saidas)) 
+         FROM entradas_saidas_mes) AS entradas_saidas_por_mes,
+        (SELECT json_object_agg(zona_aluno, total) FROM matriculas_por_zona) AS matriculas_por_zona,
+        (SELECT json_object_agg(sexo, total) FROM matriculas_por_sexo) AS matriculas_por_sexo,
+        (SELECT json_object_agg(turno, total) FROM matriculas_por_turno) AS matriculas_por_turno,
+        (SELECT json_object_agg(zona_escola, total) FROM escolas_por_zona) AS escolas_por_zona
     `;
-    const escolasResult = await pool.query(escolasQuery, params);
-    const escolas = escolasResult.rows.map(row => ({
-      escola: row.escola,
-      idescola: row.idescola,
-      qtde_turmas: row.qtde_turmas,
-      qtde_matriculas: row.qtde_matriculas,
-      limite_maximo_aluno: row.limite_maximo_aluno,
-      vagas_disponiveis: row.vagas_disponiveis,
-      status_vagas: row.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
-    }));
 
-    const entradasSaidasQuery = `
-      WITH entradas AS (
-        SELECT 
-          SUBSTRING(entrada_mes_tipo, 1, 2)::INT AS mes,
-          COUNT(*) AS total_entradas
-        ${queryBase} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'
-        GROUP BY mes
-      ),
-      saidas AS (
-        SELECT 
-          SUBSTRING(saida_mes_situacao, 1, 2)::INT AS mes,
-          COUNT(*) AS total_saidas
-        ${queryBase} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'
-        GROUP BY mes
-      )
-      SELECT
-        COALESCE(e.mes, s.mes) AS mes,
-        COALESCE(e.total_entradas, 0) AS entradas,
-        COALESCE(s.total_saidas, 0) AS saidas
-      FROM entradas e
-      FULL JOIN saidas s ON e.mes = s.mes
-      ORDER BY COALESCE(e.mes, s.mes)
-    `;
-    const entradasSaidasResult = await pool.query(entradasSaidasQuery, params);
-    const entradasSaidasPorMes = {};
+    const result = await pool.query(query, params);
+    
+    // Processamento dos dados retornados
+    const row = result.rows[0];
+    
+    // Preparação dos dados para o formato esperado pelo frontend
     const nomesMeses = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-    entradasSaidasResult.rows.forEach(row => {
-      const mesIndex = row.mes - 1; 
-      const mesAbreviado = nomesMeses[mesIndex] || row.mes;
-      const entradas = parseInt(row.entradas, 10) || 0;
-      const saidas = parseInt(row.saidas, 10) || 0;
-      entradasSaidasPorMes[mesAbreviado] = { entradas, saidas };
-    });
-
-    const escolasZonaQuery = `SELECT zona_escola, COUNT(DISTINCT idescola) as total ${queryBase}GROUP BY zona_escola `;
-    const resultEscolasZona = await pool.query(escolasZonaQuery, params);
-    const escolasPorZona = {};
-    resultEscolasZona.rows.forEach(row => {
-      escolasPorZona[row.zona_escola] = parseInt(row.total, 10);
-    });
-
+    const entradasSaidasPorMes = {};
+    
+    if (row.entradas_saidas_por_mes) {
+      Object.entries(row.entradas_saidas_por_mes).forEach(([mes, dados]) => {
+        const mesIndex = parseInt(mes) - 1;
+        const mesAbreviado = nomesMeses[mesIndex] || mes;
+        entradasSaidasPorMes[mesAbreviado] = {
+          entradas: parseInt(dados.entradas, 10) || 0,
+          saidas: parseInt(dados.saidas, 10) || 0
+        };
+      });
+    }
+    
+    // Cálculo da tendência de matrículas (comparativo com ano anterior)
     let trendMatriculas = null;
     if (filters.anoLetivo) {
       const prevYear = (parseInt(filters.anoLetivo, 10) - 1).toString();
@@ -246,15 +241,13 @@ const buscarTotais = async (req, res) => {
         transporteEscolar: filters.transporteEscolar,
         idcliente: filters.idcliente
       }, req.user);
-      const queryBasePrev = `FROM dados_matriculas WHERE ${clausePrev} `;
-      const queriesPrev = {
-        totalMatriculas: `SELECT COUNT(*) ${queryBasePrev}AND idetapa_matricula NOT IN (98,99)`
-      };
-      const resultsPrev = await Promise.all(
-        Object.values(queriesPrev).map(q => pool.query(q, paramsPrev))
-      );
-      const prevMat = parseInt(resultsPrev[0].rows[0].count, 10) || 0;
-      const currentMat = parseInt(resultsMain[0].rows[0].count, 10) || 0;
+      
+      const prevQuery = `SELECT COUNT(*) FROM dados_matriculas WHERE ${clausePrev} AND idetapa_matricula NOT IN (98,99)`;
+      const prevResult = await pool.query(prevQuery, paramsPrev);
+      
+      const prevMat = parseInt(prevResult.rows[0].count, 10) || 0;
+      const currentMat = parseInt(row.total_matriculas, 10) || 0;
+      
       if (prevMat > 0) {
         const diff = prevMat - currentMat;
         const percentMissing = (Math.abs(diff) / prevMat) * 100;
@@ -265,23 +258,35 @@ const buscarTotais = async (req, res) => {
         };
       }
     }
-
-    res.json({
-      totalMatriculas: parseInt(resultsMain[0].rows[0].count, 10) || 0,
-      totalEscolas: parseInt(resultsMain[1].rows[0].count, 10) || 0,
-      totalVagas: parseInt(resultsMain[2].rows[0].total_vagas, 10) || 0,
-      totalEntradas: parseInt(resultsMain[3].rows[0].count, 10) || 0,
-      totalSaidas: parseInt(resultsMain[4].rows[0].count, 10) || 0,
+    
+    // Formatação das escolas com status de vagas
+    const escolas = row.escolas ? row.escolas.map(escola => ({
+      ...escola,
+      status_vagas: escola.vagas_disponiveis >= 0 ? "disponivel" : "excedido"
+    })) : [];
+    
+    // Montagem do objeto de resposta final
+    const responseData = {
+      totalMatriculas: parseInt(row.total_matriculas, 10) || 0,
+      totalEscolas: parseInt(row.total_escolas, 10) || 0,
+      totalVagas: parseInt(row.total_vagas, 10) || 0,
+      totalEntradas: parseInt(row.total_entradas, 10) || 0,
+      totalSaidas: parseInt(row.total_saidas, 10) || 0,
       escolas,
       entradasSaidasPorMes,
       comparativos: { totalMatriculas: trendMatriculas },
-      matriculasPorZona,
-      matriculasPorSexo,
-      matriculasPorTurno,
-      escolasPorZona,
-      ultimaAtualizacao,
+      matriculasPorZona: row.matriculas_por_zona || {},
+      matriculasPorSexo: row.matriculas_por_sexo || {},
+      matriculasPorTurno: row.matriculas_por_turno || {},
+      escolasPorZona: row.escolas_por_zona || {},
+      ultimaAtualizacao: row.ultima_atualizacao,
       tendenciaMatriculas: trendMatriculas
-    });
+    };
+    
+    // Armazena os dados em cache
+    cache.set(cacheKey, responseData);
+    
+    res.json(responseData);
   } catch (err) {
     console.error("Erro ao buscar totais:", err);
     res.status(500).json({ error: "Erro ao buscar dados da dashboard", details: err.message });
@@ -290,62 +295,67 @@ const buscarTotais = async (req, res) => {
 
 const buscarFiltros = async (req, res) => {
   try {
-    // Recebe os filtros enviados no body, se houver, ou usa objeto vazio
-    const filters = req.body || {};
-
+    // Gera chave de cache para os filtros
+    const cacheKey = generateCacheKey('filtros', {}, req.user);
+    
+    // Verifica se os filtros já estão em cache
+    const cachedFilters = cache.get(cacheKey);
+    if (cachedFilters) {
+      return res.json(cachedFilters);
+    }
+    
     // Constrói a cláusula WHERE considerando os filtros e o usuário
-    const { clause, params } = buildWhereClause(filters, req.user);
+    const { clause, params } = buildWhereClause({}, req.user);
 
-    // Consulta os filtros aplicando a cláusula WHERE
-    const filtrosResult = await pool.query(`
-      SELECT DISTINCT 
-        ano_letivo, deficiencia, grupo_etapa, etapa_matricula,
-        etapa_turma, multisserie, situacao_matricula, tipo_matricula,
-        tipo_transporte, transporte_escolar
-      FROM dados_matriculas
-      WHERE ${clause}
-      ORDER BY ano_letivo DESC
-    `, params);
-
-    const formatarFiltro = (key) =>
-      [...new Set(filtrosResult.rows.map(row => row[key]).filter(Boolean))];
-
-    const etapasMatriculaResult = await pool.query(`
-      SELECT grupo_etapa, array_agg(DISTINCT etapa_matricula) as etapas
-      FROM dados_matriculas
-      WHERE ${clause}
-      GROUP BY grupo_etapa
-    `, params);
-    const etapasMatriculaPorGrupo = {};
-    etapasMatriculaResult.rows.forEach(row => {
-      etapasMatriculaPorGrupo[row.grupo_etapa] = row.etapas || [];
-    });
-
-    const etapasTurmaResult = await pool.query(`
-      SELECT grupo_etapa, array_agg(DISTINCT etapa_turma) as etapas
-      FROM dados_matriculas
-      WHERE ${clause}
-      GROUP BY grupo_etapa
-    `, params);
-    const etapasTurmaPorGrupo = {};
-    etapasTurmaResult.rows.forEach(row => {
-      etapasTurmaPorGrupo[row.grupo_etapa] = row.etapas || [];
-    });
-
-    res.json({
-      ano_letivo: formatarFiltro('ano_letivo'),
-      deficiencia: formatarFiltro('deficiencia'),
-      grupo_etapa: formatarFiltro('grupo_etapa'),
-      etapa_matricula: formatarFiltro('etapa_matricula'),
-      etapa_turma: formatarFiltro('etapa_turma'),
-      multisserie: formatarFiltro('multisserie'),
-      situacao_matricula: formatarFiltro('situacao_matricula'),
-      tipo_matricula: formatarFiltro('tipo_matricula'),
-      tipo_transporte: formatarFiltro('tipo_transporte'),
-      transporte_escolar: formatarFiltro('transporte_escolar'),
-      etapasMatriculaPorGrupo,
-      etapasTurmaPorGrupo
-    });
+    // Consulta otimizada para buscar todos os filtros em uma única query
+    const query = `
+      WITH base_filtrada AS (
+        SELECT * FROM dados_matriculas WHERE ${clause}
+      )
+      SELECT 
+        (SELECT array_agg(DISTINCT ano_letivo ORDER BY ano_letivo DESC) FROM base_filtrada WHERE ano_letivo IS NOT NULL) AS ano_letivo,
+        (SELECT array_agg(DISTINCT deficiencia) FROM base_filtrada WHERE deficiencia IS NOT NULL) AS deficiencia,
+        (SELECT array_agg(DISTINCT grupo_etapa) FROM base_filtrada WHERE grupo_etapa IS NOT NULL) AS grupo_etapa,
+        (SELECT array_agg(DISTINCT etapa_matricula) FROM base_filtrada WHERE etapa_matricula IS NOT NULL) AS etapa_matricula,
+        (SELECT array_agg(DISTINCT etapa_turma) FROM base_filtrada WHERE etapa_turma IS NOT NULL) AS etapa_turma,
+        (SELECT array_agg(DISTINCT multisserie) FROM base_filtrada WHERE multisserie IS NOT NULL) AS multisserie,
+        (SELECT array_agg(DISTINCT situacao_matricula) FROM base_filtrada WHERE situacao_matricula IS NOT NULL) AS situacao_matricula,
+        (SELECT array_agg(DISTINCT tipo_matricula) FROM base_filtrada WHERE tipo_matricula IS NOT NULL) AS tipo_matricula,
+        (SELECT array_agg(DISTINCT tipo_transporte) FROM base_filtrada WHERE tipo_transporte IS NOT NULL) AS tipo_transporte,
+        (SELECT array_agg(DISTINCT transporte_escolar) FROM base_filtrada WHERE transporte_escolar IS NOT NULL) AS transporte_escolar,
+        (SELECT json_object_agg(
+          grupo_etapa, 
+          (SELECT array_agg(DISTINCT etapa_matricula) FROM base_filtrada bf2 WHERE bf2.grupo_etapa = bf1.grupo_etapa)
+        ) FROM (SELECT DISTINCT grupo_etapa FROM base_filtrada) bf1) AS etapas_matricula_por_grupo,
+        (SELECT json_object_agg(
+          grupo_etapa, 
+          (SELECT array_agg(DISTINCT etapa_turma) FROM base_filtrada bf2 WHERE bf2.grupo_etapa = bf1.grupo_etapa)
+        ) FROM (SELECT DISTINCT grupo_etapa FROM base_filtrada) bf1) AS etapas_turma_por_grupo
+    `;
+    
+    const result = await pool.query(query, params);
+    const row = result.rows[0];
+    
+    // Formatação da resposta
+    const response = {
+      ano_letivo: row.ano_letivo || [],
+      deficiencia: row.deficiencia || [],
+      grupo_etapa: row.grupo_etapa || [],
+      etapa_matricula: row.etapa_matricula || [],
+      etapa_turma: row.etapa_turma || [],
+      multisserie: row.multisserie || [],
+      situacao_matricula: row.situacao_matricula || [],
+      tipo_matricula: row.tipo_matricula || [],
+      tipo_transporte: row.tipo_transporte || [],
+      transporte_escolar: row.transporte_escolar || [],
+      etapasMatriculaPorGrupo: row.etapas_matricula_por_grupo || {},
+      etapasTurmaPorGrupo: row.etapas_turma_por_grupo || {}
+    };
+    
+    // Armazena os filtros em cache com TTL maior (1 hora)
+    cache.set(cacheKey, response, 3600);
+    
+    res.json(response);
   } catch (err) {
     console.error("Erro ao buscar filtros:", err);
     res.status(500).json({ error: "Erro ao buscar filtros", details: err.message });
@@ -354,78 +364,95 @@ const buscarFiltros = async (req, res) => {
 
 const buscarBreakdowns = async (req, res) => {
   try {
-    const {
-      anoLetivo,
-      deficiencia,
-      grupoEtapa,
-      etapaMatricula,
-      etapaTurma,
-      multisserie,
-      situacaoMatricula,
-      tipoMatricula,
-      tipoTransporte,
-      transporteEscolar,
-      idcliente
-    } = req.body;
-
-    const { clause, params } = buildWhereClause({
-      anoLetivo,
-      deficiencia,
-      grupoEtapa,
-      etapaMatricula,
-      etapaTurma,
-      multisserie,
-      situacaoMatricula,
-      tipoMatricula,
-      tipoTransporte,
-      transporteEscolar,
-      idcliente
-    }, req.user);
-
-    const queryBase = `FROM dados_matriculas WHERE ${clause} `;
-    const queryBaseFiltrada = queryBase + "AND idetapa_matricula NOT IN (98,99) ";
-
-    let matriculasPorZona = {};
-    let matriculasPorSexo = {};
-    let matriculasPorTurno = {};
-
-    try {
-      const matriculasZonaQuery = `SELECT zona_aluno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY zona_aluno `;
-      const resultZona = await pool.query(matriculasZonaQuery, params);
-      resultZona.rows.forEach(row => {
-        matriculasPorZona[row.zona_aluno] = parseInt(row.total, 10);
-      });
-    } catch (err) {
-      console.error("Erro ao buscar matriculas por zona:", err);
-    }
-    try {
-      const matriculasSexoQuery = `SELECT sexo, COUNT(*) as total ${queryBaseFiltrada}GROUP BY sexo `;
-      const resultSexo = await pool.query(matriculasSexoQuery, params);
-      resultSexo.rows.forEach(row => {
-        matriculasPorSexo[row.sexo] = parseInt(row.total, 10);
-      });
-    } catch (err) {
-      console.error("Erro ao buscar matriculas por sexo:", err);
-    }
-    try {
-      const matriculasTurnoQuery = `SELECT turno, COUNT(*) as total ${queryBaseFiltrada}GROUP BY turno, cdturno ORDER BY cdturno `;
-      const resultTurno = await pool.query(matriculasTurnoQuery, params);
-      resultTurno.rows.forEach(row => {
-        matriculasPorTurno[row.turno] = parseInt(row.total, 10);
-      });
-    } catch (err) {
-      console.error("Erro ao buscar matriculas por turno:", err);
+    const filters = {
+      anoLetivo: req.body.anoLetivo,
+      deficiencia: req.body.deficiencia,
+      grupoEtapa: req.body.grupoEtapa,
+      etapaMatricula: req.body.etapaMatricula,
+      etapaTurma: req.body.etapaTurma,
+      multisserie: req.body.multisserie,
+      situacaoMatricula: req.body.situacaoMatricula,
+      tipoMatricula: req.body.tipoMatricula,
+      tipoTransporte: req.body.tipoTransporte,
+      transporteEscolar: req.body.transporteEscolar,
+      idcliente: req.body.idcliente
+    };
+    
+    // Gera chave de cache para os breakdowns
+    const cacheKey = generateCacheKey('breakdowns', filters, req.user);
+    
+    // Verifica se os dados já estão em cache
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
     }
 
-    res.json({
-      matriculasPorZona,
-      matriculasPorSexo,
-      matriculasPorTurno
-    });
+    const { clause, params } = buildWhereClause(filters, req.user);
+    
+    // Consulta otimizada para buscar todos os breakdowns em uma única query
+    const query = `
+      WITH base_filtrada AS (
+        SELECT * FROM dados_matriculas WHERE ${clause}
+      ),
+      base_sem_especiais AS (
+        SELECT * FROM base_filtrada WHERE idetapa_matricula NOT IN (98,99)
+      ),
+      matriculas_por_zona AS (
+        SELECT zona_aluno, COUNT(*) as total 
+        FROM base_sem_especiais
+        GROUP BY zona_aluno
+      ),
+      matriculas_por_sexo AS (
+        SELECT sexo, COUNT(*) as total 
+        FROM base_sem_especiais
+        GROUP BY sexo
+      ),
+      matriculas_por_turno AS (
+        SELECT turno, COUNT(*) as total 
+        FROM base_sem_especiais
+        GROUP BY turno, cdturno 
+        ORDER BY cdturno
+      )
+      SELECT 
+        (SELECT json_object_agg(zona_aluno, total) FROM matriculas_por_zona) AS matriculas_por_zona,
+        (SELECT json_object_agg(sexo, total) FROM matriculas_por_sexo) AS matriculas_por_sexo,
+        (SELECT json_object_agg(turno, total) FROM matriculas_por_turno) AS matriculas_por_turno
+    `;
+    
+    const result = await pool.query(query, params);
+    const row = result.rows[0];
+    
+    // Formatação da resposta
+    const response = {
+      matriculasPorZona: row.matriculas_por_zona || {},
+      matriculasPorSexo: row.matriculas_por_sexo || {},
+      matriculasPorTurno: row.matriculas_por_turno || {}
+    };
+    
+    // Armazena os dados em cache
+    cache.set(cacheKey, response);
+    
+    res.json(response);
   } catch (err) {
     console.error("Erro ao buscar breakdowns:", err);
     res.status(500).json({ error: "Erro ao buscar breakdowns", details: err.message });
   }
 };
 
-module.exports = { buscarTotais, buscarFiltros, buscarBreakdowns };
+// Função para limpar o cache (útil para atualizações de dados)
+const limparCache = (req, res) => {
+  try {
+    const resultado = cache.flushAll();
+    res.json({ success: resultado, message: "Cache limpo com sucesso" });
+  } catch (err) {
+    console.error("Erro ao limpar cache:", err);
+    res.status(500).json({ error: "Erro ao limpar cache", details: err.message });
+  }
+};
+
+module.exports = {
+  buscarTotais,
+  buscarFiltros,
+  buscarBreakdowns,
+  limparCache
+};
