@@ -29,6 +29,7 @@ import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 import { motion, AnimatePresence } from "framer-motion";
 
+
 // Importação dos componentes otimizados
 import FilterSelect from './FilterSelect';
 import Card from './Card';

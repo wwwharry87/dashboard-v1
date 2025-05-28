@@ -100,6 +100,7 @@ const buscarTotais = async (req, res) => {
     const { clause, params } = buildWhereClause(filters, req.user);
 
     // Consulta otimizada usando CTE (Common Table Expressions)
+    // CORREÇÃO: Movendo a ordenação para fora da CTE para evitar o erro de GROUP BY
     const query = `
       WITH base_filtrada AS (
         SELECT * FROM dados_matriculas WHERE ${clause}
@@ -187,6 +188,10 @@ const buscarTotais = async (req, res) => {
       ultima_atualizacao AS (
         SELECT (MAX(ultima_atualizacao) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo') AS ultima_atualizacao 
         FROM dados_matriculas
+      ),
+      escolas_ordenadas AS (
+        SELECT * FROM escolas_detalhes
+        ORDER BY qtde_matriculas DESC
       )
       SELECT 
         (SELECT total_matriculas FROM totais) AS total_matriculas,
@@ -195,7 +200,7 @@ const buscarTotais = async (req, res) => {
         (SELECT total_entradas FROM totais) AS total_entradas,
         (SELECT total_saidas FROM totais) AS total_saidas,
         (SELECT ultima_atualizacao FROM ultima_atualizacao) AS ultima_atualizacao,
-        (SELECT json_agg(escolas_detalhes.*) FROM escolas_detalhes ORDER BY qtde_matriculas DESC) AS escolas,
+        (SELECT json_agg(e.*) FROM escolas_ordenadas e) AS escolas,
         (SELECT json_object_agg(mes, json_build_object('entradas', entradas, 'saidas', saidas)) 
          FROM entradas_saidas_mes) AS entradas_saidas_por_mes,
         (SELECT json_object_agg(zona_aluno, total) FROM matriculas_por_zona) AS matriculas_por_zona,
@@ -271,7 +276,7 @@ const buscarTotais = async (req, res) => {
       matriculasPorZona: row.matriculas_por_zona || {},
       matriculasPorSexo: row.matriculas_por_sexo || {},
       matriculasPorTurno: row.matriculas_por_turno || {},
-      escolasPorZona: row.escolas_por_zona || {},
+      escolasPorZona: row.escolasPorZona || {},
       ultimaAtualizacao: row.ultima_atualizacao,
       tendenciaMatriculas: trendMatriculas
     };
