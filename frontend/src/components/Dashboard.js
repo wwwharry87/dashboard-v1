@@ -31,10 +31,9 @@ import { isMobile } from "react-device-detect";
 import { motion, AnimatePresence } from "framer-motion";
 
 // Lazy loading de componentes
-const EscolasTable = lazy(() => import('./components/EscolasTable'));
-const MovimentacaoChart = lazy(() => import('./components/MovimentacaoChart'));
-const SexoChart = lazy(() => import('./components/SexoChart'));
-//const TurnoChart = lazy(() => import('./components/TurnoChart'));
+const EscolasTable = lazy(() => import('./EscolasTable'));
+const MovimentacaoChart = lazy(() => import('./MovimentacaoChart'));
+const SexoChart = lazy(() => import('./SexoChart'));
 const TurnoChart = lazy(()=> import('./TurnoChart'));
 
 // Spinner com melhor feedback visual
