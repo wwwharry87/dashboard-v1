@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { @apply antialiased; }
+  body { @apply bg-gray-50 text-gray-900 font-sans; }
+}
+@layer components {
+  .container-pro { @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8; }
+  .card-pro { @apply bg-white rounded-2xl shadow-soft ring-1 ring-gray-100; background-image: theme('backgroundImage.bw-card'); backdrop-filter: saturate(120%) blur(4px); }
+  .chip { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset; }
+  .btn-primary { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-soft hover:shadow-elev transition; background-image: theme('backgroundImage.bw-gradient'); }
+  .toolbar { @apply bg-white/80 backdrop-blur-md border-b border-gray-100; }
+}
+* { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
+*::-webkit-scrollbar { height: 10px; width: 10px; }
+*::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
+*::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
