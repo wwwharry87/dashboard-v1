@@ -1,4 +1,5 @@
-import useInView from '../hooks/useInView';
+// frontend/src/components/Dashboard.js
+import useInView from "../hooks/useInView";
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api";
@@ -21,8 +22,6 @@ import {
   FaSignInAlt,
   FaSignOutAlt,
   FaFilter,
-  FaArrowUp,
-  FaArrowDown,
   FaBalanceScale,
   FaSearch,
 } from "react-icons/fa";
@@ -30,20 +29,19 @@ import { Tooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Importação dos componentes
+import FilterSelect from "./FilterSelect";
+import Card from "./Card";
 
-// Importação dos componentes otimizados
-import FilterSelect from './FilterSelect';
-import Card from './Card';
+// Lazy loading
+const EscolasTable = lazy(() => import("./EscolasTable"));
+const MovimentacaoChart = lazy(() => import("./MovimentacaoChart"));
+const SexoChart = lazy(() => import("./SexoChart"));
+const TurnoChart = lazy(() => import("./TurnoChart"));
 
-// Lazy loading de componentes
-const EscolasTable = lazy(() => import('./EscolasTable'));
-const MovimentacaoChart = lazy(() => import('./MovimentacaoChart'));
-const SexoChart = lazy(() => import('./SexoChart'));
-const TurnoChart = lazy(() => import('./TurnoChart'));
-
-// Spinner com melhor feedback visual
+// Spinner
 const Spinner = () => (
-  <div ref={chartGate} className="flex flex-col items-center justify-center">
+  <div className="flex flex-col items-center justify-center">
     <svg className="animate-spin h-8 w-8 text-violet-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
@@ -52,9 +50,9 @@ const Spinner = () => (
   </div>
 );
 
-// Skeleton loaders para melhor feedback visual
+// Skeletons
 const TableSkeleton = () => (
-  <div className="animate-pulse">
+  <div className="p-4 animate-pulse">
     <div className="h-10 bg-gray-200 rounded-t-lg mb-2"></div>
     {[...Array(5)].map((_, i) => (
       <div key={i} className="flex mb-2">
@@ -68,16 +66,16 @@ const TableSkeleton = () => (
 );
 
 const ChartSkeleton = () => (
-  <div className="animate-pulse flex flex-col h-full">
+  <div className="animate-pulse flex flex-col h-full p-4">
     <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
     <div className="flex-1 bg-gray-200 rounded"></div>
   </div>
 );
 
-// Toast component melhorado
+// Toast
 const Toast = ({ message, show, type = "success" }) =>
   show ? (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
@@ -85,30 +83,23 @@ const Toast = ({ message, show, type = "success" }) =>
         fixed top-8 left-1/2 transform -translate-x-1/2 z-50
         ${type === "success" ? "bg-green-600" : "bg-blue-600"}
         text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-2 text-lg font-semibold
-      `}>
+      `}
+    >
       <span role="img" aria-label="party">{type === "success" ? "🎉" : "🔍"}</span>
       {message}
     </motion.div>
   ) : null;
 
 const formatNumber = (num) =>
-  num === null || num === undefined || num === "Erro"
-    ? num
-    : Number(num).toLocaleString("pt-BR");
+  num === null || num === undefined || num === "Erro" ? num : Number(num).toLocaleString("pt-BR");
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  ChartTooltip,
-  Legend,
-  ArcElement,
-  ChartDataLabels
-);
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, ChartTooltip, Legend, ArcElement, ChartDataLabels);
 
-const Dashboard = () => {
+export default function Dashboard() {
   const navigate = useNavigate();
+
+  // Gate de visibilidade para montar gráficos/tabela só quando entram na tela
+  const { ref: chartGate, inView } = useInView({ threshold: 0.15 });
 
   // === STATES ===
   const [filters, setFilters] = useState({});
@@ -136,7 +127,7 @@ const Dashboard = () => {
   const [toastType, setToastType] = useState("success");
   const [nomeUsuario, setNomeUsuario] = useState("");
 
-  // === Loading individual ===
+  // Loading states
   const [loadingCards, setLoadingCards] = useState({
     totalMatriculas: true,
     totalEscolas: true,
@@ -166,22 +157,23 @@ const Dashboard = () => {
     tendenciaMatriculas: null,
   });
 
-  // Toast boas-vindas + uso para filtros também
+  // Welcome toast
   useEffect(() => {
     if (nomeUsuario) {
       setToastMsg(`Bem-vindo(a), ${nomeUsuario}! 🎉`);
       setToastType("success");
       setShowToast(true);
-      setTimeout(() => setShowToast(false), 1800);
+      const t = setTimeout(() => setShowToast(false), 1800);
+      return () => clearTimeout(t);
     }
   }, [nomeUsuario]);
 
-  // Buscar nome do usuário logado via API
+  // Obter usuário
   useEffect(() => {
     const fetchUser = async () => {
       try {
         const res = await api.get("/usuario");
-        setNomeUsuario(res.data.nome);
+        setNomeUsuario(res.data?.nome || "");
       } catch {
         setNomeUsuario("");
       }
@@ -189,11 +181,10 @@ const Dashboard = () => {
     fetchUser();
   }, []);
 
-  // Protege o acesso
+  // Guard de rota
   useEffect(() => {
     if (!localStorage.getItem("token")) {
       navigate("/login", { replace: true });
-      return;
     }
   }, [navigate]);
 
@@ -202,7 +193,7 @@ const Dashboard = () => {
     const fetchClientName = async () => {
       try {
         const response = await api.get("/client");
-        setClientName(response.data.cliente);
+        setClientName(response.data?.cliente || "");
       } catch {
         setClientName("");
       }
@@ -210,54 +201,64 @@ const Dashboard = () => {
     fetchClientName();
   }, []);
 
-  // Filtros iniciais - otimizado com AbortController
-  useEffect(() => {
-    const controller = new AbortController();
-    
-    const initialize = async () => {
-      try {
-        await carregarFiltros(controller.signal);
-      } catch (error) {
-        if (!error.name === 'AbortError') {
-          console.error("Erro ao inicializar:", error);
-        }
-      }
-    };
-    
-    initialize();
-    document.addEventListener("mousedown", handleClickOutside);
-    
-    const { ref: chartGate, inView } = useInView({ threshold: 0.15 });
-  return () => {
-      controller.abort();
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
+  // Click fora para fechar sidebar
   const handleClickOutside = useCallback((event) => {
     if (!event.target.closest("#sidebar") && !event.target.closest("#filterButton")) {
       setShowSidebar(false);
     }
   }, []);
 
-  // Carregamento de filtros otimizado
+  // Inicialização + listeners
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const initialize = async () => {
+      try {
+        await carregarFiltros(controller.signal);
+      } catch (error) {
+        if (error?.name !== "AbortError") {
+          console.error("Erro ao inicializar:", error);
+        }
+      }
+    };
+
+    initialize();
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      controller.abort();
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [handleClickOutside]);
+
+  // Resize
+  useEffect(() => {
+    const handleResize = () => {
+      setTableGraphHeight(window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-64" : "h-96");
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Carregar filtros
   const carregarFiltros = async (signal) => {
     try {
       const response = await api.get("/filtros", { signal });
-      setFilters(response.data);
-      const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
-      setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
-      await carregarDados({ ...selectedFilters, anoLetivo: ultimoAnoLetivo }, signal);
+      setFilters(response.data || {});
+      const ultimoAnoLetivo = response.data?.ano_letivo?.[0] || "";
+      const next = { ...selectedFilters, anoLetivo: ultimoAnoLetivo };
+      setSelectedFilters(next);
+      await carregarDados(next, signal);
     } catch (error) {
-      if (!error.name === 'AbortError') {
+      if (error?.name !== "AbortError") {
         console.error("Erro ao carregar filtros:", error);
       }
     }
   };
 
-  // Carregamento individual de cada bloco/tabela/gráfico - otimizado
+  // Carregar dados
   const carregarDados = async (filtros, signal) => {
-    // Iniciar loading states
     setLoadingCards({
       totalMatriculas: true,
       totalEscolas: true,
@@ -271,20 +272,17 @@ const Dashboard = () => {
     setLoadingBarTurno(true);
 
     try {
-      // Usar Promise.all para requisições paralelas
       const [totaisResponse, breakdownsResponse] = await Promise.all([
         api.post("/totais", filtros, { signal }),
-        api.post("/breakdowns", filtros, { signal })
+        api.post("/breakdowns", filtros, { signal }),
       ]);
 
-      // Atualizar estado de forma otimizada
-      setData(prev => ({
+      setData((prev) => ({
         ...prev,
-        ...totaisResponse.data,
-        ...breakdownsResponse.data
+        ...(totaisResponse?.data || {}),
+        ...(breakdownsResponse?.data || {}),
       }));
 
-      // Desativar loading states
       setLoadingCards({
         totalMatriculas: false,
         totalEscolas: false,
@@ -297,18 +295,16 @@ const Dashboard = () => {
       setLoadingPieSexo(false);
       setLoadingBarTurno(false);
 
-      // Toast suave para filtros aplicados
-      if (Object.keys(filtros).some(key => filtros[key])) {
+      if (Object.keys(filtros || {}).some((k) => filtros[k])) {
         setToastMsg("Filtros aplicados com sucesso! 🔍");
         setToastType("info");
         setShowToast(true);
         setTimeout(() => setShowToast(false), 1300);
       }
     } catch (error) {
-      if (!error.name === 'AbortError') {
+      if (error?.name !== "AbortError") {
         console.error("Erro ao carregar dados:", error);
-        
-        setData(prev => ({
+        setData((prev) => ({
           ...prev,
           totalMatriculas: "Erro",
           totalEscolas: "Erro",
@@ -321,8 +317,6 @@ const Dashboard = () => {
           matriculasPorTurno: {},
         }));
       }
-      
-      // Desativar loading states mesmo em caso de erro
       setLoadingCards({
         totalMatriculas: false,
         totalEscolas: false,
@@ -337,70 +331,55 @@ const Dashboard = () => {
     }
   };
 
-  // Handler de filtros otimizado com useCallback
+  // Handlers
   const handleFilterChange = useCallback((e) => {
     const { name, value } = e.target;
-    
-    setSelectedFilters(prev => {
-      const updatedFilters = { ...prev, [name]: value };
-      
-      // Lógica específica para certos filtros
+    setSelectedFilters((prev) => {
+      const updated = { ...prev, [name]: value };
+
       if (name === "grupoEtapa") {
-        updatedFilters.etapaMatricula = "";
-        updatedFilters.etapaTurma = "";
+        updated.etapaMatricula = "";
+        updated.etapaTurma = "";
       }
       if (name === "etapaMatricula" && value !== "") {
-        updatedFilters.etapaTurma = "";
+        updated.etapaTurma = "";
       }
       if (name === "etapaTurma" && value !== "") {
-        updatedFilters.etapaMatricula = "";
+        updated.etapaMatricula = "";
       }
-      
-      // Carregar dados com os novos filtros
-      carregarDados(updatedFilters);
-      
-      return updatedFilters;
+
+      carregarDados(updated);
+      return updated;
     });
   }, []);
 
-  // Handler de clique em escola otimizado com useCallback
-  const handleSchoolClick = useCallback((escola) => {
-    setSelectedFilters(prev => {
-      const updatedFilters = { ...prev };
-      
-      if (selectedSchool && selectedSchool.idescola === escola.idescola) {
-        setSelectedSchool(null);
-        updatedFilters.idescola = "";
-      } else {
-        setSelectedSchool(escola);
-        updatedFilters.idescola = escola.idescola;
-      }
-      
-      // Carregar dados com os novos filtros
-      carregarDados(updatedFilters);
-      
-      return updatedFilters;
-    });
-  }, [selectedSchool]);
+  const handleSchoolClick = useCallback(
+    (escola) => {
+      setSelectedFilters((prev) => {
+        const updated = { ...prev };
+        if (selectedSchool && selectedSchool.idescola === escola.idescola) {
+          setSelectedSchool(null);
+          updated.idescola = "";
+        } else {
+          setSelectedSchool(escola);
+          updated.idescola = escola.idescola;
+        }
+        carregarDados(updated);
+        return updated;
+      });
+    },
+    [selectedSchool]
+  );
 
-  // Ajuste responsivo da altura da tabela/gráfico
-  useEffect(() => {
-    const handleResize = () => {
-      setTableGraphHeight(
-        window.innerWidth <= 1180 && window.innerHeight <= 820 ? "h-64" : "h-96"
-      );
-    };
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    const { ref: chartGate, inView } = useInView({ threshold: 0.15 });
-  return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const sair = useCallback(() => {
+    localStorage.removeItem("token");
+    navigate("/login", { replace: true });
+  }, [navigate]);
 
-  // Lógica do comparativo/trend - memoizada
+  // Trend
   const trendData = useMemo(() => {
     let value = "N/A";
     let color = "";
-    
     if (data.tendenciaMatriculas) {
       const { missing, percent } = data.tendenciaMatriculas;
       if (missing === 0) {
@@ -411,44 +390,39 @@ const Dashboard = () => {
         color = missing > 0 ? "red" : "green";
       }
     }
-    
     return { value, color };
   }, [data.tendenciaMatriculas]);
 
-  const sair = useCallback(() => {
-    localStorage.removeItem("token");
-    navigate("/login", { replace: true });
-  }, [navigate]);
-
-  // Memoização dos dados para gráficos
+  // Charts data/options
   const chartData = useMemo(() => {
     return {
       movimentacao: {
-        labels: Object.keys(data.entradasSaidasPorMes),
+        labels: Object.keys(data.entradasSaidasPorMes || {}),
         datasets: [
           {
             label: "Entradas",
-            data: Object.values(data.entradasSaidasPorMes).map((e) => e.entradas),
+            data: Object.values(data.entradasSaidasPorMes || {}).map((e) => e.entradas),
             backgroundColor: "#FBBF24",
             borderRadius: 6,
           },
           {
             label: "Saídas",
-            data: Object.values(data.entradasSaidasPorMes).map((e) => e.saidas),
+            data: Object.values(data.entradasSaidasPorMes || {}).map((e) => e.saidas),
             backgroundColor: "#EF4444",
             borderRadius: 6,
           },
         ],
       },
       sexo: {
-        labels: Object.keys(data.matriculasPorSexo),
+        labels: Object.keys(data.matriculasPorSexo || {}),
         datasets: [
           {
             label: "Sexo",
-            data: Object.values(data.matriculasPorSexo),
-            backgroundColor: Object.keys(data.matriculasPorSexo).map((sexo) => {
-              if (sexo.toLowerCase().includes("masc")) return "#0000FF";
-              if (sexo.toLowerCase().includes("femi")) return "#FFC0CB";
+            data: Object.values(data.matriculasPorSexo || {}),
+            backgroundColor: Object.keys(data.matriculasPorSexo || {}).map((sexo) => {
+              const s = (sexo || "").toLowerCase();
+              if (s.includes("masc")) return "#0000FF";
+              if (s.includes("femi")) return "#FFC0CB";
               return "#CCCCCC";
             }),
             borderWidth: 0,
@@ -456,26 +430,22 @@ const Dashboard = () => {
         ],
       },
       turno: {
-        labels: Object.keys(data.matriculasPorTurno),
+        labels: Object.keys(data.matriculasPorTurno || {}),
         datasets: [
           {
             label: "Turno",
-            data: Object.values(data.matriculasPorTurno),
-            backgroundColor: Object.keys(data.matriculasPorTurno).map((_, index) => {
-              const turnoColors = [
-                "#4F46E5", "#10B981", "#F59E0B", "#EF4444", 
-                "#3B82F6", "#8B5CF6", "#EC4899",
-              ];
+            data: Object.values(data.matriculasPorTurno || {}),
+            backgroundColor: Object.keys(data.matriculasPorTurno || {}).map((_, index) => {
+              const turnoColors = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899"];
               return turnoColors[index % turnoColors.length];
             }),
             borderRadius: 4,
           },
         ],
-      }
+      },
     };
   }, [data.entradasSaidasPorMes, data.matriculasPorSexo, data.matriculasPorTurno]);
 
-  // Opções de gráficos memoizadas
   const chartOptions = useMemo(() => {
     return {
       movimentacao: {
@@ -486,17 +456,10 @@ const Dashboard = () => {
           datalabels: { display: false },
         },
         scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: "#6B7280", font: { weight: "bold" } },
-          },
+          x: { grid: { display: false }, ticks: { color: "#6B7280", font: { weight: "bold" } } },
           y: {
             grid: { color: "#E5E7EB" },
-            ticks: { 
-              color: "#6B7280", 
-              font: { weight: "bold" }, 
-              callback: (value) => formatNumber(value) 
-            },
+            ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (v) => formatNumber(v) },
           },
         },
         layout: { padding: { top: 20, bottom: 20 } },
@@ -506,12 +469,7 @@ const Dashboard = () => {
         maintainAspectRatio: false,
         plugins: {
           legend: { position: "bottom" },
-          datalabels: {
-            display: true,
-            color: "#fff",
-            font: { weight: "bold" },
-            formatter: (value) => formatNumber(value),
-          },
+          datalabels: { display: true, color: "#fff", font: { weight: "bold" }, formatter: (v) => formatNumber(v) },
         },
       },
       turno: {
@@ -527,63 +485,45 @@ const Dashboard = () => {
             anchor: "end",
             align: "right",
             offset: 4,
-            formatter: (value) => formatNumber(value),
+            formatter: (v) => formatNumber(v),
           },
         },
         scales: {
           x: {
             grid: { color: "#E5E7EB" },
-            ticks: { 
-              color: "#6B7280", 
-              font: { weight: "bold" }, 
-              callback: (value) => formatNumber(value) 
-            },
+            ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (v) => formatNumber(v) },
           },
-          y: {
-            grid: { display: false },
-            ticks: { color: "#6B7280", font: { weight: "bold" } },
-          },
+          y: { grid: { display: false }, ticks: { color: "#6B7280", font: { weight: "bold" } } },
         },
         layout: { padding: { left: 20, right: 20 } },
-      }
+      },
     };
   }, []);
 
-  // Filtrar escolas - memoizado
+  // Filtro de escolas
   const filteredEscolas = useMemo(() => {
-    return data.escolas.filter(escola => 
-      escola.escola.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const term = (searchTerm || "").toLowerCase();
+    return (data.escolas || []).filter((e) => (e.escola || "").toLowerCase().includes(term));
   }, [data.escolas, searchTerm]);
 
-  // Formatação da data de atualização - memoizada
+  // Data formatada
   const formattedUpdateDate = useMemo(() => {
     if (!data.ultimaAtualizacao) return null;
-    
-    const updatedDate = new Date(data.ultimaAtualizacao);
-    updatedDate.setHours(updatedDate.getHours() + 3);
-    const day = updatedDate.getDate().toString().padStart(2, "0");
-    const month = (updatedDate.getMonth() + 1).toString().padStart(2, "0");
-    const year = updatedDate.getFullYear();
-    const hours = updatedDate.getHours().toString().padStart(2, "0");
-    const minutes = updatedDate.getMinutes().toString().padStart(2, "0");
-    const seconds = updatedDate.getSeconds().toString().padStart(2, "0");
-    
-    return `${day}/${month}/${year} às ${hours}:${minutes}:${seconds}`;
+    const d = new Date(data.ultimaAtualizacao);
+    d.setHours(d.getHours() + 3);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} às ${pad(d.getHours())}:${pad(
+      d.getMinutes()
+    )}:${pad(d.getSeconds())}`;
   }, [data.ultimaAtualizacao]);
 
   // === RENDER ===
-  const { ref: chartGate, inView } = useInView({ threshold: 0.15 });
   return (
     <div className={`${isMobile ? "min-h-screen" : "h-screen"} w-screen flex flex-col bg-gradient-to-br from-violet-500 via-pink-400 to-blue-400`}>
-      <AnimatePresence>
-        {showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}
-      </AnimatePresence>
+      <AnimatePresence>{showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}</AnimatePresence>
 
-      {/* TOPO NOVO, SÓ CLIENTE NO CENTRO */}
+      {/* Topo */}
       <div className="w-full bg-white/80 rounded-b-2xl shadow-md mb-2 flex items-center justify-between px-2 py-3 md:px-8 md:py-5 md:mb-4">
-        
-        {/* Esquerda: Filtro */}
         <div className="flex items-center">
           <button
             id="filterButton"
@@ -596,25 +536,16 @@ const Dashboard = () => {
           </button>
         </div>
 
-        {/* Centro: Nome do cliente */}
         <div className="flex-1 flex flex-col items-center justify-center">
           <h1
             className="font-bold text-center text-gray-800 drop-shadow-sm"
-            style={{
-              fontSize: 'clamp(1.1rem, 2.8vw, 2.1rem)', // responsivo
-              lineHeight: 1.2,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: '94vw'
-            }}
+            style={{ fontSize: "clamp(1.1rem, 2.8vw, 2.1rem)", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "94vw" }}
           >
             {clientName || "SEMED - TESTE"}
           </h1>
           <span className="text-[0.95rem] md:text-lg text-gray-600 text-center -mt-1">Painel de Matrículas</span>
         </div>
 
-        {/* Direita: Sair só ícone */}
         <div className="flex items-center">
           <button
             onClick={sair}
@@ -627,20 +558,13 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Badge para filtro de escola ativo */}
+      {/* Badge de escola ativa */}
       {selectedSchool && (
-        <motion.div 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center my-2"
-        >
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center my-2">
           <span className="bg-violet-100 text-violet-800 px-4 py-1 rounded-full text-sm font-bold shadow">
             Filtro ativo: {selectedSchool.escola}
           </span>
-          <button
-            onClick={() => handleSchoolClick(selectedSchool)}
-            className="ml-2 text-red-600 hover:underline text-xs font-semibold"
-          >
+          <button onClick={() => handleSchoolClick(selectedSchool)} className="ml-2 text-red-600 hover:underline text-xs font-semibold">
             Remover filtro
           </button>
         </motion.div>
@@ -648,12 +572,10 @@ const Dashboard = () => {
 
       {/* Data de atualização */}
       {formattedUpdateDate && (
-        <div className="p-2 bg-violet-100/90 text-center text-sm text-gray-700 rounded-xl mx-4 mt-2 shadow">
-          Dados atualizados: {formattedUpdateDate}
-        </div>
+        <div className="p-2 bg-violet-100/90 text-center text-sm text-gray-700 rounded-xl mx-4 mt-2 shadow">Dados atualizados: {formattedUpdateDate}</div>
       )}
 
-      {/* Grid de Cartões */}
+      {/* Cards */}
       <div className="grid grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-6 gap-3 mb-4 px-4 pt-6">
         <div
           data-tooltip-id="matriculas-tooltip"
@@ -669,6 +591,7 @@ const Dashboard = () => {
           />
           <Tooltip id="matriculas-tooltip" />
         </div>
+
         <div>
           <Card
             label="Comparativo"
@@ -679,9 +602,10 @@ const Dashboard = () => {
             disableFormat
             valueColor={trendData.color}
             loading={loadingCards.totalMatriculas}
-            isComparativo={true}
+            isComparativo
           />
         </div>
+
         <div
           data-tooltip-id="escolas-tooltip"
           data-tooltip-content={`Urbana: ${data.escolasPorZona?.["URBANA"] || 0}\nRural: ${data.escolasPorZona?.["RURAL"] || 0}`}
@@ -696,6 +620,7 @@ const Dashboard = () => {
           />
           <Tooltip id="escolas-tooltip" />
         </div>
+
         <Card
           label="Vagas"
           value={data.totalVagas}
@@ -722,24 +647,19 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* Tabela Detalhes por Escola e Gráfico Movimentação */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
-        {/* Tabela Detalhes por Escola */}
+      {/* Tabela + Movimentação */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4" ref={chartGate}>
+        {/* Tabela */}
         <div className={`bg-white/75 rounded-2xl shadow-2xl overflow-y-auto ${tableGraphHeight} ring-1 ring-violet-100`}>
           <div className="p-4 bg-gray-50/60 border-b flex justify-between items-center rounded-t-2xl">
             <h3 className="text-lg font-semibold text-gray-700">Detalhes por Escola</h3>
-            <button onClick={() => setShowSearch(!showSearch)}>
+            <button onClick={() => setShowSearch((s) => !s)}>
               <FaSearch size={20} className="text-gray-700 cursor-pointer" />
             </button>
           </div>
-          
+
           {showSearch && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="p-2"
-            >
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="p-2">
               <input
                 type="text"
                 placeholder="Buscar escola..."
@@ -750,85 +670,79 @@ const Dashboard = () => {
               />
             </motion.div>
           )}
-          
+
           <div className="overflow-x-hidden">
             {loadingTable ? (
-              <div className="p-4">
-                <TableSkeleton />
-              </div>
-            ) : (
-              {inView && (<Suspense fallback={<TableSkeleton />}>
-                <EscolasTable 
+              <TableSkeleton />
+            ) : inView ? (
+              <Suspense fallback={<TableSkeleton />}>
+                <EscolasTable
                   escolas={filteredEscolas}
                   searchTerm={searchTerm}
                   selectedSchool={selectedSchool}
                   handleSchoolClick={handleSchoolClick}
                   loading={loadingTable}
                 />
-              </Suspense>)}
+              </Suspense>
+            ) : (
+              <TableSkeleton />
             )}
           </div>
         </div>
-        
-        {/* Gráfico Movimentação Mensal */}
+
+        {/* Movimentação Mensal */}
         <div className={`bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col ${tableGraphHeight} ring-1 ring-violet-100`}>
           <h3 className="text-lg font-semibold text-gray-700 mb-2">Movimentação Mensal</h3>
           <div className="flex-1 overflow-hidden">
             {loadingGraphMov ? (
               <ChartSkeleton />
+            ) : inView ? (
+              <Suspense fallback={<ChartSkeleton />}>
+                <MovimentacaoChart data={chartData.movimentacao} options={chartOptions.movimentacao} loading={loadingGraphMov} />
+              </Suspense>
             ) : (
-              {inView && (<Suspense fallback={<ChartSkeleton />}>
-                <MovimentacaoChart 
-                  data={chartData.movimentacao}
-                  options={chartOptions.movimentacao}
-                  loading={loadingGraphMov}
-                />
-              </Suspense>)}
-            )}
-          </div>
-        </div>
-      </div>
-      
-      {/* Gráficos adicionais */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-6">
-        {/* Gráfico Matrículas por Sexo */}
-        <div className="bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col h-[250px] ring-1 ring-violet-100">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
-          <div className="flex-1">
-            {loadingPieSexo ? (
               <ChartSkeleton />
-            ) : (
-              {inView && (<Suspense fallback={<ChartSkeleton />}>
-                <SexoChart 
-                  data={chartData.sexo}
-                  options={chartOptions.sexo}
-                  loading={loadingPieSexo}
-                />
-              </Suspense>)}
-            )}
-          </div>
-        </div>
-        
-        {/* Gráfico Matrículas por Turno */}
-        <div className="bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col h-[250px] ring-1 ring-violet-100">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
-          <div className="flex-1">
-            {loadingBarTurno ? (
-              <ChartSkeleton />
-            ) : (
-              {inView && (<Suspense fallback={<ChartSkeleton />}>
-                <TurnoChart 
-                  data={chartData.turno}
-                  options={chartOptions.turno}
-                  loading={loadingBarTurno}
-                />
-              </Suspense>)}
             )}
           </div>
         </div>
       </div>
 
-      {/* Sidebar de Filtros com animação */}
+      {/* Gráficos adicionais */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 pb-6">
+        {/* Sexo */}
+        <div className="bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col h-[250px] ring-1 ring-violet-100">
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Sexo</h3>
+          <div className="flex-1">
+            {loadingPieSexo ? (
+              <ChartSkeleton />
+            ) : inView ? (
+              <Suspense fallback={<ChartSkeleton />}>
+                <SexoChart data={chartData.sexo} options={chartOptions.sexo} loading={loadingPieSexo} />
+              </Suspense>
+            ) : (
+              <ChartSkeleton />
+            )}
+          </div>
+        </div>
+
+        {/* Turno */}
+        <div className="bg-white/75 rounded-2xl shadow-2xl p-4 flex flex-col h-[250px] ring-1 ring-violet-100">
+          <h3 className="text-lg font-semibold text-gray-700 mb-2">Matrículas por Turno</h3>
+          <div className="flex-1">
+            {loadingBarTurno ? (
+              <ChartSkeleton />
+            ) : inView ? (
+              <Suspense fallback={<ChartSkeleton />}>
+                <TurnoChart data={chartData.turno} options={chartOptions.turno} loading={loadingBarTurno} />
+              </Suspense>
+            ) : (
+              <ChartSkeleton />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Sidebar */}
       <AnimatePresence>
         {showSidebar && (
           <motion.div
@@ -841,51 +755,20 @@ const Dashboard = () => {
           >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Filtros</h2>
-              <button 
-                onClick={() => setShowSidebar(false)} 
-                className="text-gray-500 hover:text-violet-600 transition-colors text-2xl"
-              >
+              <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-violet-600 transition-colors text-2xl">
                 ✕
               </button>
             </div>
-            
+
             <div className="space-y-2">
-              <FilterSelect
-                label="Ano Letivo"
-                name="anoLetivo"
-                options={filters.ano_letivo}
-                value={selectedFilters.anoLetivo}
-                onChange={handleFilterChange}
-              />
-              <FilterSelect
-                label="Tipo Matrícula"
-                name="tipoMatricula"
-                options={filters.tipo_matricula}
-                value={selectedFilters.tipoMatricula}
-                onChange={handleFilterChange}
-              />
-              <FilterSelect
-                label="Situação Matrícula"
-                name="situacaoMatricula"
-                options={filters.situacao_matricula}
-                value={selectedFilters.situacaoMatricula}
-                onChange={handleFilterChange}
-              />
-              <FilterSelect
-                label="Grupo Etapa"
-                name="grupoEtapa"
-                options={filters.grupo_etapa}
-                value={selectedFilters.grupoEtapa}
-                onChange={handleFilterChange}
-              />
+              <FilterSelect label="Ano Letivo" name="anoLetivo" options={filters.ano_letivo} value={selectedFilters.anoLetivo} onChange={handleFilterChange} />
+              <FilterSelect label="Tipo Matrícula" name="tipoMatricula" options={filters.tipo_matricula} value={selectedFilters.tipoMatricula} onChange={handleFilterChange} />
+              <FilterSelect label="Situação Matrícula" name="situacaoMatricula" options={filters.situacao_matricula} value={selectedFilters.situacaoMatricula} onChange={handleFilterChange} />
+              <FilterSelect label="Grupo Etapa" name="grupoEtapa" options={filters.grupo_etapa} value={selectedFilters.grupoEtapa} onChange={handleFilterChange} />
               <FilterSelect
                 label="Etapa Matrícula"
                 name="etapaMatricula"
-                options={
-                  selectedFilters.grupoEtapa && filters.etapasMatriculaPorGrupo
-                    ? filters.etapasMatriculaPorGrupo[selectedFilters.grupoEtapa]
-                    : filters.etapa_matricula
-                }
+                options={selectedFilters.grupoEtapa && filters.etapasMatriculaPorGrupo ? filters.etapasMatriculaPorGrupo[selectedFilters.grupoEtapa] : filters.etapa_matricula}
                 value={selectedFilters.etapaMatricula}
                 onChange={handleFilterChange}
                 disabled={selectedFilters.etapaTurma !== ""}
@@ -893,36 +776,14 @@ const Dashboard = () => {
               <FilterSelect
                 label="Etapa Turma"
                 name="etapaTurma"
-                options={
-                  selectedFilters.grupoEtapa && filters.etapasTurmaPorGrupo
-                    ? filters.etapasTurmaPorGrupo[selectedFilters.grupoEtapa]
-                    : filters.etapa_turma
-                }
+                options={selectedFilters.grupoEtapa && filters.etapasTurmaPorGrupo ? filters.etapasTurmaPorGrupo[selectedFilters.grupoEtapa] : filters.etapa_turma}
                 value={selectedFilters.etapaTurma}
                 onChange={handleFilterChange}
                 disabled={selectedFilters.etapaMatricula !== ""}
               />
-              <FilterSelect
-                label="Multissérie"
-                name="multisserie"
-                options={filters.multisserie}
-                value={selectedFilters.multisserie}
-                onChange={handleFilterChange}
-              />
-              <FilterSelect
-                label="Deficiência"
-                name="deficiencia"
-                options={filters.deficiencia}
-                value={selectedFilters.deficiencia}
-                onChange={handleFilterChange}
-              />
-              <FilterSelect
-                label="Transporte Escolar"
-                name="transporteEscolar"
-                options={filters.transporte_escolar}
-                value={selectedFilters.transporteEscolar}
-                onChange={handleFilterChange}
-              />
+              <FilterSelect label="Multissérie" name="multisserie" options={filters.multisserie} value={selectedFilters.multisserie} onChange={handleFilterChange} />
+              <FilterSelect label="Deficiência" name="deficiencia" options={filters.deficiencia} value={selectedFilters.deficiencia} onChange={handleFilterChange} />
+              <FilterSelect label="Transporte Escolar" name="transporteEscolar" options={filters.transporte_escolar} value={selectedFilters.transporteEscolar} onChange={handleFilterChange} />
               <FilterSelect
                 label="Tipo Transporte"
                 name="tipoTransporte"
@@ -932,12 +793,12 @@ const Dashboard = () => {
                 disabled={selectedFilters.transporteEscolar !== "SIM"}
               />
             </div>
-            
+
             <div className="mt-8 flex justify-center">
               <button
                 onClick={() => {
                   const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
-                  const resetFilters = {
+                  const reset = {
                     anoLetivo: ultimoAnoLetivo,
                     deficiencia: "",
                     grupoEtapa: "",
@@ -950,9 +811,9 @@ const Dashboard = () => {
                     transporteEscolar: "",
                     idescola: "",
                   };
-                  setSelectedFilters(resetFilters);
+                  setSelectedFilters(reset);
                   setSelectedSchool(null);
-                  carregarDados(resetFilters);
+                  carregarDados(reset);
                   setShowSidebar(false);
                 }}
                 className="bg-violet-600 text-white px-6 py-2 rounded-lg hover:bg-violet-700 transition-colors shadow-md"
@@ -965,6 +826,4 @@ const Dashboard = () => {
       </AnimatePresence>
     </div>
   );
-};
-
-export default Dashboard;
+}
