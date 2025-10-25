@@ -1439,8 +1439,8 @@ const Dashboard = () => {
                   tooltipId="capacidade-total"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.turmasPorZona?.["URBANA"] ? data.turmasPorZona?.["URBANA"] * 30 : 0}
-                      rural={data.turmasPorZona?.["RURAL"] ? data.turmasPorZona?.["RURAL"] * 25 : 0}
+                      urbana={data.capacidadePorZona?.["URBANA"]?.capacidade || 0}
+                      rural={data.capacidadePorZona?.["RURAL"]?.capacidade || 0}
                     />
                   }
                 />
@@ -1457,8 +1457,8 @@ const Dashboard = () => {
                   tooltipId="total-vagas"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.escolasPorZona?.["URBANA"] ? Math.round(data.totalVagas * 0.6) : 0}
-                      rural={data.escolasPorZona?.["RURAL"] ? Math.round(data.totalVagas * 0.4) : 0}
+                      urbana={data.capacidadePorZona?.["URBANA"]?.vagas || 0}
+                      rural={data.capacidadePorZona?.["RURAL"]?.vagas || 0}
                     />
                   }
                 />
@@ -1474,8 +1474,8 @@ const Dashboard = () => {
                   tooltipId="total-entradas"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalEntradas * 0.7) : 0}
-                      rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalEntradas * 0.3) : 0}
+                      urbana={data.entradasSaidasPorZona?.["URBANA"]?.entradas || 0}
+                      rural={data.entradasSaidasPorZona?.["RURAL"]?.entradas || 0}
                     />
                   }
                 />
@@ -1491,8 +1491,8 @@ const Dashboard = () => {
                   tooltipId="total-saidas"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalSaidas * 0.6) : 0}
-                      rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalSaidas * 0.4) : 0}
+                      urbana={data.entradasSaidasPorZona?.["URBANA"]?.saidas || 0}
+                      rural={data.entradasSaidasPorZona?.["RURAL"]?.saidas || 0}
                     />
                   }
                 />
