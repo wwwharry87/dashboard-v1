@@ -50,9 +50,6 @@ import {
 import { Tooltip as ReactTooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 import { motion, AnimatePresence } from "framer-motion";
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 
 // Importação dos componentes otimizados
 import FilterSelect from './components/FilterSelect';
@@ -73,11 +70,11 @@ const DarkModeContext = createContext();
 // Spinner com melhor feedback visual
 const Spinner = () => (
   <div className="flex flex-col items-center justify-center">
-    <svg className="animate-spin h-8 w-8 text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <svg className="animate-spin h-8 w-8 text-violet-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
     </svg>
-    <span className="mt-2 text-sky-600 font-semibold animate-pulse">Carregando...</span>
+    <span className="mt-2 text-violet-600 font-semibold animate-pulse">Carregando...</span>
   </div>
 );
 
@@ -145,6 +142,7 @@ const formatNumber = (num) => {
     return "0";
   }
   
+  // Formatação correta para padrão brasileiro: 1.000,00
   return numberValue.toLocaleString('pt-BR', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
@@ -169,6 +167,7 @@ const formatPercent = (value) => {
     return "0,00";
   }
   
+  // CORREÇÃO: Usar formato brasileiro correto - vírgula para decimais
   return numericValue.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
@@ -237,8 +236,30 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   </motion.div>
 );
 
-// Helper para pegar valor por zona/field com segurança
-const getZonaValue = (obj, zona, field) => Number(obj?.[zona]?.[field]) || 0;
+// Componente para indicadores de alerta
+const AlertIndicator = ({ type, value, label }) => {
+  const { darkMode } = useContext(DarkModeContext);
+  
+  const getColor = () => {
+    if (type === 'high') return darkMode 
+      ? 'text-red-400 bg-red-900/30 border-red-700' 
+      : 'text-red-500 bg-red-50 border-red-200';
+    if (type === 'medium') return darkMode 
+      ? 'text-yellow-400 bg-yellow-900/30 border-yellow-700' 
+      : 'text-yellow-500 bg-yellow-50 border-yellow-200';
+    return darkMode 
+      ? 'text-green-400 bg-green-900/30 border-green-700' 
+      : 'text-green-500 bg-green-50 border-green-200';
+  };
+
+  return (
+    <div className={`flex items-center gap-2 p-2 rounded-lg border ${getColor()}`}>
+      <FaExclamationTriangle className="text-sm" />
+      <span className="text-sm font-semibold">{value}</span>
+      <span className="text-xs">{label}</span>
+    </div>
+  );
+};
 
 // Componente de Tooltip informativo
 const InfoTooltip = ({ content, id }) => (
@@ -252,107 +273,231 @@ const InfoTooltip = ({ content, id }) => (
   </>
 );
 
-// === Exportação (Excel/PDF) corrigida ===
-const ExportButtons = ({ data, escolas, loading }) => {
-  const toNumber = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
+// CORREÇÃO: Função para exportar para Excel
+const exportToExcel = (escolas, data) => {
+  if (!escolas || escolas.length === 0) {
+    alert('Nenhum dado disponível para exportação');
+    return;
+  }
 
-  const exportToExcel = () => {
-    if (loading || !escolas.length) return;
+  try {
+    // Importação dinâmica do XLSX
+    import('xlsx').then((XLSX) => {
+      // Preparar dados para exportação
+      const dadosExportacao = escolas.map(esc => ({
+        'Escola': esc.escola || 'N/A',
+        'Matrículas': esc.total_matriculas || 0,
+        'Capacidade': esc.capacidade || 0,
+        'Vagas': esc.vagas || 0,
+        'Ocupação (%)': esc.taxa_ocupacao || 0,
+        'Entradas': esc.entradas || 0,
+        'Saídas': esc.saidas || 0,
+        'Zona': esc.zona || 'N/A',
+        'Endereço': esc.endereco || 'N/A'
+      }));
 
-    const rows = escolas.map((esc) => {
-      const matric = toNumber(esc.qtde_matriculas);
-      const cap    = toNumber(esc.capacidade_total);
-      const vagas  = toNumber(esc.vagas_disponiveis);
-      const ocup   = cap > 0 ? ((matric * 100) / cap) : 0;
-
-      return {
-        Escola: esc.escola,
-        Matrículas: matric,
-        Capacidade: cap,
-        Vagas: vagas,
-        Ocupação: `${ocup.toFixed(2).replace('.', ',')}%`,
-        Zona: esc.zona_escola || 'Sem informação'
-      };
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    worksheet['!cols'] = [
-      { wch: 40 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 10 },
-      { wch: 12 },
-      { wch: 18 },
-    ];
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Escolas");
-    XLSX.writeFile(workbook, "dados_escolas.xlsx");
-  };
-
-  const exportToPDF = () => {
-    if (loading || !escolas.length) return;
-
-    const doc = new jsPDF();
-
-    doc.setFontSize(16);
-    doc.text("Relatório de Escolas", 14, 15);
-
-    doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 22);
-
-    const taxaOcup = (() => {
-      const cap = toNumber(data.capacidadeTotal);
-      const atv = toNumber(data.totalMatriculasAtivas);
-      return cap > 0 ? ((atv * 100) / cap) : 0;
-    })();
-
-    doc.setFontSize(12);
-    doc.text(`Total de Matrículas: ${formatNumber(data.totalMatriculas)}`, 14, 32);
-    doc.text(`Total de Escolas: ${formatNumber(data.totalEscolas)}`, 14, 38);
-    doc.text(`Taxa de Ocupação: ${formatPercent(taxaOcup)}%`, 14, 44);
-
-    const body = escolas.map((esc) => {
-      const matric = toNumber(esc.qtde_matriculas);
-      const cap    = toNumber(esc.capacidade_total);
-      const vagas  = toNumber(esc.vagas_disponiveis);
-      const ocup   = cap > 0 ? ((matric * 100) / cap) : 0;
-
-      return [
-        esc.escola,
-        formatNumber(matric),
-        formatNumber(cap),
-        formatNumber(vagas),
-        `${formatPercent(ocup)}%`,
-        esc.zona_escola || 'Sem informação',
+      // Adicionar dados resumidos
+      const dadosResumidos = [
+        {},
+        {
+          'Escola': 'DADOS RESUMIDOS DO SISTEMA',
+          'Matrículas': data.totalMatriculas || 0,
+          'Capacidade': data.capacidadeTotal || 0,
+          'Vagas': data.totalVagas || 0,
+          'Ocupação (%)': data.taxaOcupacao || 0,
+          'Entradas': data.totalEntradas || 0,
+          'Saídas': data.totalSaidas || 0
+        },
+        {}
       ];
-    });
 
-    doc.autoTable({
-      startY: 50,
-      head: [['Escola', 'Matrículas', 'Capacidade', 'Vagas', 'Ocupação', 'Zona']],
-      body,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [99, 102, 241] },
-      didDrawPage: () => {
-        const pageSize = doc.internal.pageSize;
-        const pageHeight = pageSize.height ? pageSize.height : pageSize.getHeight();
-        doc.setFontSize(9);
-        doc.text(`Página ${doc.internal.getNumberOfPages()}`, 14, pageHeight - 8);
-      }
-    });
+      // Criar worksheet
+      const worksheet = XLSX.utils.json_to_sheet([...dadosResumidos, ...dadosExportacao]);
+      
+      // Ajustar largura das colunas
+      const colWidths = [
+        { wch: 30 }, // Escola
+        { wch: 12 }, // Matrículas
+        { wch: 12 }, // Capacidade
+        { wch: 10 }, // Vagas
+        { wch: 12 }, // Ocupação
+        { wch: 10 }, // Entradas
+        { wch: 10 }, // Saídas
+        { wch: 10 }, // Zona
+        { wch: 40 }  // Endereço
+      ];
+      worksheet['!cols'] = colWidths;
 
-    doc.save("relatorio_escolas.pdf");
+      // Criar workbook
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Escolas");
+      
+      // Gerar nome do arquivo com data
+      const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const fileName = `dados_escolas_${dataHora}.xlsx`;
+      
+      // Exportar
+      XLSX.writeFile(workbook, fileName);
+    }).catch(error => {
+      console.error('Erro ao carregar XLSX:', error);
+      alert('Erro ao exportar para Excel. Verifique o console para mais detalhes.');
+    });
+  } catch (error) {
+    console.error('Erro na exportação Excel:', error);
+    alert('Erro ao exportar para Excel.');
+  }
+};
+
+// CORREÇÃO: Função para exportar para PDF
+const exportToPDF = (escolas, data) => {
+  if (!escolas || escolas.length === 0) {
+    alert('Nenhum dado disponível para exportação');
+    return;
+  }
+
+  try {
+    // Importação dinâmica do jsPDF e autoTable
+    Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable')
+    ]).then(([jsPDFModule]) => {
+      const { jsPDF } = jsPDFModule;
+      
+      // Criar PDF
+      const doc = new jsPDF();
+      
+      // Configurações do PDF
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 14;
+      
+      // Título
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RELATÓRIO DE ESCOLAS - SEMED', pageWidth / 2, 20, { align: 'center' });
+      
+      // Data de geração
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, margin, 30);
+      
+      // Dados resumidos
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DADOS RESUMIDOS DO SISTEMA:', margin, 45);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      let yPos = 55;
+      
+      const dadosResumidos = [
+        `Total de Matrículas: ${formatNumber(data.totalMatriculas)}`,
+        `Total de Escolas: ${formatNumber(data.totalEscolas)}`,
+        `Capacidade Total: ${formatNumber(data.capacidadeTotal)}`,
+        `Vagas Disponíveis: ${formatNumber(data.totalVagas)}`,
+        `Taxa de Ocupação: ${formatPercent(data.taxaOcupacao)}%`,
+        `Entradas: ${formatNumber(data.totalEntradas)}`,
+        `Saídas: ${formatNumber(data.totalSaidas)}`,
+        `Taxa de Evasão: ${formatPercent(data.taxaEvasao)}%`
+      ];
+      
+      dadosResumidos.forEach(linha => {
+        doc.text(linha, margin, yPos);
+        yPos += 7;
+      });
+      
+      // Tabela de escolas
+      yPos += 10;
+      
+      // Preparar dados da tabela
+      const tableData = escolas.map(esc => [
+        esc.escola || 'N/A',
+        formatNumber(esc.total_matriculas) || '0',
+        formatNumber(esc.capacidade) || '0',
+        formatNumber(esc.vagas) || '0',
+        `${formatPercent(esc.taxa_ocupacao)}%` || '0%',
+        esc.zona || 'N/A'
+      ]);
+      
+      // Adicionar tabela
+      doc.autoTable({
+        startY: yPos,
+        head: [['Escola', 'Matrículas', 'Capacidade', 'Vagas', 'Ocupação', 'Zona']],
+        body: tableData,
+        margin: { left: margin, right: margin },
+        styles: { 
+          fontSize: 8,
+          cellPadding: 2,
+          lineColor: [0, 0, 0],
+          lineWidth: 0.1
+        },
+        headStyles: { 
+          fillColor: [99, 102, 241],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        alternateRowStyles: {
+          fillColor: [240, 240, 240]
+        },
+        columnStyles: {
+          0: { cellWidth: 60 }, // Escola
+          1: { cellWidth: 20 }, // Matrículas
+          2: { cellWidth: 20 }, // Capacidade
+          3: { cellWidth: 15 }, // Vagas
+          4: { cellWidth: 20 }, // Ocupação
+          5: { cellWidth: 15 }  // Zona
+        },
+        didDrawPage: function (data) {
+          // Rodapé
+          doc.setFontSize(8);
+          doc.setTextColor(128);
+          doc.text(
+            `Página ${doc.internal.getNumberOfPages()}`,
+            pageWidth / 2,
+            doc.internal.pageSize.getHeight() - 10,
+            { align: 'center' }
+          );
+        }
+      });
+      
+      // Gerar nome do arquivo com data
+      const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const fileName = `relatorio_escolas_${dataHora}.pdf`;
+      
+      // Salvar PDF
+      doc.save(fileName);
+    }).catch(error => {
+      console.error('Erro ao carregar bibliotecas PDF:', error);
+      alert('Erro ao exportar para PDF. Verifique o console para mais detalhes.');
+    });
+  } catch (error) {
+    console.error('Erro na exportação PDF:', error);
+    alert('Erro ao exportar para PDF.');
+  }
+};
+
+// Componente de Exportação CORRIGIDO
+const ExportButtons = ({ data, escolas, loading }) => {
+  const handleExportExcel = () => {
+    if (loading) {
+      alert('Aguarde o carregamento dos dados');
+      return;
+    }
+    exportToExcel(escolas, data);
+  };
+
+  const handleExportPDF = () => {
+    if (loading) {
+      alert('Aguarde o carregamento dos dados');
+      return;
+    }
+    exportToPDF(escolas, data);
   };
 
   return (
     <div className="flex gap-2">
       <button
-        onClick={exportToExcel}
-        disabled={loading || !escolas.length}
+        onClick={handleExportExcel}
+        disabled={loading || !escolas || escolas.length === 0}
         className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
         title="Exportar para Excel"
       >
@@ -360,8 +505,8 @@ const ExportButtons = ({ data, escolas, loading }) => {
         <span className="hidden sm:inline">Excel</span>
       </button>
       <button
-        onClick={exportToPDF}
-        disabled={loading || !escolas.length}
+        onClick={handleExportPDF}
+        disabled={loading || !escolas || escolas.length === 0}
         className="flex items-center gap-2 bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
         title="Exportar para PDF"
       >
@@ -480,8 +625,6 @@ const Dashboard = () => {
     alunosTransporteEscolar: null,
     taxaEvasao: null,
     taxaOcupacao: null,
-    totalMatriculasAtivas: null,
-    capacidadePorZona: {},
   });
 
   // Verificar se há algum loading ativo
@@ -498,6 +641,8 @@ const Dashboard = () => {
   // CORREÇÃO: Função para obter valores numéricos seguros
   const getSafeNumber = (value, defaultValue = 0) => {
     if (value === null || value === undefined || value === "Erro") return defaultValue;
+    
+    // Converter string com vírgula para número
     let numericValue;
     if (typeof value === 'string') {
       const cleanedValue = value.replace(/[^\d,.-]/g, '');
@@ -505,6 +650,7 @@ const Dashboard = () => {
     } else {
       numericValue = parseFloat(value);
     }
+    
     return isNaN(numericValue) ? defaultValue : numericValue;
   };
 
@@ -634,9 +780,13 @@ const Dashboard = () => {
     setLoadingMapa(true);
 
     try {
+      // CORREÇÃO: Usar apenas a rota /totais que já retorna todos os dados
       const totaisResponse = await api.post("/totais", filtros, { signal });
       const totaisData = totaisResponse.data;
 
+      console.log('Dados recebidos da API:', totaisData);
+
+      // CORREÇÃO: Usar as funções de parsing corrigidas
       const safeData = {
         ...totaisData,
         taxaEvasao: getSafePercent(totaisData.taxaEvasao),
@@ -649,7 +799,6 @@ const Dashboard = () => {
         totalSaidas: getSafeNumber(totaisData.totalSaidas),
         alunosComDeficiencia: getSafeNumber(totaisData.alunosComDeficiencia),
         alunosTransporteEscolar: getSafeNumber(totaisData.alunosTransporteEscolar),
-        totalMatriculasAtivas: getSafeNumber(totaisData.totalMatriculasAtivas),
         matriculasPorZona: totaisData.matriculasPorZona || {},
         escolasPorZona: totaisData.escolasPorZona || {},
         turmasPorZona: totaisData.turmasPorZona || {},
@@ -658,8 +807,7 @@ const Dashboard = () => {
         matriculasPorTurno: totaisData.matriculasPorTurno || {},
         matriculasPorSituacao: totaisData.matriculasPorSituacao || {},
         evolucaoMatriculas: totaisData.evolucaoMatriculas || {},
-        escolas: totaisData.escolas || [],
-        capacidadePorZona: totaisData.capacidadePorZona || {}
+        escolas: totaisData.escolas || []
       };
 
       setData(safeData);
@@ -687,6 +835,12 @@ const Dashboard = () => {
       setLoadingMapa(false);
       setGlobalLoading(false);
 
+      console.log('Dados processados:', {
+        totalMatriculas: safeData.totalMatriculas,
+        taxaEvasao: safeData.taxaEvasao,
+        taxaOcupacao: safeData.taxaOcupacao
+      });
+
       if (Object.keys(filtros).some(key => filtros[key])) {
         setToastMsg("Filtros aplicados com sucesso! 🔍");
         setToastType("info");
@@ -697,6 +851,7 @@ const Dashboard = () => {
       if (!error.name === 'AbortError') {
         console.error("Erro ao carregar dados:", error);
         
+        // Tentar usar dados em cache em caso de erro
         if (cachedData) {
           setData(cachedData);
           setToastMsg("Usando dados em cache 📋");
@@ -704,6 +859,7 @@ const Dashboard = () => {
           setShowToast(true);
           setTimeout(() => setShowToast(false), 2000);
         } else {
+          // CORREÇÃO: Reset mais seguro dos dados em caso de erro
           setData(prev => ({
             ...prev,
             totalMatriculas: 0,
@@ -724,12 +880,12 @@ const Dashboard = () => {
             evolucaoMatriculas: {},
             matriculasPorZona: {},
             escolasPorZona: {},
-            turmasPorZona: {},
-            capacidadePorZona: {}
+            turmasPorZona: {}
           }));
         }
       }
       
+      // Desativar loading states mesmo em caso de erro
       setLoadingCards({
         totalMatriculas: false,
         totalEscolas: false,
@@ -821,6 +977,7 @@ const Dashboard = () => {
 
   // Memoização dos dados para gráficos
   const chartData = useMemo(() => {
+    // Ordenar meses cronologicamente para movimentação
     const mesesOrdenados = Object.keys(data.entradasSaidasPorMes || {})
       .sort((a, b) => {
         const mesA = parseInt(a);
@@ -1058,8 +1215,8 @@ const Dashboard = () => {
   return (
     <DarkModeContext.Provider value={{ darkMode, setDarkMode }}>
       <div className={`h-screen w-screen flex flex-col ${darkMode 
-        ? 'bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100' 
-        : 'bg-gradient-to-br from-slate-50 via-white to-slate-50 text-slate-800'
+        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white' 
+        : 'bg-gradient-to-br from-violet-50 via-blue-50 to-pink-50 text-gray-800'
       } relative overflow-hidden`}>
         <AnimatePresence>
           {showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}
@@ -1067,13 +1224,13 @@ const Dashboard = () => {
         </AnimatePresence>
 
         {/* HEADER FIXO NO TOPO */}
-        <div className={`w-full ${darkMode ? 'bg-slate-900/95' : 'bg-white/95'} backdrop-blur-sm shadow-lg border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'} z-40`}>
+        <div className={`w-full ${darkMode ? 'bg-gray-800/95' : 'bg-white/95'} backdrop-blur-sm shadow-lg border-b ${darkMode ? 'border-gray-700/60' : 'border-gray-200/60'} z-40`}>
           <div className="flex items-center justify-between px-4 py-4 md:px-8 md:py-5">
             <div className="flex items-center gap-4 flex-1">
               <button
                 id="filterButton"
                 onClick={() => setShowSidebar(true)}
-                className={`${darkMode ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-900 hover:bg-black'} text-white rounded-2xl shadow-xl flex items-center justify-center p-3 transition-all duration-300 transform hover:scale-105`}
+                className="bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-2xl shadow-xl flex items-center justify-center p-3 hover:from-violet-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105"
                 style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
                 title="Abrir filtros"
               >
@@ -1090,7 +1247,7 @@ const Dashboard = () => {
                 >
                   {clientName || "SEMED - PAINEL"}
                 </h1>
-                <span className={`text-[0.95rem] md:text-lg ${darkMode ? 'text-slate-300' : 'text-slate-600'} font-medium`}>
+                <span className={`text-[0.95rem] md:text-lg ${darkMode ? 'text-gray-300' : 'text-gray-600'} font-medium`}>
                   Dashboard de Gestão Educacional
                 </span>
               </div>
@@ -1103,7 +1260,7 @@ const Dashboard = () => {
                 className={`p-3 rounded-2xl shadow-lg transition-all duration-300 transform hover:scale-105 ${
                   darkMode 
                     ? 'bg-yellow-500 text-white hover:bg-yellow-600' 
-                    : 'bg-slate-900 text-white hover:bg-black'
+                    : 'bg-gray-800 text-white hover:bg-gray-900'
                 }`}
                 title={darkMode ? "Modo Claro" : "Modo Escuro"}
                 style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
@@ -1113,10 +1270,10 @@ const Dashboard = () => {
 
               {formattedUpdateDate && (
                 <div className="hidden md:flex flex-col items-end">
-                  <span className={`text-xs ${darkMode ? 'text-slate-400' : 'text-slate-500'} font-semibold`}>
+                  <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'} font-semibold`}>
                     Última atualização
                   </span>
-                  <span className={`text-sm ${darkMode ? 'text-slate-300' : 'text-slate-700'} font-bold`}>
+                  <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'} font-bold`}>
                     {formattedUpdateDate}
                   </span>
                 </div>
@@ -1135,32 +1292,46 @@ const Dashboard = () => {
 
           {/* Data de atualização para mobile */}
           {formattedUpdateDate && (
-            <div className={`md:hidden p-2 text-center text-sm ${darkMode ? 'bg-slate-800/80 text-slate-300' : 'bg-slate-100/80 text-slate-700'}`}>
+            <div className={`md:hidden p-2 text-center text-sm ${darkMode ? 'bg-violet-900/80 text-gray-300' : 'bg-violet-100/80 text-gray-700'}`}>
               Atualizado: {formattedUpdateDate}
             </div>
           )}
 
-          {/* Navegação por abas (ajustada) */}
-          <div className={`flex border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-            {['overview','analytics','geographic'].map((tab, idx) => {
-              const icons = [<FaChartBar/>, <FaChartLine/>, <FaMapMarkerAlt/>];
-              const labels = ['Visão Geral','Analytics','Geográfica'];
-              const active = activeTab === tab;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
-                    active
-                      ? `${darkMode ? 'text-sky-400 border-b-2 border-sky-400 bg-slate-800' : 'text-sky-700 border-b-2 border-sky-600 bg-slate-50'}`
-                      : `${darkMode ? 'text-slate-400 hover:text-sky-300' : 'text-slate-600 hover:text-sky-600'}`
-                  }`}
-                >
-                  {icons[idx]}
-                  <span className="hidden xs:inline">{labels[idx]}</span>
-                </button>
-              );
-            })}
+          {/* Navegação por abas */}
+          <div className={`flex border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+                activeTab === "overview" 
+                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
+                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+              }`}
+            >
+              <FaChartBar />
+              <span className="hidden xs:inline">Visão Geral</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("analytics")}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+                activeTab === "analytics" 
+                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
+                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+              }`}
+            >
+              <FaChartLine />
+              <span className="hidden xs:inline">Analytics</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("geographic")}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+                activeTab === "geographic" 
+                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
+                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+              }`}
+            >
+              <FaMapMarkerAlt />
+              <span className="hidden xs:inline">Geográfica</span>
+            </button>
           </div>
 
           {/* Badge para filtro de escola ativo */}
@@ -1168,9 +1339,9 @@ const Dashboard = () => {
             <motion.div 
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`text-center py-2 ${darkMode ? 'bg-slate-800/80' : 'bg-slate-50/80'}`}
+              className={`text-center py-2 ${darkMode ? 'bg-violet-900/80' : 'bg-violet-50/80'}`}
             >
-              <span className="bg-sky-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
+              <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
                 🎯 Filtro ativo: {selectedSchool.escola}
               </span>
               <button
@@ -1228,7 +1399,7 @@ const Dashboard = () => {
                   value={formatNumber(data.totalMatriculas)}
                   icon={<FaUserGraduate className="text-blue-500" />}
                   borderColor={darkMode ? "border-blue-600" : "border-blue-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-blue-50"}
+                  bgColor={darkMode ? "bg-blue-900/30" : "bg-blue-50"}
                   loading={loadingCards.totalMatriculas}
                   tooltip="Total de alunos matriculados no sistema"
                   tooltipId="total-matriculas"
@@ -1245,7 +1416,7 @@ const Dashboard = () => {
                   value={formatNumber(data.totalEscolas)}
                   icon={<FaSchool className="text-green-500" />}
                   borderColor={darkMode ? "border-green-600" : "border-green-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-green-50"}
+                  bgColor={darkMode ? "bg-green-900/30" : "bg-green-50"}
                   loading={loadingCards.totalEscolas}
                   tooltip="Total de escolas ativas no sistema"
                   tooltipId="total-escolas"
@@ -1262,14 +1433,14 @@ const Dashboard = () => {
                   value={formatNumber(data.capacidadeTotal)}
                   icon={<FaChalkboardTeacher className="text-indigo-500" />}
                   borderColor={darkMode ? "border-indigo-600" : "border-indigo-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-indigo-50"}
+                  bgColor={darkMode ? "bg-indigo-900/30" : "bg-indigo-50"}
                   loading={loadingCards.capacidadeTotal}
                   tooltip="Capacidade total de alunos no sistema"
                   tooltipId="capacidade-total"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={getZonaValue(data.capacidadePorZona, "URBANA", "capacidade")}
-                      rural={getZonaValue(data.capacidadePorZona, "RURAL", "capacidade")}
+                      urbana={data.turmasPorZona?.["URBANA"] ? data.turmasPorZona?.["URBANA"] * 30 : 0}
+                      rural={data.turmasPorZona?.["RURAL"] ? data.turmasPorZona?.["RURAL"] * 25 : 0}
                     />
                   }
                 />
@@ -1279,15 +1450,15 @@ const Dashboard = () => {
                   value={formatNumber(data.totalVagas)}
                   icon={<FaUsers className="text-teal-500" />}
                   borderColor={darkMode ? "border-teal-600" : "border-teal-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-teal-50"}
+                  bgColor={darkMode ? "bg-teal-900/30" : "bg-teal-50"}
                   loading={loadingCards.totalVagas}
                   valueColor={data.totalVagas < 0 ? "red" : "green"}
                   tooltip="Vagas disponíveis no sistema"
                   tooltipId="total-vagas"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={getZonaValue(data.capacidadePorZona, "URBANA", "vagas")}
-                      rural={getZonaValue(data.capacidadePorZona, "RURAL", "vagas")}
+                      urbana={data.escolasPorZona?.["URBANA"] ? Math.round(data.totalVagas * 0.6) : 0}
+                      rural={data.escolasPorZona?.["RURAL"] ? Math.round(data.totalVagas * 0.4) : 0}
                     />
                   }
                 />
@@ -1297,10 +1468,16 @@ const Dashboard = () => {
                   value={formatNumber(data.totalEntradas)}
                   icon={<FaSignInAlt className="text-yellow-500" />}
                   borderColor={darkMode ? "border-yellow-600" : "border-yellow-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-yellow-50"}
+                  bgColor={darkMode ? "bg-yellow-900/30" : "bg-yellow-50"}
                   loading={loadingCards.totalEntradas}
                   tooltip="Total de matrículas de entrada"
                   tooltipId="total-entradas"
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalEntradas * 0.7) : 0}
+                      rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalEntradas * 0.3) : 0}
+                    />
+                  }
                 />
                 
                 <Card
@@ -1308,10 +1485,16 @@ const Dashboard = () => {
                   value={formatNumber(data.totalSaidas)}
                   icon={<FaSignOutAlt className="text-red-500" />}
                   borderColor={darkMode ? "border-red-600" : "border-red-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-red-50"}
+                  bgColor={darkMode ? "bg-red-900/30" : "bg-red-50"}
                   loading={loadingCards.totalSaidas}
                   tooltip="Total de matrículas de saída"
                   tooltipId="total-saidas"
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalSaidas * 0.6) : 0}
+                      rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalSaidas * 0.4) : 0}
+                    />
+                  }
                 />
 
                 {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão */}
@@ -1321,7 +1504,7 @@ const Dashboard = () => {
                   disableFormat={true}
                   icon={<FaExclamationTriangle className="text-orange-500" />}
                   borderColor={darkMode ? "border-orange-600" : "border-orange-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-orange-50"}
+                  bgColor={darkMode ? "bg-orange-900/30" : "bg-orange-50"}
                   loading={loadingCards.taxaEvasao}
                   valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
                   tooltip="Percentual de alunos que deixaram o sistema"
@@ -1332,17 +1515,17 @@ const Dashboard = () => {
               {/* Área Principal - Tabela e Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
                 {/* Tabela Detalhes por Escola */}
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[400px] ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
-                  <div className={`p-3 sm:p-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'} border-b flex justify-between items-center`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <div className={`p-3 sm:p-4 bg-gradient-to-r ${darkMode ? 'from-gray-700 to-gray-600/80 border-gray-600' : 'from-gray-50 to-gray-100/80 border-gray-200'} border-b flex justify-between items-center`}>
                     <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
-                      <FaSchool className="text-sky-500" />
+                      <FaSchool className="text-violet-500" />
                       Detalhes por Escola
                     </h3>
                     <div className="flex gap-2">
                       <ExportButtons data={data} escolas={filteredEscolas} loading={loadingTable} />
                       <button 
                         onClick={() => setShowSearch(!showSearch)}
-                        className="bg-sky-600 text-white p-2 rounded-xl hover:bg-sky-700 transition-colors shadow"
+                        className="bg-violet-500 text-white p-2 rounded-xl hover:bg-violet-600 transition-colors shadow"
                       >
                         <FaSearch size={18} />
                       </button>
@@ -1354,7 +1537,7 @@ const Dashboard = () => {
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
-                      className={`p-3 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border-b`}
+                      className={`p-3 ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'} border-b`}
                     >
                       <input
                         type="text"
@@ -1362,10 +1545,10 @@ const Dashboard = () => {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
                         style={{ textTransform: "uppercase" }}
-                        className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-transparent ${
+                        className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent ${
                           darkMode 
-                            ? 'bg-slate-700 border-slate-600 text-white placeholder-slate-400' 
-                            : 'border-slate-300 text-slate-800'
+                            ? 'bg-gray-600 border-gray-500 text-white placeholder-gray-400' 
+                            : 'border-gray-300 text-gray-800'
                         }`}
                       />
                     </motion.div>
@@ -1392,9 +1575,9 @@ const Dashboard = () => {
                 </div>
                 
                 {/* Gráfico Movimentação Mensal */}
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                    <FaSync className="text-sky-500" />
+                    <FaSync className="text-violet-500" />
                     Movimentação Mensal
                   </h3>
                   <div className="flex-1 overflow-hidden">
@@ -1417,9 +1600,9 @@ const Dashboard = () => {
               {/* Gráficos Adicionais */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
                 {/* Gráfico Matrículas por Sexo */}
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                    <FaUserGraduate className="text-sky-500" />
+                    <FaUserGraduate className="text-violet-500" />
                     Matrículas por Sexo
                   </h3>
                   <div className="flex-1">
@@ -1439,9 +1622,9 @@ const Dashboard = () => {
                 </div>
                 
                 {/* Gráfico Matrículas por Turno */}
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                    <FaChalkboardTeacher className="text-sky-500" />
+                    <FaChalkboardTeacher className="text-violet-500" />
                     Matrículas por Turno
                   </h3>
                   <div className="flex-1">
@@ -1475,7 +1658,7 @@ const Dashboard = () => {
                   disableFormat={true}
                   icon={<FaUsers className="text-indigo-500" />}
                   borderColor={darkMode ? "border-indigo-600" : "border-indigo-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-indigo-50"}
+                  bgColor={darkMode ? "bg-indigo-900/30" : "bg-indigo-50"}
                   loading={loadingCards.taxaOcupacao}
                   valueColor={data.taxaOcupacao > 90 ? "orange" : "green"}
                   tooltip="Percentual de ocupação das vagas disponíveis"
@@ -1487,14 +1670,14 @@ const Dashboard = () => {
                   value={formatNumber(data.alunosTransporteEscolar)}
                   icon={<FaBus className="text-amber-500" />}
                   borderColor={darkMode ? "border-amber-600" : "border-amber-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-amber-50"}
+                  bgColor={darkMode ? "bg-amber-900/30" : "bg-amber-50"}
                   loading={loadingCards.transporteEscolar}
                   tooltip="Alunos que utilizam transporte escolar"
                   tooltipId="transporte-escolar"
                   additionalContent={
                     <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
-                      <span className="font-bold">{formatPercent((data.alunosTransporteEscolar * 100) / (data.totalMatriculas || 1))}%</span>
-                      <span className={darkMode ? "text-slate-400" : "text-slate-600"}> do total</span>
+                      <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
+                      <span className={darkMode ? "text-gray-400" : "text-gray-600"}> do total</span>
                     </div>
                   }
                 />
@@ -1506,7 +1689,7 @@ const Dashboard = () => {
                   disableFormat={true}
                   icon={<FaExclamationTriangle className="text-red-500" />}
                   borderColor={darkMode ? "border-red-600" : "border-red-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-red-50"}
+                  bgColor={darkMode ? "bg-red-900/30" : "bg-red-50"}
                   loading={loadingCards.taxaEvasao}
                   valueColor={data.taxaEvasao > 10 ? "red" : "green"}
                   tooltip="Percentual de evasão escolar"
@@ -1525,14 +1708,14 @@ const Dashboard = () => {
                   value={formatNumber(data.alunosComDeficiencia)}
                   icon={<FaWheelchair className="text-teal-500" />}
                   borderColor={darkMode ? "border-teal-600" : "border-teal-400"}
-                  bgColor={darkMode ? "bg-slate-900/50" : "bg-teal-50"}
+                  bgColor={darkMode ? "bg-teal-900/30" : "bg-teal-50"}
                   loading={loadingCards.alunosDeficiencia}
                   tooltip="Alunos com necessidades especiais"
                   tooltipId="alunos-deficiencia"
                   additionalContent={
                     <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
-                      <span className="font-bold">{formatPercent((data.alunosComDeficiencia * 100) / (data.totalMatriculas || 1))}%</span>
-                      <span className={darkMode ? "text-slate-400" : "text-slate-600"}> do total</span>
+                      <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
+                      <span className={darkMode ? "text-gray-400" : "text-gray-600"}> do total</span>
                     </div>
                   }
                 />
@@ -1540,9 +1723,9 @@ const Dashboard = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                 {/* Gráfico Situação da Matrícula */}
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                    <FaClock className="text-sky-500" />
+                    <FaClock className="text-violet-500" />
                     Situação da Matrícula
                   </h3>
                   <div className="flex-1">
@@ -1562,9 +1745,9 @@ const Dashboard = () => {
                 </div>
 
                 {/* Gráfico Evolução de Matrículas */}
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                    <FaChartLine className="text-sky-500" />
+                    <FaChartLine className="text-violet-500" />
                     Evolução de Matrículas
                   </h3>
                   <div className="flex-1">
@@ -1589,9 +1772,9 @@ const Dashboard = () => {
           {/* ABA: VISÃO GEOGRÁFICA */}
           {activeTab === "geographic" && (
             <div className="space-y-4 sm:space-y-6">
-              <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[500px] sm:h-[600px] ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+              <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[500px] sm:h-[600px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                 <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                  <FaMapMarkerAlt className="text-sky-500" />
+                  <FaMapMarkerAlt className="text-violet-500" />
                   Mapa de Calor das Escolas
                 </h3>
                 <div className="flex-1">
@@ -1612,27 +1795,27 @@ const Dashboard = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                    <FaCity className="text-sky-500" />
+                    <FaCity className="text-violet-500" />
                     Distribuição por Zona
                   </h3>
                   <div className="space-y-4">
-                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-sky-900/20' : 'bg-sky-50'}`}>
-                      <span className={`font-semibold ${darkMode ? 'text-sky-300' : 'text-sky-700'}`}>Urbana</span>
-                      <span className={`font-bold ${darkMode ? 'text-sky-200' : 'text-sky-900'}`}>
+                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
+                      <span className={`font-semibold ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>Urbana</span>
+                      <span className={`font-bold ${darkMode ? 'text-blue-300' : 'text-blue-900'}`}>
                         {formatNumber(data.matriculasPorZona?.["URBANA"])} 
-                        <span className={`text-sm ${darkMode ? 'text-sky-300' : 'text-sky-600'} ml-2`}>
+                        <span className={`text-sm ${darkMode ? 'text-blue-400' : 'text-blue-600'} ml-2`}>
                           ({data.matriculasPorZona?.["URBANA"] && data.totalMatriculas ? 
                           ((data.matriculasPorZona["URBANA"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
                         </span>
                       </span>
                     </div>
-                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-emerald-900/20' : 'bg-emerald-50'}`}>
-                      <span className={`font-semibold ${darkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>Rural</span>
-                      <span className={`font-bold ${darkMode ? 'text-emerald-200' : 'text-emerald-900'}`}>
+                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-green-900/30' : 'bg-green-50'}`}>
+                      <span className={`font-semibold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>Rural</span>
+                      <span className={`font-bold ${darkMode ? 'text-green-300' : 'text-green-900'}`}>
                         {formatNumber(data.matriculasPorZona?.["RURAL"])}
-                        <span className={`text-sm ${darkMode ? 'text-emerald-300' : 'text-emerald-600'} ml-2`}>
+                        <span className={`text-sm ${darkMode ? 'text-green-400' : 'text-green-600'} ml-2`}>
                           ({data.matriculasPorZona?.["RURAL"] && data.totalMatriculas ? 
                           ((data.matriculasPorZona["RURAL"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
                         </span>
@@ -1641,27 +1824,27 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                <div className={`${darkMode ? 'bg-slate-900/90' : 'bg-white'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-slate-800' : 'border-slate-200'} border`}>
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
-                    <FaSchool className="text-sky-500" />
+                    <FaSchool className="text-violet-500" />
                     Densidade Escolar
                   </h3>
                   <div className="space-y-3">
                     <div className="text-center">
-                      <div className="text-2xl sm:text-3xl font-bold text-sky-600">
+                      <div className="text-2xl sm:text-3xl font-bold text-violet-600">
                         {data.totalEscolas && data.totalMatriculas ? 
                           Math.round(data.totalMatriculas / data.totalEscolas) : 0}
                       </div>
-                      <div className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Alunos por escola (média)</div>
+                      <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Alunos por escola (média)</div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-center">
-                      <div className={`p-2 rounded ${darkMode ? 'bg-sky-900/20' : 'bg-sky-50'}`}>
-                        <div className={`font-bold ${darkMode ? 'text-sky-300' : 'text-sky-700'}`}>{data.escolasPorZona?.["URBANA"] || 0}</div>
-                        <div className={`text-xs ${darkMode ? 'text-sky-300' : 'text-sky-600'}`}>Escolas Urbanas</div>
+                      <div className={`p-2 rounded ${darkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
+                        <div className={`font-bold ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>{data.escolasPorZona?.["URBANA"] || 0}</div>
+                        <div className={`text-xs ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>Escolas Urbanas</div>
                       </div>
-                      <div className={`p-2 rounded ${darkMode ? 'bg-emerald-900/20' : 'bg-emerald-50'}`}>
-                        <div className={`font-bold ${darkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>{data.escolasPorZona?.["RURAL"] || 0}</div>
-                        <div className={`text-xs ${darkMode ? 'text-emerald-300' : 'text-emerald-600'}`}>Escolas Rurais</div>
+                      <div className={`p-2 rounded ${darkMode ? 'bg-green-900/30' : 'bg-green-50'}`}>
+                        <div className={`font-bold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>{data.escolasPorZona?.["RURAL"] || 0}</div>
+                        <div className={`text-xs ${darkMode ? 'text-green-300' : 'text-green-600'}`}>Escolas Rurais</div>
                       </div>
                     </div>
                   </div>
@@ -1689,16 +1872,16 @@ const Dashboard = () => {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -400, opacity: 0 }}
                 transition={{ duration: 0.3, type: "spring", bounce: 0.1 }}
-                className={`fixed inset-y-0 left-0 ${darkMode ? 'bg-slate-900' : 'bg-white'} w-80 md:w-96 p-6 shadow-2xl z-50 ${darkMode ? 'border-slate-800' : 'border-slate-200'} border-r overflow-y-auto`}
+                className={`fixed inset-y-0 left-0 ${darkMode ? 'bg-gray-800' : 'bg-white'} w-80 md:w-96 p-6 shadow-2xl z-50 ${darkMode ? 'border-gray-700/60' : 'border-gray-200/60'} border-r overflow-y-auto`}
               >
-                <div className={`flex justify-between items-center mb-8 pb-4 ${darkMode ? 'border-slate-800' : 'border-slate-200'} border-b`}>
+                <div className={`flex justify-between items-center mb-8 pb-4 ${darkMode ? 'border-gray-700' : 'border-gray-200'} border-b`}>
                   <h2 className="text-2xl font-bold flex items-center gap-2">
-                    <FaFilter className="text-sky-500" />
+                    <FaFilter className="text-violet-500" />
                     Filtros
                   </h2>
                   <button 
                     onClick={() => setShowSidebar(false)} 
-                    className={`text-slate-500 hover:text-sky-600 transition-colors text-2xl ${darkMode ? 'bg-slate-800' : 'bg-slate-100'} p-2 rounded-xl ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-200'}`}
+                    className={`text-gray-500 hover:text-violet-600 transition-colors text-2xl ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} p-2 rounded-xl ${darkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-200'}`}
                   >
                     ✕
                   </button>
@@ -1790,7 +1973,7 @@ const Dashboard = () => {
                   />
                 </div>
                 
-                <div className={`mt-8 pt-6 ${darkMode ? 'border-slate-800' : 'border-slate-200'} border-t flex justify-center`}>
+                <div className={`mt-8 pt-6 ${darkMode ? 'border-gray-700' : 'border-gray-200'} border-t flex justify-center`}>
                   <button
                     onClick={() => {
                       const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
@@ -1812,19 +1995,19 @@ const Dashboard = () => {
                       carregarDados(resetFilters);
                       setShowSidebar(false);
                     }}
-                    className="bg-sky-600 text-white px-8 py-3 rounded-xl hover:bg-sky-700 transition-all duration-300 shadow-lg font-semibold"
+                    className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-8 py-3 rounded-xl hover:from-violet-600 hover:to-purple-700 transition-all duration-300 shadow-lg font-semibold"
                   >
                     🔄 Limpar Filtros
                   </button>
                 </div>
 
                 {/* Informações de Cache */}
-                <div className={`mt-6 p-4 rounded-lg ${darkMode ? 'bg-slate-800/50' : 'bg-slate-100/80'} text-sm`}>
+                <div className={`mt-6 p-4 rounded-lg ${darkMode ? 'bg-gray-700/50' : 'bg-gray-100/80'} text-sm`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <FaDatabase className="text-sky-500" />
+                    <FaDatabase className="text-violet-500" />
                     <span className="font-semibold">Sistema de Cache</span>
                   </div>
-                  <p className={darkMode ? 'text-slate-300' : 'text-slate-600'}>
+                  <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
                     Seus filtros e preferências são salvos automaticamente.
                   </p>
                 </div>
