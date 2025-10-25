@@ -154,10 +154,9 @@ const formatNumber = (num) => {
 
 // CORREÇÃO DEFINITIVA: Função para formatar percentuais corretamente
 const formatPercent = (value) => {
-  if (value === null || value === undefined || value === "" || isNaN(value)) {
+  if (value === null || value === undefined || value === "") {
     return "0,00";
   }
-  
   let numericValue;
   if (typeof value === 'string') {
     const cleanedValue = value.replace(/[^\d,.-]/g, '');
@@ -165,12 +164,9 @@ const formatPercent = (value) => {
   } else {
     numericValue = parseFloat(value);
   }
-  
-  if (isNaN(numericValue)) {
+  if (isNaN(numericValue) || !isFinite(numericValue)) {
     return "0,00";
   }
-  
-  // CORREÇÃO: Usar formato brasileiro correto - vírgula para decimais
   return numericValue.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
@@ -499,10 +495,15 @@ const Dashboard = () => {
 
   // CORREÇÃO: Função para obter percentual seguro
   const getSafePercent = (value, defaultValue = 0) => {
-    if (value === null || value === undefined || value === "Erro" || isNaN(value)) return defaultValue;
-    const numericValue = parseFloat(value);
-    return isNaN(numericValue) ? defaultValue : Math.min(100, Math.max(0, numericValue));
-  };
+  if (value === null || value === undefined || value === "Erro") return defaultValue;
+  let v = value;
+  if (typeof v === 'string') {
+    v = parseFloat(v.replace(/[^\d,.-]/g, '').replace(',', '.'));
+  } else {
+    v = parseFloat(v);
+  }
+  return Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : defaultValue;
+};
 
   // Toast boas-vindas
   useEffect(() => {
@@ -1273,7 +1274,7 @@ const Dashboard = () => {
                 
                 <Card
                   label="Capacidade"
-                  value={formatNumber(data.capacidadeTotal)}
+                  value={formatNumber(capacidadeTotalFromZones)}
                   icon={<FaChalkboardTeacher className="text-indigo-500" />}
                   borderColor={darkMode ? "border-indigo-600" : "border-indigo-400"}
                   bgColor={darkMode ? "bg-indigo-900/30" : "bg-indigo-50"}
@@ -1282,8 +1283,8 @@ const Dashboard = () => {
                   tooltipId="capacidade-total"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.turmasPorZona?.["URBANA"] ? data.turmasPorZona?.["URBANA"] * 30 : 0}
-                      rural={data.turmasPorZona?.["RURAL"] ? data.turmasPorZona?.["RURAL"] * 25 : 0}
+                      urbana={data.capacidadePorZona?.URBANA?.capacidade || 0}
+                      rural={data.capacidadePorZona?.RURAL?.capacidade || 0}
                     />
                   }
                 />
@@ -1300,8 +1301,8 @@ const Dashboard = () => {
                   tooltipId="total-vagas"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.escolasPorZona?.["URBANA"] ? Math.round(data.totalVagas * 0.6) : 0}
-                      rural={data.escolasPorZona?.["RURAL"] ? Math.round(data.totalVagas * 0.4) : 0}
+                      urbana={data.capacidadePorZona?.URBANA?.vagas || 0}
+                      rural={data.capacidadePorZona?.RURAL?.vagas || 0}
                     />
                   }
                 />
