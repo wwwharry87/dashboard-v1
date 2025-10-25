@@ -1,5 +1,5 @@
 //Dashboard.js
-import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy } from "react";
+import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
 import {
@@ -39,10 +39,20 @@ import {
   FaUsers,
   FaChartBar,
   FaRegChartBar,
+  FaInfoCircle,
+  FaDownload,
+  FaFileExcel,
+  FaFilePdf,
+  FaSun,
+  FaMoon,
+  FaDatabase,
 } from "react-icons/fa";
 import { Tooltip as ReactTooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
 import { motion, AnimatePresence } from "framer-motion";
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 // Importação dos componentes otimizados
 import FilterSelect from './components/FilterSelect';
@@ -56,6 +66,9 @@ const TurnoChart = lazy(() => import('./components/TurnoChart'));
 const SituacaoMatriculaChart = lazy(() => import('./components/SituacaoMatriculaChart'));
 const EvolucaoMatriculasChart = lazy(() => import('./components/EvolucaomatriculasChart'));
 const MapaCalorEscolas = lazy(() => import('./components/MapacalorEscolas'));
+
+// Context para modo escuro
+const DarkModeContext = createContext();
 
 // Spinner com melhor feedback visual
 const Spinner = () => (
@@ -120,35 +133,44 @@ const Toast = ({ message, show, type = "success" }) =>
     </motion.div>
   ) : null;
 
-const formatNumber = (num) =>
-  num === null || num === undefined || num === "Erro" || isNaN(num)
-    ? "0"
-    : Number(num).toLocaleString("pt-BR");
+// CORREÇÃO: Função para formatar números com separador de milhar correto (padrão brasileiro)
+const formatNumber = (num) => {
+  if (num === null || num === undefined || num === "Erro" || isNaN(num)) {
+    return "0";
+  }
+  
+  const numberValue = typeof num === 'string' ? parseFloat(num.replace(',', '.')) : Number(num);
+  
+  if (isNaN(numberValue)) {
+    return "0";
+  }
+  
+  // Formatação correta para padrão brasileiro: 1.000,00
+  return numberValue.toLocaleString('pt-BR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  });
+};
 
 // CORREÇÃO DEFINITIVA: Função para formatar percentuais corretamente
 const formatPercent = (value) => {
-  // Se for null, undefined, NaN ou string vazia, retornar 0.00
   if (value === null || value === undefined || value === "" || isNaN(value)) {
-    return "0.00";
+    return "0,00";
   }
   
-  // Se já for string, tentar converter
   let numericValue;
   if (typeof value === 'string') {
-    // Remover qualquer caractere que não seja número, ponto ou vírgula
     const cleanedValue = value.replace(/[^\d,.-]/g, '');
-    // Substituir vírgula por ponto para parseFloat
     numericValue = parseFloat(cleanedValue.replace(',', '.'));
   } else {
     numericValue = parseFloat(value);
   }
   
-  // Se ainda for NaN após a conversão, retornar 0.00
   if (isNaN(numericValue)) {
-    return "0.00";
+    return "0,00";
   }
   
-  // Formatar com 2 casas decimais
+  // CORREÇÃO: Usar formato brasileiro correto - vírgula para decimais
   return numericValue.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
@@ -174,17 +196,17 @@ const ZonaDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-3 pt-3 border-t border-gray-200/50"
+    className="mt-3 pt-3 border-t border-gray-200/50 dark:border-gray-600/50"
   >
     <div className="flex justify-between items-center text-xs">
-      <div className="flex items-center gap-1 text-blue-600">
+      <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
         <FaCity className="text-xs" />
         <span>Urbana:</span>
       </div>
       <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
     <div className="flex justify-between items-center text-xs mt-1">
-      <div className="flex items-center gap-1 text-green-600">
+      <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
         <FaTree className="text-xs" />
         <span>Rural:</span>
       </div>
@@ -198,17 +220,17 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-3 pt-3 border-t border-gray-200/50"
+    className="mt-3 pt-3 border-t border-gray-200/50 dark:border-gray-600/50"
   >
     <div className="flex justify-between items-center text-xs">
-      <div className="flex items-center gap-1 text-blue-600">
+      <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
         <FaCity className="text-xs" />
         <span>Urbana:</span>
       </div>
       <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
     <div className="flex justify-between items-center text-xs mt-1">
-      <div className="flex items-center gap-1 text-green-600">
+      <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
         <FaTree className="text-xs" />
         <span>Rural:</span>
       </div>
@@ -219,10 +241,18 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
 
 // Componente para indicadores de alerta
 const AlertIndicator = ({ type, value, label }) => {
+  const { darkMode } = useContext(DarkModeContext);
+  
   const getColor = () => {
-    if (type === 'high') return 'text-red-500 bg-red-50 border-red-200';
-    if (type === 'medium') return 'text-yellow-500 bg-yellow-50 border-yellow-200';
-    return 'text-green-500 bg-green-50 border-green-200';
+    if (type === 'high') return darkMode 
+      ? 'text-red-400 bg-red-900/30 border-red-700' 
+      : 'text-red-500 bg-red-50 border-red-200';
+    if (type === 'medium') return darkMode 
+      ? 'text-yellow-400 bg-yellow-900/30 border-yellow-700' 
+      : 'text-yellow-500 bg-yellow-50 border-yellow-200';
+    return darkMode 
+      ? 'text-green-400 bg-green-900/30 border-green-700' 
+      : 'text-green-500 bg-green-50 border-green-200';
   };
 
   return (
@@ -234,12 +264,132 @@ const AlertIndicator = ({ type, value, label }) => {
   );
 };
 
+// Componente de Tooltip informativo
+const InfoTooltip = ({ content, id }) => (
+  <>
+    <FaInfoCircle 
+      className="text-gray-400 hover:text-gray-600 cursor-help text-sm" 
+      data-tooltip-id={id}
+      data-tooltip-content={content}
+    />
+    <ReactTooltip id={id} place="top" variant="info" />
+  </>
+);
+
+// Componente de Exportação
+const ExportButtons = ({ data, escolas, loading }) => {
+  const exportToExcel = () => {
+    if (loading || !escolas.length) return;
+    
+    const worksheet = XLSX.utils.json_to_sheet(escolas.map(esc => ({
+      Escola: esc.escola,
+      Matrículas: esc.total_matriculas,
+      Capacidade: esc.capacidade,
+      Vagas: esc.vagas,
+      Ocupação: `${esc.taxa_ocupacao}%`,
+      Entradas: esc.entradas,
+      Saídas: esc.saidas,
+      Zona: esc.zona,
+      Endereço: esc.endereco
+    })));
+    
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Escolas");
+    XLSX.writeFile(workbook, "dados_escolas.xlsx");
+  };
+
+  const exportToPDF = () => {
+    if (loading || !escolas.length) return;
+    
+    const doc = new jsPDF();
+    
+    // Título
+    doc.setFontSize(16);
+    doc.text("Relatório de Escolas", 14, 15);
+    
+    // Data de geração
+    doc.setFontSize(10);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 22);
+    
+    // Dados resumidos
+    doc.setFontSize(12);
+    doc.text(`Total de Matrículas: ${formatNumber(data.totalMatriculas)}`, 14, 32);
+    doc.text(`Total de Escolas: ${formatNumber(data.totalEscolas)}`, 14, 38);
+    doc.text(`Taxa de Ocupação: ${formatPercent(data.taxaOcupacao)}%`, 14, 44);
+    
+    // Tabela
+    doc.autoTable({
+      startY: 50,
+      head: [['Escola', 'Matrículas', 'Capacidade', 'Vagas', 'Ocupação', 'Zona']],
+      body: escolas.map(esc => [
+        esc.escola,
+        esc.total_matriculas,
+        esc.capacidade,
+        esc.vagas,
+        `${esc.taxa_ocupacao}%`,
+        esc.zona
+      ]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [99, 102, 241] }
+    });
+    
+    doc.save("relatorio_escolas.pdf");
+  };
+
+  return (
+    <div className="flex gap-2">
+      <button
+        onClick={exportToExcel}
+        disabled={loading || !escolas.length}
+        className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+        title="Exportar para Excel"
+      >
+        <FaFileExcel />
+        <span className="hidden sm:inline">Excel</span>
+      </button>
+      <button
+        onClick={exportToPDF}
+        disabled={loading || !escolas.length}
+        className="flex items-center gap-2 bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+        title="Exportar para PDF"
+      >
+        <FaFilePdf />
+        <span className="hidden sm:inline">PDF</span>
+      </button>
+    </div>
+  );
+};
+
+// Hook para cache local
+const useLocalStorage = (key, initialValue) => {
+  const [storedValue, setStoredValue] = useState(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      return initialValue;
+    }
+  });
+
+  const setValue = (value) => {
+    try {
+      setStoredValue(value);
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.error(`Erro ao salvar no localStorage: ${error}`);
+    }
+  };
+
+  return [storedValue, setValue];
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
 
   // === STATES ===
+  const [darkMode, setDarkMode] = useLocalStorage("darkMode", false);
   const [filters, setFilters] = useState({});
-  const [selectedFilters, setSelectedFilters] = useState({
+  const [selectedFilters, setSelectedFilters] = useLocalStorage("selectedFilters", {
     anoLetivo: "",
     deficiencia: "",
     grupoEtapa: "",
@@ -252,7 +402,7 @@ const Dashboard = () => {
     transporteEscolar: "",
     idescola: "",
   });
-  const [selectedSchool, setSelectedSchool] = useState(null);
+  const [selectedSchool, setSelectedSchool] = useLocalStorage("selectedSchool", null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -264,7 +414,17 @@ const Dashboard = () => {
   const [globalLoading, setGlobalLoading] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState(null);
   const [isAutoUpdating, setIsAutoUpdating] = useState(false);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useLocalStorage("activeTab", "overview");
+  const [cachedData, setCachedData] = useLocalStorage("cachedData", null);
+
+  // Aplicar modo escuro no body
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
 
   // === Loading individual ===
   const [loadingCards, setLoadingCards] = useState({
@@ -323,8 +483,17 @@ const Dashboard = () => {
 
   // CORREÇÃO: Função para obter valores numéricos seguros
   const getSafeNumber = (value, defaultValue = 0) => {
-    if (value === null || value === undefined || value === "Erro" || isNaN(value)) return defaultValue;
-    const numericValue = parseFloat(value);
+    if (value === null || value === undefined || value === "Erro") return defaultValue;
+    
+    // Converter string com vírgula para número
+    let numericValue;
+    if (typeof value === 'string') {
+      const cleanedValue = value.replace(/[^\d,.-]/g, '');
+      numericValue = parseFloat(cleanedValue.replace(',', '.'));
+    } else {
+      numericValue = parseFloat(value);
+    }
+    
     return isNaN(numericValue) ? defaultValue : numericValue;
   };
 
@@ -414,8 +583,13 @@ const Dashboard = () => {
       const response = await api.get("/filtros", { signal });
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
-      setSelectedFilters((prev) => ({ ...prev, anoLetivo: ultimoAnoLetivo }));
-      await carregarDados({ ...selectedFilters, anoLetivo: ultimoAnoLetivo }, signal);
+      
+      // Verificar se há filtros salvos
+      const savedFilters = JSON.parse(localStorage.getItem("selectedFilters") || "{}");
+      const initialFilters = savedFilters.anoLetivo ? savedFilters : { ...selectedFilters, anoLetivo: ultimoAnoLetivo };
+      
+      setSelectedFilters(initialFilters);
+      await carregarDados(initialFilters, signal);
     } catch (error) {
       if (!error.name === 'AbortError') {
         console.error("Erro ao carregar filtros:", error);
@@ -455,10 +629,9 @@ const Dashboard = () => {
 
       console.log('Dados recebidos da API:', totaisData);
 
-      // CORREÇÃO: Tratamento seguro dos dados numéricos
+      // CORREÇÃO: Usar as funções de parsing corrigidas
       const safeData = {
         ...totaisData,
-        // Garantir que os valores numéricos são tratados corretamente
         taxaEvasao: getSafePercent(totaisData.taxaEvasao),
         taxaOcupacao: getSafePercent(totaisData.taxaOcupacao),
         totalMatriculas: getSafeNumber(totaisData.totalMatriculas),
@@ -469,7 +642,6 @@ const Dashboard = () => {
         totalSaidas: getSafeNumber(totaisData.totalSaidas),
         alunosComDeficiencia: getSafeNumber(totaisData.alunosComDeficiencia),
         alunosTransporteEscolar: getSafeNumber(totaisData.alunosTransporteEscolar),
-        // Garantir que objetos existem
         matriculasPorZona: totaisData.matriculasPorZona || {},
         escolasPorZona: totaisData.escolasPorZona || {},
         turmasPorZona: totaisData.turmasPorZona || {},
@@ -482,6 +654,7 @@ const Dashboard = () => {
       };
 
       setData(safeData);
+      setCachedData(safeData);
 
       // Desativar todos os loading states
       setLoadingCards({
@@ -521,29 +694,38 @@ const Dashboard = () => {
       if (!error.name === 'AbortError') {
         console.error("Erro ao carregar dados:", error);
         
-        // CORREÇÃO: Reset mais seguro dos dados em caso de erro
-        setData(prev => ({
-          ...prev,
-          totalMatriculas: 0,
-          totalEscolas: 0,
-          capacidadeTotal: 0,
-          totalVagas: 0,
-          totalEntradas: 0,
-          totalSaidas: 0,
-          taxaEvasao: 0,
-          taxaOcupacao: 0,
-          alunosComDeficiencia: 0,
-          alunosTransporteEscolar: 0,
-          escolas: [],
-          entradasSaidasPorMes: {},
-          matriculasPorSexo: {},
-          matriculasPorTurno: {},
-          matriculasPorSituacao: {},
-          evolucaoMatriculas: {},
-          matriculasPorZona: {},
-          escolasPorZona: {},
-          turmasPorZona: {}
-        }));
+        // Tentar usar dados em cache em caso de erro
+        if (cachedData) {
+          setData(cachedData);
+          setToastMsg("Usando dados em cache 📋");
+          setToastType("info");
+          setShowToast(true);
+          setTimeout(() => setShowToast(false), 2000);
+        } else {
+          // CORREÇÃO: Reset mais seguro dos dados em caso de erro
+          setData(prev => ({
+            ...prev,
+            totalMatriculas: 0,
+            totalEscolas: 0,
+            capacidadeTotal: 0,
+            totalVagas: 0,
+            totalEntradas: 0,
+            totalSaidas: 0,
+            taxaEvasao: 0,
+            taxaOcupacao: 0,
+            alunosComDeficiencia: 0,
+            alunosTransporteEscolar: 0,
+            escolas: [],
+            entradasSaidasPorMes: {},
+            matriculasPorSexo: {},
+            matriculasPorTurno: {},
+            matriculasPorSituacao: {},
+            evolucaoMatriculas: {},
+            matriculasPorZona: {},
+            escolasPorZona: {},
+            turmasPorZona: {}
+          }));
+        }
       }
       
       // Desativar loading states mesmo em caso de erro
@@ -629,6 +811,10 @@ const Dashboard = () => {
 
   const sair = useCallback(() => {
     localStorage.removeItem("token");
+    localStorage.removeItem("selectedFilters");
+    localStorage.removeItem("selectedSchool");
+    localStorage.removeItem("activeTab");
+    localStorage.removeItem("cachedData");
     navigate("/login", { replace: true });
   }, [navigate]);
 
@@ -744,18 +930,18 @@ const Dashboard = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: "top", labels: { color: "#6B7280", font: { size: 12, weight: "bold" } } },
+          legend: { position: "top", labels: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { size: 12, weight: "bold" } } },
           datalabels: { display: false },
         },
         scales: {
           x: {
             grid: { display: false },
-            ticks: { color: "#6B7280", font: { weight: "bold" } },
+            ticks: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { weight: "bold" } },
           },
           y: {
-            grid: { color: "#E5E7EB" },
+            grid: { color: darkMode ? "#374151" : "#E5E7EB" },
             ticks: { 
-              color: "#6B7280", 
+              color: darkMode ? "#E5E7EB" : "#6B7280", 
               font: { weight: "bold" }, 
               callback: (value) => formatNumber(value) 
             },
@@ -767,7 +953,7 @@ const Dashboard = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: "bottom", labels: { font: { size: 12, weight: "bold" } } },
+          legend: { position: "bottom", labels: { font: { size: 12, weight: "bold" }, color: darkMode ? "#E5E7EB" : "#6B7280" } },
           datalabels: {
             display: true,
             color: "#fff",
@@ -794,16 +980,16 @@ const Dashboard = () => {
         },
         scales: {
           x: {
-            grid: { color: "#E5E7EB" },
+            grid: { color: darkMode ? "#374151" : "#E5E7EB" },
             ticks: { 
-              color: "#6B7280", 
+              color: darkMode ? "#E5E7EB" : "#6B7280", 
               font: { weight: "bold" }, 
               callback: (value) => formatNumber(value) 
             },
           },
           y: {
             grid: { display: false },
-            ticks: { color: "#6B7280", font: { weight: "bold" } },
+            ticks: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { weight: "bold" } },
           },
         },
         layout: { padding: { left: 20, right: 20 } },
@@ -812,7 +998,7 @@ const Dashboard = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: "bottom", labels: { font: { size: 11, weight: "bold" } } },
+          legend: { position: "bottom", labels: { font: { size: 11, weight: "bold" }, color: darkMode ? "#E5E7EB" : "#6B7280" } },
           datalabels: {
             display: true,
             color: "#fff",
@@ -830,12 +1016,12 @@ const Dashboard = () => {
         scales: {
           x: {
             grid: { display: false },
-            ticks: { color: "#6B7280", font: { weight: "bold" } },
+            ticks: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { weight: "bold" } },
           },
           y: {
-            grid: { color: "#E5E7EB" },
+            grid: { color: darkMode ? "#374151" : "#E5E7EB" },
             ticks: { 
-              color: "#6B7280", 
+              color: darkMode ? "#E5E7EB" : "#6B7280", 
               font: { weight: "bold" }, 
               callback: (value) => formatNumber(value) 
             },
@@ -843,7 +1029,7 @@ const Dashboard = () => {
         },
       }
     };
-  }, []);
+  }, [darkMode]);
 
   // Filtrar escolas - memoizado
   const filteredEscolas = useMemo(() => {
@@ -870,721 +1056,810 @@ const Dashboard = () => {
 
   // === RENDER ===
   return (
-    <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-violet-50 via-blue-50 to-pink-50 relative overflow-hidden">
-      <AnimatePresence>
-        {showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}
-        {isLoading && <GlobalLoading />}
-      </AnimatePresence>
+    <DarkModeContext.Provider value={{ darkMode, setDarkMode }}>
+      <div className={`h-screen w-screen flex flex-col ${darkMode 
+        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white' 
+        : 'bg-gradient-to-br from-violet-50 via-blue-50 to-pink-50 text-gray-800'
+      } relative overflow-hidden`}>
+        <AnimatePresence>
+          {showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}
+          {isLoading && <GlobalLoading />}
+        </AnimatePresence>
 
-      {/* HEADER FIXO NO TOPO */}
-      <div className="w-full bg-white/95 backdrop-blur-sm shadow-lg border-b border-gray-200/60 z-40">
-        <div className="flex items-center justify-between px-4 py-4 md:px-8 md:py-5">
-          <div className="flex items-center gap-4 flex-1">
-            <button
-              id="filterButton"
-              onClick={() => setShowSidebar(true)}
-              className="bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-2xl shadow-xl flex items-center justify-center p-3 hover:from-violet-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105"
-              style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
-              title="Abrir filtros"
-            >
-              <FaFilter />
-            </button>
-
-            <div className="flex flex-col">
-              <h1
-                className="font-bold text-gray-800 drop-shadow-sm"
-                style={{
-                  fontSize: 'clamp(1.3rem, 2.8vw, 2.2rem)',
-                  lineHeight: 1.2,
-                }}
+        {/* HEADER FIXO NO TOPO */}
+        <div className={`w-full ${darkMode ? 'bg-gray-800/95' : 'bg-white/95'} backdrop-blur-sm shadow-lg border-b ${darkMode ? 'border-gray-700/60' : 'border-gray-200/60'} z-40`}>
+          <div className="flex items-center justify-between px-4 py-4 md:px-8 md:py-5">
+            <div className="flex items-center gap-4 flex-1">
+              <button
+                id="filterButton"
+                onClick={() => setShowSidebar(true)}
+                className="bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-2xl shadow-xl flex items-center justify-center p-3 hover:from-violet-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105"
+                style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
+                title="Abrir filtros"
               >
-                {clientName || "SEMED - PAINEL"}
-              </h1>
-              <span className="text-[0.95rem] md:text-lg text-gray-600 font-medium">Dashboard de Gestão Educacional</span>
-            </div>
-          </div>
+                <FaFilter />
+              </button>
 
-          <div className="flex items-center gap-4">
-            {formattedUpdateDate && (
-              <div className="hidden md:flex flex-col items-end">
-                <span className="text-xs text-gray-500 font-semibold">Última atualização</span>
-                <span className="text-sm text-gray-700 font-bold">{formattedUpdateDate}</span>
+              <div className="flex flex-col">
+                <h1
+                  className="font-bold drop-shadow-sm"
+                  style={{
+                    fontSize: 'clamp(1.3rem, 2.8vw, 2.2rem)',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {clientName || "SEMED - PAINEL"}
+                </h1>
+                <span className={`text-[0.95rem] md:text-lg ${darkMode ? 'text-gray-300' : 'text-gray-600'} font-medium`}>
+                  Dashboard de Gestão Educacional
+                </span>
               </div>
-            )}
-
-            <button
-              onClick={sair}
-              className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl shadow-lg flex items-center justify-center p-3 hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
-              title="Sair do sistema"
-              style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
-            >
-              <FaSignOutAlt className="group-hover:rotate-180 transition-transform duration-300" />
-            </button>
-          </div>
-        </div>
-
-        {/* Data de atualização para mobile */}
-        {formattedUpdateDate && (
-          <div className="md:hidden p-2 bg-violet-100/80 text-center text-sm text-gray-700">
-            Atualizado: {formattedUpdateDate}
-          </div>
-        )}
-
-        {/* Navegação por abas */}
-        <div className="flex border-b border-gray-200">
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`flex items-center gap-2 px-6 py-3 font-semibold transition-all ${
-              activeTab === "overview" 
-                ? "text-violet-600 border-b-2 border-violet-600 bg-violet-50" 
-                : "text-gray-600 hover:text-violet-500"
-            }`}
-          >
-            <FaChartBar />
-            Visão Geral
-          </button>
-          <button
-            onClick={() => setActiveTab("analytics")}
-            className={`flex items-center gap-2 px-6 py-3 font-semibold transition-all ${
-              activeTab === "analytics" 
-                ? "text-violet-600 border-b-2 border-violet-600 bg-violet-50" 
-                : "text-gray-600 hover:text-violet-500"
-            }`}
-          >
-            <FaChartLine />
-            Analytics
-          </button>
-          <button
-            onClick={() => setActiveTab("geographic")}
-            className={`flex items-center gap-2 px-6 py-3 font-semibold transition-all ${
-              activeTab === "geographic" 
-                ? "text-violet-600 border-b-2 border-violet-600 bg-violet-50" 
-                : "text-gray-600 hover:text-violet-500"
-            }`}
-          >
-            <FaMapMarkerAlt />
-            Visão Geográfica
-          </button>
-        </div>
-
-        {/* Badge para filtro de escola ativo */}
-        {selectedSchool && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center py-2 bg-violet-50/80"
-          >
-            <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
-              🎯 Filtro ativo: {selectedSchool.escola}
-            </span>
-            <button
-              onClick={() => handleSchoolClick(selectedSchool)}
-              className="ml-3 bg-red-500 text-white px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-600 transition-colors shadow"
-            >
-              Remover
-            </button>
-          </motion.div>
-        )}
-      </div>
-
-      {/* CONTEÚDO PRINCIPAL POR ABA */}
-      <div className="flex-1 overflow-auto p-4">
-        
-        {/* ABA: VISÃO GERAL */}
-        {activeTab === "overview" && (
-          <>
-            {/* Alertas Estratégicos */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              {indicadoresEstrategicos.taxaEvasao > 10 && (
-                <AlertIndicator 
-                  type="high" 
-                  value={`${formatPercent(indicadoresEstrategicos.taxaEvasao)}%`} 
-                  label="Taxa de Evasão Alta" 
-                />
-              )}
-              {indicadoresEstrategicos.taxaOcupacao > 90 && (
-                <AlertIndicator 
-                  type="medium" 
-                  value={`${formatPercent(indicadoresEstrategicos.taxaOcupacao)}%`} 
-                  label="Alta Ocupação" 
-                />
-              )}
-              {data.totalSaidas > data.totalEntradas && (
-                <AlertIndicator 
-                  type="high" 
-                  value="Crítico" 
-                  label="Mais Saídas que Entradas" 
-                />
-              )}
-              {data.matriculasPorZona?.["RURAL"] > data.matriculasPorZona?.["URBANA"] && (
-                <AlertIndicator 
-                  type="medium" 
-                  value="Rural" 
-                  label="Maioria em Área Rural" 
-                />
-              )}
             </div>
 
-            {/* Grid de Cartões Principais CORRIGIDOS - REMOVIDO CARD DE TURMAS */}
-            <div className="grid grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1024px]:grid-cols-7 gap-4 mb-6">
-              <Card
-                label="Matrículas"
-                value={formatNumber(data.totalMatriculas)}
-                icon={<FaUserGraduate className="text-blue-500" />}
-                borderColor="border-blue-400"
-                bgColor="bg-blue-50"
-                loading={loadingCards.totalMatriculas}
-                additionalContent={
-                  <ZonaDetails 
-                    urbana={data.matriculasPorZona?.["URBANA"]}
-                    rural={data.matriculasPorZona?.["RURAL"]}
-                  />
-                }
-              />
-              
-              <Card
-                label="Escolas"
-                value={formatNumber(data.totalEscolas)}
-                icon={<FaSchool className="text-green-500" />}
-                borderColor="border-green-400"
-                bgColor="bg-green-50"
-                loading={loadingCards.totalEscolas}
-                additionalContent={
-                  <ZonaEscolasDetails 
-                    urbana={data.escolasPorZona?.["URBANA"]}
-                    rural={data.escolasPorZona?.["RURAL"]}
-                  />
-                }
-              />
-              
-              <Card
-                label="Capacidade"
-                value={formatNumber(data.capacidadeTotal)}
-                icon={<FaChalkboardTeacher className="text-indigo-500" />}
-                borderColor="border-indigo-400"
-                bgColor="bg-indigo-50"
-                loading={loadingCards.capacidadeTotal}
-                additionalContent={
-                  <ZonaDetails 
-                    urbana={data.turmasPorZona?.["URBANA"] ? data.turmasPorZona?.["URBANA"] * 30 : 0}
-                    rural={data.turmasPorZona?.["RURAL"] ? data.turmasPorZona?.["RURAL"] * 25 : 0}
-                  />
-                }
-              />
-              
-              <Card
-                label="Vagas"
-                value={formatNumber(data.totalVagas)}
-                icon={<FaUsers className="text-teal-500" />}
-                borderColor="border-teal-400"
-                bgColor="bg-teal-50"
-                loading={loadingCards.totalVagas}
-                valueColor={data.totalVagas < 0 ? "red" : "green"}
-                additionalContent={
-                  <ZonaDetails 
-                    urbana={data.escolasPorZona?.["URBANA"] ? Math.round(data.totalVagas * 0.6) : 0}
-                    rural={data.escolasPorZona?.["RURAL"] ? Math.round(data.totalVagas * 0.4) : 0}
-                  />
-                }
-              />
-              
-              <Card
-                label="Entradas"
-                value={formatNumber(data.totalEntradas)}
-                icon={<FaSignInAlt className="text-yellow-500" />}
-                borderColor="border-yellow-400"
-                bgColor="bg-yellow-50"
-                loading={loadingCards.totalEntradas}
-                additionalContent={
-                  <ZonaDetails 
-                    urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalEntradas * 0.7) : 0}
-                    rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalEntradas * 0.3) : 0}
-                  />
-                }
-              />
-              
-              <Card
-                label="Saídas"
-                value={formatNumber(data.totalSaidas)}
-                icon={<FaSignOutAlt className="text-red-500" />}
-                borderColor="border-red-400"
-                bgColor="bg-red-50"
-                loading={loadingCards.totalSaidas}
-                additionalContent={
-                  <ZonaDetails 
-                    urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalSaidas * 0.6) : 0}
-                    rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalSaidas * 0.4) : 0}
-                  />
-                }
-              />
+            <div className="flex items-center gap-3">
+              {/* Botão Modo Escuro */}
+              <button
+                onClick={() => setDarkMode(!darkMode)}
+                className={`p-3 rounded-2xl shadow-lg transition-all duration-300 transform hover:scale-105 ${
+                  darkMode 
+                    ? 'bg-yellow-500 text-white hover:bg-yellow-600' 
+                    : 'bg-gray-800 text-white hover:bg-gray-900'
+                }`}
+                title={darkMode ? "Modo Claro" : "Modo Escuro"}
+                style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
+              >
+                {darkMode ? <FaSun /> : <FaMoon />}
+              </button>
 
-              {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão */}
-              <Card
-                label="Taxa Evasão"
-                value={`${formatPercent(data.taxaEvasao)}%`}
-                disableFormat={true}
-                icon={<FaExclamationTriangle className="text-orange-500" />}
-                borderColor="border-orange-400"
-                bgColor="bg-orange-50"
-                loading={loadingCards.taxaEvasao}
-                valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
-              />
+              {formattedUpdateDate && (
+                <div className="hidden md:flex flex-col items-end">
+                  <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'} font-semibold`}>
+                    Última atualização
+                  </span>
+                  <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'} font-bold`}>
+                    {formattedUpdateDate}
+                  </span>
+                </div>
+              )}
+
+              <button
+                onClick={sair}
+                className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl shadow-lg flex items-center justify-center p-3 hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
+                title="Sair do sistema"
+                style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
+              >
+                <FaSignOutAlt className="group-hover:rotate-180 transition-transform duration-300" />
+              </button>
             </div>
+          </div>
 
-            {/* Área Principal - Tabela e Gráficos */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              {/* Tabela Detalhes por Escola */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[400px] border border-gray-200/50">
-                <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100/80 border-b border-gray-200 flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                    <FaSchool className="text-violet-500" />
-                    Detalhes por Escola
+          {/* Data de atualização para mobile */}
+          {formattedUpdateDate && (
+            <div className={`md:hidden p-2 text-center text-sm ${darkMode ? 'bg-violet-900/80 text-gray-300' : 'bg-violet-100/80 text-gray-700'}`}>
+              Atualizado: {formattedUpdateDate}
+            </div>
+          )}
+
+          {/* Navegação por abas */}
+          <div className={`flex border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+                activeTab === "overview" 
+                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
+                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+              }`}
+            >
+              <FaChartBar />
+              <span className="hidden xs:inline">Visão Geral</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("analytics")}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+                activeTab === "analytics" 
+                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
+                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+              }`}
+            >
+              <FaChartLine />
+              <span className="hidden xs:inline">Analytics</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("geographic")}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+                activeTab === "geographic" 
+                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
+                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+              }`}
+            >
+              <FaMapMarkerAlt />
+              <span className="hidden xs:inline">Geográfica</span>
+            </button>
+          </div>
+
+          {/* Badge para filtro de escola ativo */}
+          {selectedSchool && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`text-center py-2 ${darkMode ? 'bg-violet-900/80' : 'bg-violet-50/80'}`}
+            >
+              <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
+                🎯 Filtro ativo: {selectedSchool.escola}
+              </span>
+              <button
+                onClick={() => handleSchoolClick(selectedSchool)}
+                className="ml-3 bg-red-500 text-white px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-600 transition-colors shadow"
+              >
+                Remover
+              </button>
+            </motion.div>
+          )}
+        </div>
+
+        {/* CONTEÚDO PRINCIPAL POR ABA */}
+        <div className="flex-1 overflow-auto p-2 sm:p-4">
+          
+          {/* ABA: VISÃO GERAL */}
+          {activeTab === "overview" && (
+            <>
+              {/* Alertas Estratégicos */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+                {indicadoresEstrategicos.taxaEvasao > 10 && (
+                  <AlertIndicator 
+                    type="high" 
+                    value={`${formatPercent(indicadoresEstrategicos.taxaEvasao)}%`} 
+                    label="Taxa de Evasão Alta" 
+                  />
+                )}
+                {indicadoresEstrategicos.taxaOcupacao > 90 && (
+                  <AlertIndicator 
+                    type="medium" 
+                    value={`${formatPercent(indicadoresEstrategicos.taxaOcupacao)}%`} 
+                    label="Alta Ocupação" 
+                  />
+                )}
+                {data.totalSaidas > data.totalEntradas && (
+                  <AlertIndicator 
+                    type="high" 
+                    value="Crítico" 
+                    label="Mais Saídas que Entradas" 
+                  />
+                )}
+                {data.matriculasPorZona?.["RURAL"] > data.matriculasPorZona?.["URBANA"] && (
+                  <AlertIndicator 
+                    type="medium" 
+                    value="Rural" 
+                    label="Maioria em Área Rural" 
+                  />
+                )}
+              </div>
+
+              {/* Grid de Cartões Principais CORRIGIDOS */}
+              <div className="grid grid-cols-2 min-[320px]:grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1024px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
+                <Card
+                  label="Matrículas"
+                  value={formatNumber(data.totalMatriculas)}
+                  icon={<FaUserGraduate className="text-blue-500" />}
+                  borderColor={darkMode ? "border-blue-600" : "border-blue-400"}
+                  bgColor={darkMode ? "bg-blue-900/30" : "bg-blue-50"}
+                  loading={loadingCards.totalMatriculas}
+                  tooltip="Total de alunos matriculados no sistema"
+                  tooltipId="total-matriculas"
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.matriculasPorZona?.["URBANA"]}
+                      rural={data.matriculasPorZona?.["RURAL"]}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Escolas"
+                  value={formatNumber(data.totalEscolas)}
+                  icon={<FaSchool className="text-green-500" />}
+                  borderColor={darkMode ? "border-green-600" : "border-green-400"}
+                  bgColor={darkMode ? "bg-green-900/30" : "bg-green-50"}
+                  loading={loadingCards.totalEscolas}
+                  tooltip="Total de escolas ativas no sistema"
+                  tooltipId="total-escolas"
+                  additionalContent={
+                    <ZonaEscolasDetails 
+                      urbana={data.escolasPorZona?.["URBANA"]}
+                      rural={data.escolasPorZona?.["RURAL"]}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Capacidade"
+                  value={formatNumber(data.capacidadeTotal)}
+                  icon={<FaChalkboardTeacher className="text-indigo-500" />}
+                  borderColor={darkMode ? "border-indigo-600" : "border-indigo-400"}
+                  bgColor={darkMode ? "bg-indigo-900/30" : "bg-indigo-50"}
+                  loading={loadingCards.capacidadeTotal}
+                  tooltip="Capacidade total de alunos no sistema"
+                  tooltipId="capacidade-total"
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.turmasPorZona?.["URBANA"] ? data.turmasPorZona?.["URBANA"] * 30 : 0}
+                      rural={data.turmasPorZona?.["RURAL"] ? data.turmasPorZona?.["RURAL"] * 25 : 0}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Vagas"
+                  value={formatNumber(data.totalVagas)}
+                  icon={<FaUsers className="text-teal-500" />}
+                  borderColor={darkMode ? "border-teal-600" : "border-teal-400"}
+                  bgColor={darkMode ? "bg-teal-900/30" : "bg-teal-50"}
+                  loading={loadingCards.totalVagas}
+                  valueColor={data.totalVagas < 0 ? "red" : "green"}
+                  tooltip="Vagas disponíveis no sistema"
+                  tooltipId="total-vagas"
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.escolasPorZona?.["URBANA"] ? Math.round(data.totalVagas * 0.6) : 0}
+                      rural={data.escolasPorZona?.["RURAL"] ? Math.round(data.totalVagas * 0.4) : 0}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Entradas"
+                  value={formatNumber(data.totalEntradas)}
+                  icon={<FaSignInAlt className="text-yellow-500" />}
+                  borderColor={darkMode ? "border-yellow-600" : "border-yellow-400"}
+                  bgColor={darkMode ? "bg-yellow-900/30" : "bg-yellow-50"}
+                  loading={loadingCards.totalEntradas}
+                  tooltip="Total de matrículas de entrada"
+                  tooltipId="total-entradas"
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalEntradas * 0.7) : 0}
+                      rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalEntradas * 0.3) : 0}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Saídas"
+                  value={formatNumber(data.totalSaidas)}
+                  icon={<FaSignOutAlt className="text-red-500" />}
+                  borderColor={darkMode ? "border-red-600" : "border-red-400"}
+                  bgColor={darkMode ? "bg-red-900/30" : "bg-red-50"}
+                  loading={loadingCards.totalSaidas}
+                  tooltip="Total de matrículas de saída"
+                  tooltipId="total-saidas"
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.matriculasPorZona?.["URBANA"] ? Math.round(data.totalSaidas * 0.6) : 0}
+                      rural={data.matriculasPorZona?.["RURAL"] ? Math.round(data.totalSaidas * 0.4) : 0}
+                    />
+                  }
+                />
+
+                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão */}
+                <Card
+                  label="Taxa Evasão"
+                  value={`${formatPercent(data.taxaEvasao)}%`}
+                  disableFormat={true}
+                  icon={<FaExclamationTriangle className="text-orange-500" />}
+                  borderColor={darkMode ? "border-orange-600" : "border-orange-400"}
+                  bgColor={darkMode ? "bg-orange-900/30" : "bg-orange-50"}
+                  loading={loadingCards.taxaEvasao}
+                  valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
+                  tooltip="Percentual de alunos que deixaram o sistema"
+                  tooltipId="taxa-evasao"
+                />
+              </div>
+
+              {/* Área Principal - Tabela e Gráficos */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
+                {/* Tabela Detalhes por Escola */}
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <div className={`p-3 sm:p-4 bg-gradient-to-r ${darkMode ? 'from-gray-700 to-gray-600/80 border-gray-600' : 'from-gray-50 to-gray-100/80 border-gray-200'} border-b flex justify-between items-center`}>
+                    <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
+                      <FaSchool className="text-violet-500" />
+                      Detalhes por Escola
+                    </h3>
+                    <div className="flex gap-2">
+                      <ExportButtons data={data} escolas={filteredEscolas} loading={loadingTable} />
+                      <button 
+                        onClick={() => setShowSearch(!showSearch)}
+                        className="bg-violet-500 text-white p-2 rounded-xl hover:bg-violet-600 transition-colors shadow"
+                      >
+                        <FaSearch size={18} />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {showSearch && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className={`p-3 ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'} border-b`}
+                    >
+                      <input
+                        type="text"
+                        placeholder="Buscar escola..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
+                        style={{ textTransform: "uppercase" }}
+                        className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent ${
+                          darkMode 
+                            ? 'bg-gray-600 border-gray-500 text-white placeholder-gray-400' 
+                            : 'border-gray-300 text-gray-800'
+                        }`}
+                      />
+                    </motion.div>
+                  )}
+                  
+                  <div className="overflow-auto flex-1">
+                    {loadingTable ? (
+                      <div className="p-4 sm:p-6">
+                        <TableSkeleton />
+                      </div>
+                    ) : (
+                      <Suspense fallback={<TableSkeleton />}>
+                        <EscolasTable 
+                          escolas={filteredEscolas}
+                          searchTerm={searchTerm}
+                          selectedSchool={selectedSchool}
+                          handleSchoolClick={handleSchoolClick}
+                          loading={loadingTable}
+                          darkMode={darkMode}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Gráfico Movimentação Mensal */}
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                    <FaSync className="text-violet-500" />
+                    Movimentação Mensal
                   </h3>
+                  <div className="flex-1 overflow-hidden">
+                    {loadingGraphMov ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <MovimentacaoChart 
+                          data={chartData.movimentacao}
+                          options={chartOptions.movimentacao}
+                          loading={loadingGraphMov}
+                          darkMode={darkMode}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Gráficos Adicionais */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
+                {/* Gráfico Matrículas por Sexo */}
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                    <FaUserGraduate className="text-violet-500" />
+                    Matrículas por Sexo
+                  </h3>
+                  <div className="flex-1">
+                    {loadingPieSexo ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <SexoChart 
+                          data={chartData.sexo}
+                          options={chartOptions.sexo}
+                          loading={loadingPieSexo}
+                          darkMode={darkMode}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Gráfico Matrículas por Turno */}
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                    <FaChalkboardTeacher className="text-violet-500" />
+                    Matrículas por Turno
+                  </h3>
+                  <div className="flex-1">
+                    {loadingBarTurno ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <TurnoChart 
+                          data={chartData.turno}
+                          options={chartOptions.turno}
+                          loading={loadingBarTurno}
+                          darkMode={darkMode}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ABA: ANALYTICS */}
+          {activeTab === "analytics" && (
+            <div className="space-y-4 sm:space-y-6">
+              {/* Indicadores de Performance */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+                {/* CORREÇÃO DEFINITIVA: Card de Ocupação */}
+                <Card
+                  label="Ocupação"
+                  value={`${formatPercent(data.taxaOcupacao)}%`}
+                  disableFormat={true}
+                  icon={<FaUsers className="text-indigo-500" />}
+                  borderColor={darkMode ? "border-indigo-600" : "border-indigo-400"}
+                  bgColor={darkMode ? "bg-indigo-900/30" : "bg-indigo-50"}
+                  loading={loadingCards.taxaOcupacao}
+                  valueColor={data.taxaOcupacao > 90 ? "orange" : "green"}
+                  tooltip="Percentual de ocupação das vagas disponíveis"
+                  tooltipId="taxa-ocupacao"
+                />
+
+                <Card
+                  label="Transporte Escolar"
+                  value={formatNumber(data.alunosTransporteEscolar)}
+                  icon={<FaBus className="text-amber-500" />}
+                  borderColor={darkMode ? "border-amber-600" : "border-amber-400"}
+                  bgColor={darkMode ? "bg-amber-900/30" : "bg-amber-50"}
+                  loading={loadingCards.transporteEscolar}
+                  tooltip="Alunos que utilizam transporte escolar"
+                  tooltipId="transporte-escolar"
+                  additionalContent={
+                    <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
+                      <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
+                      <span className={darkMode ? "text-gray-400" : "text-gray-600"}> do total</span>
+                    </div>
+                  }
+                />
+
+                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão */}
+                <Card
+                  label="Taxa de Evasão"
+                  value={`${formatPercent(data.taxaEvasao)}%`}
+                  disableFormat={true}
+                  icon={<FaExclamationTriangle className="text-red-500" />}
+                  borderColor={darkMode ? "border-red-600" : "border-red-400"}
+                  bgColor={darkMode ? "bg-red-900/30" : "bg-red-50"}
+                  loading={loadingCards.taxaEvasao}
+                  valueColor={data.taxaEvasao > 10 ? "red" : "green"}
+                  tooltip="Percentual de evasão escolar"
+                  tooltipId="taxa-evasao-analytics"
+                  additionalContent={
+                    <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
+                      <span className={data.taxaEvasao > 10 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
+                        {data.taxaEvasao > 10 ? "Alerta" : "Normal"}
+                      </span>
+                    </div>
+                  }
+                />
+
+                <Card
+                  label="Com Deficiência"
+                  value={formatNumber(data.alunosComDeficiencia)}
+                  icon={<FaWheelchair className="text-teal-500" />}
+                  borderColor={darkMode ? "border-teal-600" : "border-teal-400"}
+                  bgColor={darkMode ? "bg-teal-900/30" : "bg-teal-50"}
+                  loading={loadingCards.alunosDeficiencia}
+                  tooltip="Alunos com necessidades especiais"
+                  tooltipId="alunos-deficiencia"
+                  additionalContent={
+                    <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
+                      <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
+                      <span className={darkMode ? "text-gray-400" : "text-gray-600"}> do total</span>
+                    </div>
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                {/* Gráfico Situação da Matrícula */}
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                    <FaClock className="text-violet-500" />
+                    Situação da Matrícula
+                  </h3>
+                  <div className="flex-1">
+                    {loadingSituacao ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <SituacaoMatriculaChart 
+                          data={chartData.situacao}
+                          options={chartOptions.situacao}
+                          loading={loadingSituacao}
+                          darkMode={darkMode}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+
+                {/* Gráfico Evolução de Matrículas */}
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                    <FaChartLine className="text-violet-500" />
+                    Evolução de Matrículas
+                  </h3>
+                  <div className="flex-1">
+                    {loadingEvolucao ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <EvolucaoMatriculasChart 
+                          data={chartData.evolucao}
+                          options={chartOptions.evolucao}
+                          loading={loadingEvolucao}
+                          darkMode={darkMode}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ABA: VISÃO GEOGRÁFICA */}
+          {activeTab === "geographic" && (
+            <div className="space-y-4 sm:space-y-6">
+              <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[500px] sm:h-[600px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                  <FaMapMarkerAlt className="text-violet-500" />
+                  Mapa de Calor das Escolas
+                </h3>
+                <div className="flex-1">
+                  {loadingMapa ? (
+                    <div className="flex items-center justify-center h-full">
+                      <ChartSkeleton />
+                    </div>
+                  ) : (
+                    <Suspense fallback={<ChartSkeleton />}>
+                      <MapaCalorEscolas 
+                        escolas={data.escolas}
+                        loading={loadingMapa}
+                        darkMode={darkMode}
+                      />
+                    </Suspense>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                    <FaCity className="text-violet-500" />
+                    Distribuição por Zona
+                  </h3>
+                  <div className="space-y-4">
+                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
+                      <span className={`font-semibold ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>Urbana</span>
+                      <span className={`font-bold ${darkMode ? 'text-blue-300' : 'text-blue-900'}`}>
+                        {formatNumber(data.matriculasPorZona?.["URBANA"])} 
+                        <span className={`text-sm ${darkMode ? 'text-blue-400' : 'text-blue-600'} ml-2`}>
+                          ({data.matriculasPorZona?.["URBANA"] && data.totalMatriculas ? 
+                          ((data.matriculasPorZona["URBANA"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
+                        </span>
+                      </span>
+                    </div>
+                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-green-900/30' : 'bg-green-50'}`}>
+                      <span className={`font-semibold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>Rural</span>
+                      <span className={`font-bold ${darkMode ? 'text-green-300' : 'text-green-900'}`}>
+                        {formatNumber(data.matriculasPorZona?.["RURAL"])}
+                        <span className={`text-sm ${darkMode ? 'text-green-400' : 'text-green-600'} ml-2`}>
+                          ({data.matriculasPorZona?.["RURAL"] && data.totalMatriculas ? 
+                          ((data.matriculasPorZona["RURAL"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                    <FaSchool className="text-violet-500" />
+                    Densidade Escolar
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="text-center">
+                      <div className="text-2xl sm:text-3xl font-bold text-violet-600">
+                        {data.totalEscolas && data.totalMatriculas ? 
+                          Math.round(data.totalMatriculas / data.totalEscolas) : 0}
+                      </div>
+                      <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Alunos por escola (média)</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-center">
+                      <div className={`p-2 rounded ${darkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
+                        <div className={`font-bold ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>{data.escolasPorZona?.["URBANA"] || 0}</div>
+                        <div className={`text-xs ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>Escolas Urbanas</div>
+                      </div>
+                      <div className={`p-2 rounded ${darkMode ? 'bg-green-900/30' : 'bg-green-50'}`}>
+                        <div className={`font-bold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>{data.escolasPorZona?.["RURAL"] || 0}</div>
+                        <div className={`text-xs ${darkMode ? 'text-green-300' : 'text-green-600'}`}>Escolas Rurais</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar de Filtros */}
+        <AnimatePresence>
+          {showSidebar && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowSidebar(false)}
+                className="fixed inset-0 bg-black/50 z-40"
+              />
+              
+              <motion.div
+                id="sidebar"
+                initial={{ x: -400, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: -400, opacity: 0 }}
+                transition={{ duration: 0.3, type: "spring", bounce: 0.1 }}
+                className={`fixed inset-y-0 left-0 ${darkMode ? 'bg-gray-800' : 'bg-white'} w-80 md:w-96 p-6 shadow-2xl z-50 ${darkMode ? 'border-gray-700/60' : 'border-gray-200/60'} border-r overflow-y-auto`}
+              >
+                <div className={`flex justify-between items-center mb-8 pb-4 ${darkMode ? 'border-gray-700' : 'border-gray-200'} border-b`}>
+                  <h2 className="text-2xl font-bold flex items-center gap-2">
+                    <FaFilter className="text-violet-500" />
+                    Filtros
+                  </h2>
                   <button 
-                    onClick={() => setShowSearch(!showSearch)}
-                    className="bg-violet-500 text-white p-2 rounded-xl hover:bg-violet-600 transition-colors shadow"
+                    onClick={() => setShowSidebar(false)} 
+                    className={`text-gray-500 hover:text-violet-600 transition-colors text-2xl ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} p-2 rounded-xl ${darkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-200'}`}
                   >
-                    <FaSearch size={18} />
+                    ✕
                   </button>
                 </div>
                 
-                {showSearch && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="p-3 bg-white border-b"
-                  >
-                    <input
-                      type="text"
-                      placeholder="Buscar escola..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
-                      style={{ textTransform: "uppercase" }}
-                      className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-                    />
-                  </motion.div>
-                )}
-                
-                <div className="overflow-auto flex-1">
-                  {loadingTable ? (
-                    <div className="p-6">
-                      <TableSkeleton />
-                    </div>
-                  ) : (
-                    <Suspense fallback={<TableSkeleton />}>
-                      <EscolasTable 
-                        escolas={filteredEscolas}
-                        searchTerm={searchTerm}
-                        selectedSchool={selectedSchool}
-                        handleSchoolClick={handleSchoolClick}
-                        loading={loadingTable}
-                      />
-                    </Suspense>
-                  )}
-                </div>
-              </div>
-              
-              {/* Gráfico Movimentação Mensal */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 flex flex-col h-[400px] border border-gray-200/50">
-                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <FaSync className="text-violet-500" />
-                  Movimentação Mensal
-                </h3>
-                <div className="flex-1 overflow-hidden">
-                  {loadingGraphMov ? (
-                    <ChartSkeleton />
-                  ) : (
-                    <Suspense fallback={<ChartSkeleton />}>
-                      <MovimentacaoChart 
-                        data={chartData.movimentacao}
-                        options={chartOptions.movimentacao}
-                        loading={loadingGraphMov}
-                      />
-                    </Suspense>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {/* Gráficos Adicionais */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              {/* Gráfico Matrículas por Sexo */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 flex flex-col h-[300px] border border-gray-200/50">
-                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <FaUserGraduate className="text-violet-500" />
-                  Matrículas por Sexo
-                </h3>
-                <div className="flex-1">
-                  {loadingPieSexo ? (
-                    <ChartSkeleton />
-                  ) : (
-                    <Suspense fallback={<ChartSkeleton />}>
-                      <SexoChart 
-                        data={chartData.sexo}
-                        options={chartOptions.sexo}
-                        loading={loadingPieSexo}
-                      />
-                    </Suspense>
-                  )}
-                </div>
-              </div>
-              
-              {/* Gráfico Matrículas por Turno */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 flex flex-col h-[300px] border border-gray-200/50">
-                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <FaChalkboardTeacher className="text-violet-500" />
-                  Matrículas por Turno
-                </h3>
-                <div className="flex-1">
-                  {loadingBarTurno ? (
-                    <ChartSkeleton />
-                  ) : (
-                    <Suspense fallback={<ChartSkeleton />}>
-                      <TurnoChart 
-                        data={chartData.turno}
-                        options={chartOptions.turno}
-                        loading={loadingBarTurno}
-                      />
-                    </Suspense>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ABA: ANALYTICS */}
-        {activeTab === "analytics" && (
-          <div className="space-y-6">
-            {/* Indicadores de Performance */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              {/* CORREÇÃO DEFINITIVA: Card de Ocupação */}
-              <Card
-                label="Ocupação"
-                value={`${formatPercent(data.taxaOcupacao)}%`}
-                disableFormat={true}
-                icon={<FaUsers className="text-indigo-500" />}
-                borderColor="border-indigo-400"
-                bgColor="bg-indigo-50"
-                loading={loadingCards.taxaOcupacao}
-                valueColor={data.taxaOcupacao > 90 ? "orange" : "green"}
-              />
-
-              <Card
-                label="Transporte Escolar"
-                value={formatNumber(data.alunosTransporteEscolar)}
-                icon={<FaBus className="text-amber-500" />}
-                borderColor="border-amber-400"
-                bgColor="bg-amber-50"
-                loading={loadingCards.transporteEscolar}
-                additionalContent={
-                  <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
-                    <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
-                    <span className="text-gray-600"> do total</span>
-                  </div>
-                }
-              />
-
-              {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão */}
-              <Card
-                label="Taxa de Evasão"
-                value={`${formatPercent(data.taxaEvasao)}%`}
-                disableFormat={true}
-                icon={<FaExclamationTriangle className="text-red-500" />}
-                borderColor="border-red-400"
-                bgColor="bg-red-50"
-                loading={loadingCards.taxaEvasao}
-                valueColor={data.taxaEvasao > 10 ? "red" : "green"}
-              />
-
-              <Card
-                label="Com Deficiência"
-                value={formatNumber(data.alunosComDeficiencia)}
-                icon={<FaWheelchair className="text-teal-500" />}
-                borderColor="border-teal-400"
-                bgColor="bg-teal-50"
-                loading={loadingCards.alunosDeficiencia}
-                additionalContent={
-                  <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
-                    <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
-                    <span className="text-gray-600"> do total</span>
-                  </div>
-                }
-              />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Gráfico Situação da Matrícula */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 flex flex-col h-[400px] border border-gray-200/50">
-                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <FaClock className="text-violet-500" />
-                  Situação da Matrícula
-                </h3>
-                <div className="flex-1">
-                  {loadingSituacao ? (
-                    <ChartSkeleton />
-                  ) : (
-                    <Suspense fallback={<ChartSkeleton />}>
-                      <SituacaoMatriculaChart 
-                        data={chartData.situacao}
-                        options={chartOptions.situacao}
-                        loading={loadingSituacao}
-                      />
-                    </Suspense>
-                  )}
-                </div>
-              </div>
-
-              {/* Gráfico Evolução de Matrículas */}
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 flex flex-col h-[400px] border border-gray-200/50">
-                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <FaChartLine className="text-violet-500" />
-                  Evolução de Matrículas
-                </h3>
-                <div className="flex-1">
-                  {loadingEvolucao ? (
-                    <ChartSkeleton />
-                  ) : (
-                    <Suspense fallback={<ChartSkeleton />}>
-                      <EvolucaoMatriculasChart 
-                        data={chartData.evolucao}
-                        options={chartOptions.evolucao}
-                        loading={loadingEvolucao}
-                      />
-                    </Suspense>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ABA: VISÃO GEOGRÁFICA */}
-        {activeTab === "geographic" && (
-          <div className="space-y-6">
-            <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 flex flex-col h-[600px] border border-gray-200/50">
-              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <FaMapMarkerAlt className="text-violet-500" />
-                Mapa de Calor das Escolas
-              </h3>
-              <div className="flex-1">
-                {loadingMapa ? (
-                  <div className="flex items-center justify-center h-full">
-                    <ChartSkeleton />
-                  </div>
-                ) : (
-                  <Suspense fallback={<ChartSkeleton />}>
-                    <MapaCalorEscolas 
-                      escolas={data.escolas}
-                      loading={loadingMapa}
-                    />
-                  </Suspense>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 border border-gray-200/50">
-                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <FaCity className="text-violet-500" />
-                  Distribuição por Zona
-                </h3>
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                    <span className="font-semibold text-blue-700">Urbana</span>
-                    <span className="font-bold text-blue-900">
-                      {formatNumber(data.matriculasPorZona?.["URBANA"])} 
-                      <span className="text-sm text-blue-600 ml-2">
-                        ({data.matriculasPorZona?.["URBANA"] && data.totalMatriculas ? 
-                        ((data.matriculasPorZona["URBANA"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
-                      </span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                    <span className="font-semibold text-green-700">Rural</span>
-                    <span className="font-bold text-green-900">
-                      {formatNumber(data.matriculasPorZona?.["RURAL"])}
-                      <span className="text-sm text-green-600 ml-2">
-                        ({data.matriculasPorZona?.["RURAL"] && data.totalMatriculas ? 
-                        ((data.matriculasPorZona["RURAL"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
-                      </span>
-                    </span>
-                  </div>
+                  <FilterSelect
+                    label="Ano Letivo"
+                    name="anoLetivo"
+                    options={filters.ano_letivo}
+                    value={selectedFilters.anoLetivo}
+                    onChange={handleFilterChange}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Tipo Matrícula"
+                    name="tipoMatricula"
+                    options={filters.tipo_matricula}
+                    value={selectedFilters.tipoMatricula}
+                    onChange={handleFilterChange}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Situação Matrícula"
+                    name="situacaoMatricula"
+                    options={filters.situacao_matricula}
+                    value={selectedFilters.situacaoMatricula}
+                    onChange={handleFilterChange}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Grupo Etapa"
+                    name="grupoEtapa"
+                    options={filters.grupo_etapa}
+                    value={selectedFilters.grupoEtapa}
+                    onChange={handleFilterChange}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Etapa Matrícula"
+                    name="etapaMatricula"
+                    options={filters.etapa_matricula}
+                    value={selectedFilters.etapaMatricula}
+                    onChange={handleFilterChange}
+                    disabled={selectedFilters.etapaTurma !== ""}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Etapa Turma"
+                    name="etapaTurma"
+                    options={filters.etapa_turma}
+                    value={selectedFilters.etapaTurma}
+                    onChange={handleFilterChange}
+                    disabled={selectedFilters.etapaMatricula !== ""}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Multissérie"
+                    name="multisserie"
+                    options={filters.multisserie}
+                    value={selectedFilters.multisserie}
+                    onChange={handleFilterChange}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Deficiência"
+                    name="deficiencia"
+                    options={filters.deficiencia}
+                    value={selectedFilters.deficiencia}
+                    onChange={handleFilterChange}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Transporte Escolar"
+                    name="transporteEscolar"
+                    options={filters.transporte_escolar}
+                    value={selectedFilters.transporteEscolar}
+                    onChange={handleFilterChange}
+                    darkMode={darkMode}
+                  />
+                  <FilterSelect
+                    label="Tipo Transporte"
+                    name="tipoTransporte"
+                    options={filters.tipo_transporte}
+                    value={selectedFilters.tipoTransporte}
+                    onChange={handleFilterChange}
+                    disabled={selectedFilters.transporteEscolar !== "SIM"}
+                    darkMode={darkMode}
+                  />
                 </div>
-              </div>
+                
+                <div className={`mt-8 pt-6 ${darkMode ? 'border-gray-700' : 'border-gray-200'} border-t flex justify-center`}>
+                  <button
+                    onClick={() => {
+                      const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
+                      const resetFilters = {
+                        anoLetivo: ultimoAnoLetivo,
+                        deficiencia: "",
+                        grupoEtapa: "",
+                        etapaMatricula: "",
+                        etapaTurma: "",
+                        multisserie: "",
+                        situacaoMatricula: "",
+                        tipoMatricula: "",
+                        tipoTransporte: "",
+                        transporteEscolar: "",
+                        idescola: "",
+                      };
+                      setSelectedFilters(resetFilters);
+                      setSelectedSchool(null);
+                      carregarDados(resetFilters);
+                      setShowSidebar(false);
+                    }}
+                    className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-8 py-3 rounded-xl hover:from-violet-600 hover:to-purple-700 transition-all duration-300 shadow-lg font-semibold"
+                  >
+                    🔄 Limpar Filtros
+                  </button>
+                </div>
 
-              <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 border border-gray-200/50">
-                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <FaSchool className="text-violet-500" />
-                  Densidade Escolar
-                </h3>
-                <div className="space-y-3">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold text-violet-600">
-                      {data.totalEscolas && data.totalMatriculas ? 
-                        Math.round(data.totalMatriculas / data.totalEscolas) : 0}
-                    </div>
-                    <div className="text-sm text-gray-600">Alunos por escola (média)</div>
+                {/* Informações de Cache */}
+                <div className={`mt-6 p-4 rounded-lg ${darkMode ? 'bg-gray-700/50' : 'bg-gray-100/80'} text-sm`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <FaDatabase className="text-violet-500" />
+                    <span className="font-semibold">Sistema de Cache</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-center">
-                    <div className="p-2 bg-blue-50 rounded">
-                      <div className="font-bold text-blue-700">{data.escolasPorZona?.["URBANA"] || 0}</div>
-                      <div className="text-xs text-blue-600">Escolas Urbanas</div>
-                    </div>
-                    <div className="p-2 bg-green-50 rounded">
-                      <div className="font-bold text-green-700">{data.escolasPorZona?.["RURAL"] || 0}</div>
-                      <div className="text-xs text-green-600">Escolas Rurais</div>
-                    </div>
-                  </div>
+                  <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
+                    Seus filtros e preferências são salvos automaticamente.
+                  </p>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
-
-      {/* Sidebar de Filtros */}
-      <AnimatePresence>
-        {showSidebar && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowSidebar(false)}
-              className="fixed inset-0 bg-black/50 z-40"
-            />
-            
-            <motion.div
-              id="sidebar"
-              initial={{ x: -400, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -400, opacity: 0 }}
-              transition={{ duration: 0.3, type: "spring", bounce: 0.1 }}
-              className="fixed inset-y-0 left-0 bg-white w-80 md:w-96 p-6 shadow-2xl z-50 border-r border-gray-200/60 overflow-y-auto"
-            >
-              <div className="flex justify-between items-center mb-8 pb-4 border-b border-gray-200">
-                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                  <FaFilter className="text-violet-500" />
-                  Filtros
-                </h2>
-                <button 
-                  onClick={() => setShowSidebar(false)} 
-                  className="text-gray-500 hover:text-violet-600 transition-colors text-2xl bg-gray-100 p-2 rounded-xl hover:bg-gray-200"
-                >
-                  ✕
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <FilterSelect
-                  label="Ano Letivo"
-                  name="anoLetivo"
-                  options={filters.ano_letivo}
-                  value={selectedFilters.anoLetivo}
-                  onChange={handleFilterChange}
-                />
-                <FilterSelect
-                  label="Tipo Matrícula"
-                  name="tipoMatricula"
-                  options={filters.tipo_matricula}
-                  value={selectedFilters.tipoMatricula}
-                  onChange={handleFilterChange}
-                />
-                <FilterSelect
-                  label="Situação Matrícula"
-                  name="situacaoMatricula"
-                  options={filters.situacao_matricula}
-                  value={selectedFilters.situacaoMatricula}
-                  onChange={handleFilterChange}
-                />
-                <FilterSelect
-                  label="Grupo Etapa"
-                  name="grupoEtapa"
-                  options={filters.grupo_etapa}
-                  value={selectedFilters.grupoEtapa}
-                  onChange={handleFilterChange}
-                />
-                <FilterSelect
-                  label="Etapa Matrícula"
-                  name="etapaMatricula"
-                  options={filters.etapa_matricula}
-                  value={selectedFilters.etapaMatricula}
-                  onChange={handleFilterChange}
-                  disabled={selectedFilters.etapaTurma !== ""}
-                />
-                <FilterSelect
-                  label="Etapa Turma"
-                  name="etapaTurma"
-                  options={filters.etapa_turma}
-                  value={selectedFilters.etapaTurma}
-                  onChange={handleFilterChange}
-                  disabled={selectedFilters.etapaMatricula !== ""}
-                />
-                <FilterSelect
-                  label="Multissérie"
-                  name="multisserie"
-                  options={filters.multisserie}
-                  value={selectedFilters.multisserie}
-                  onChange={handleFilterChange}
-                />
-                <FilterSelect
-                  label="Deficiência"
-                  name="deficiencia"
-                  options={filters.deficiencia}
-                  value={selectedFilters.deficiencia}
-                  onChange={handleFilterChange}
-                />
-                <FilterSelect
-                  label="Transporte Escolar"
-                  name="transporteEscolar"
-                  options={filters.transporte_escolar}
-                  value={selectedFilters.transporteEscolar}
-                  onChange={handleFilterChange}
-                />
-                <FilterSelect
-                  label="Tipo Transporte"
-                  name="tipoTransporte"
-                  options={filters.tipo_transporte}
-                  value={selectedFilters.tipoTransporte}
-                  onChange={handleFilterChange}
-                  disabled={selectedFilters.transporteEscolar !== "SIM"}
-                />
-              </div>
-              
-              <div className="mt-8 pt-6 border-t border-gray-200 flex justify-center">
-                <button
-                  onClick={() => {
-                    const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
-                    const resetFilters = {
-                      anoLetivo: ultimoAnoLetivo,
-                      deficiencia: "",
-                      grupoEtapa: "",
-                      etapaMatricula: "",
-                      etapaTurma: "",
-                      multisserie: "",
-                      situacaoMatricula: "",
-                      tipoMatricula: "",
-                      tipoTransporte: "",
-                      transporteEscolar: "",
-                      idescola: "",
-                    };
-                    setSelectedFilters(resetFilters);
-                    setSelectedSchool(null);
-                    carregarDados(resetFilters);
-                    setShowSidebar(false);
-                  }}
-                  className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-8 py-3 rounded-xl hover:from-violet-600 hover:to-purple-700 transition-all duration-300 shadow-lg font-semibold"
-                >
-                  🔄 Limpar Filtros
-                </button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-    </div>
+    </DarkModeContext.Provider>
   );
 };
 
