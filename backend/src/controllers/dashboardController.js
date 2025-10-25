@@ -498,6 +498,30 @@ const buscarTotais = async (req, res) => {
       ultimaAtualizacao: row.ultima_atualizacao
     };
 
+
+    // === CONSISTÊNCIA ENTRE TOTAL E ZONAS ===
+    const sumZona = (obj, field) =>
+      Object.values(obj || {}).reduce((acc, z) => acc + (Number(z?.[field]) || 0), 0);
+
+    (function enforceConsistencyTotals(r) {
+      const capZona = sumZona(r.capacidadePorZona, 'capacidade');
+      const vagasZona = sumZona(r.capacidadePorZona, 'vagas');
+      const ativasZona = sumZona(r.capacidadePorZona, 'matriculas_ativas');
+
+      if (capZona > 0) r.capacidadeTotal = capZona;
+      if (vagasZona >= 0) r.totalVagas = vagasZona;
+      if (ativasZona > 0) r.totalMatriculasAtivas = ativasZona;
+
+      r.taxaOcupacao = r.capacidadeTotal > 0
+        ? Number(((r.totalMatriculasAtivas * 100) / r.capacidadeTotal).toFixed(2))
+        : 0;
+
+      const sane = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+      r.capacidadeTotal       = sane(r.capacidadeTotal);
+      r.totalVagas            = sane(r.totalVagas);
+      r.totalMatriculasAtivas = sane(r.totalMatriculasAtivas);
+      r.taxaOcupacao          = sane(r.taxaOcupacao);
+    })(responseData);
     cache.set(cacheKey, responseData);
     res.json(responseData);
 
