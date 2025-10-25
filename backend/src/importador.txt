@@ -1,0 +1,154 @@
+-- 0. Se a sessão já tiver a tabela staging_matriculas, apague-a.
+DROP TABLE IF EXISTS staging_matriculas;
+
+-- 1. Crie uma tabela de staging temporária com os tipos corretos
+CREATE TEMP TABLE staging_matriculas (
+  ano_letivo            integer,
+  escola                text,
+  idmatricula           uuid,
+  aluno                 text,
+  idetapa_matricula     integer,
+  inep                  integer,
+  etapa_matricula       text,
+  etapa_turma           text,
+  cdturno               integer,
+  turno                 text,
+  turma                 text,
+  data_matricula        timestamp,
+  data_situacao         timestamp,
+  limite_maximo_aluno   integer,
+  tipo_matricula        text,
+  situacao_matricula    text,
+  entrada_mes_tipo      text,
+  saida_mes_situacao    text,
+  zona_escola           text,
+  zona_aluno            text,
+  sexo                  text,
+  deficiencia           text,
+  transporte_escolar    text,
+  multisserie           text,
+  grupo_etapa           text,
+  idturma               integer,
+  idescola              integer,
+  limite_minimo_aluno   integer,
+  tipo_transporte       text,
+  tp_deficiencia        text,
+  idcliente             integer,
+  idtipo                integer,  -- Nova coluna
+  idsituacao            integer   -- Nova coluna
+);
+
+-- 2. Importe os dados do CSV para a tabela de staging (delimitador ponto e vírgula)
+-- Nota: Se o CSV não tiver as colunas idtipo e idsituacao, você pode:
+-- a) Remover estas colunas da tabela staging, ou
+-- b) Manter e definir valores padrão (ex: NULL ou 0)
+\copy staging_matriculas FROM '/Users/wesleymelo/bw-solucoes-dashboard/backend/data/matriculas.csv' WITH (FORMAT csv, HEADER true, DELIMITER ';');
+
+-- 3. Insira (ou atualize) os dados na tabela de destino "dados_matriculas"
+INSERT INTO dados_matriculas (
+  ano_letivo,
+  escola,
+  idmatricula,
+  aluno,
+  idetapa_matricula,
+  inep,
+  etapa_matricula,
+  etapa_turma,
+  cdturno,
+  turno,
+  turma,
+  data_matricula,
+  data_situacao,
+  limite_maximo_aluno,
+  tipo_matricula,
+  situacao_matricula,
+  entrada_mes_tipo,
+  saida_mes_situacao,
+  zona_escola,
+  zona_aluno,
+  sexo,
+  deficiencia,
+  transporte_escolar,
+  multisserie,
+  grupo_etapa,
+  idturma,
+  idescola,
+  limite_minimo_aluno,
+  tipo_transporte,
+  tp_deficiencia,
+  idcliente,
+  idtipo,               -- Nova coluna
+  idsituacao            -- Nova coluna
+)
+SELECT
+  ano_letivo,
+  escola,
+  idmatricula,
+  aluno,
+  idetapa_matricula,
+  inep,
+  etapa_matricula,
+  etapa_turma,
+  cdturno,
+  turno,
+  turma,
+  data_matricula,
+  data_situacao,
+  limite_maximo_aluno,
+  tipo_matricula,
+  situacao_matricula,
+  entrada_mes_tipo,
+  saida_mes_situacao,
+  zona_escola,
+  zona_aluno,
+  sexo,
+  deficiencia,
+  transporte_escolar,
+  multisserie,
+  grupo_etapa,
+  idturma,
+  idescola,
+  limite_minimo_aluno,
+  tipo_transporte,
+  tp_deficiencia,
+  idcliente,
+  COALESCE(idtipo, 0),     -- Tratamento para NULL (pode ajustar o valor padrão)
+  COALESCE(idsituacao, 0)  -- Tratamento para NULL (pode ajustar o valor padrão)
+FROM (
+  SELECT DISTINCT ON (idmatricula) *
+  FROM staging_matriculas
+  ORDER BY idmatricula, data_matricula DESC
+) AS dedup
+ON CONFLICT (idmatricula) DO UPDATE SET
+  ano_letivo           = EXCLUDED.ano_letivo,
+  escola               = EXCLUDED.escola,
+  aluno                = EXCLUDED.aluno,
+  idetapa_matricula    = EXCLUDED.idetapa_matricula,
+  inep                 = EXCLUDED.inep,
+  etapa_matricula      = EXCLUDED.etapa_matricula,
+  etapa_turma          = EXCLUDED.etapa_turma,
+  cdturno              = EXCLUDED.cdturno,
+  turno                = EXCLUDED.turno,
+  turma                = EXCLUDED.turma,
+  data_matricula       = EXCLUDED.data_matricula,
+  data_situacao        = EXCLUDED.data_situacao,
+  limite_maximo_aluno  = EXCLUDED.limite_maximo_aluno,
+  tipo_matricula       = EXCLUDED.tipo_matricula,
+  situacao_matricula   = EXCLUDED.situacao_matricula,
+  entrada_mes_tipo     = EXCLUDED.entrada_mes_tipo,
+  saida_mes_situacao   = EXCLUDED.saida_mes_situacao,
+  zona_escola          = EXCLUDED.zona_escola,
+  zona_aluno           = EXCLUDED.zona_aluno,
+  sexo                 = EXCLUDED.sexo,
+  deficiencia          = EXCLUDED.deficiencia,
+  transporte_escolar   = EXCLUDED.transporte_escolar,
+  multisserie          = EXCLUDED.multisserie,
+  grupo_etapa          = EXCLUDED.grupo_etapa,
+  idturma              = EXCLUDED.idturma,
+  idescola             = EXCLUDED.idescola,
+  limite_minimo_aluno  = EXCLUDED.limite_minimo_aluno,
+  tipo_transporte      = EXCLUDED.tipo_transporte,
+  tp_deficiencia       = EXCLUDED.tp_deficiencia,
+  idcliente            = EXCLUDED.idcliente,
+  idtipo               = EXCLUDED.idtipo,          -- Nova coluna
+  idsituacao           = EXCLUDED.idsituacao;      -- Nova coluna
