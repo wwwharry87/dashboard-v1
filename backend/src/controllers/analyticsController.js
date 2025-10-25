@@ -1,4 +1,4 @@
-// analyticsController.js (consistente com dashboardController)
+// analyticsController.js (consistente com dashboardController corrigido)
 'use strict';
 
 const pool = require('../config/db');
@@ -11,11 +11,7 @@ const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 const { buildWhereClause, generateCacheKey } = require('./dashboardController');
 
 /**
- * Garante consistência:
- *  capacidadeTotal = soma(capacidadePorZona.*.capacidade)
- *  totalVagas      = soma(capacidadePorZona.*.vagas)
- *  totalMatriculasAtivas = soma(capacidadePorZona.*.matriculas_ativas)
- *  taxaOcupacao    = totalMatriculasAtivas / capacidadeTotal * 100
+ * Garante consistência entre totais e zonas
  */
 function enforceConsistencyTotals(r) {
   if (!r || typeof r !== 'object') return r;
@@ -42,7 +38,7 @@ function enforceConsistencyTotals(r) {
     ? Number(((r.totalMatriculasAtivas * 100) / r.capacidadeTotal).toFixed(2))
     : 0;
 
-  // Saneia outros agregados comuns se existirem
+  // Saneia outros agregados
   r.totalMatriculas = sane(r.totalMatriculas);
   r.totalEscolas = sane(r.totalEscolas);
   r.totalTurmas = sane(r.totalTurmas);
@@ -53,8 +49,6 @@ function enforceConsistencyTotals(r) {
 
 /**
  * Controller principal de analytics
- * Filtros no body: { idcliente, anoLetivo, ... } — delega parsing ao buildWhereClause
- * Alinhado ao dashboard: usa limite_maximo_aluno, situacao_matricula, entrada_mes_tipo, saida_mes_situacao
  */
 const buscarAnalytics = async (req, res) => {
   try {
@@ -65,65 +59,48 @@ const buscarAnalytics = async (req, res) => {
     const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
 
+    // QUERY SIMPLIFICADA usando a mesma lógica do dashboardController corrigido
     const sql = `
       WITH base AS (
-        SELECT *
-        FROM dados_matriculas
-        WHERE ${clause}
+        SELECT * FROM dados_matriculas WHERE ${clause}
       ),
 
       base_sem_especiais AS (
-        SELECT *
-        FROM base
-        WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
+        SELECT * FROM base WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
       ),
 
-      /* CORREÇÃO: Ativos: aceita 'ATIVO'/'ATIVA' e idsituacao=0 */
-      matriculas_ativas AS (
-        SELECT *
+      /* Mesma lógica do dashboardController para capacidade */
+      turmas AS (
+        SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
+        FROM base_sem_especiais
+        WHERE idturma IS NOT NULL AND idturma != 0
+      ),
+
+      total_matriculas_por_escola AS (
+        SELECT 
+          idescola, 
+          COUNT(*) AS qtde_matriculas
         FROM base_sem_especiais
         WHERE UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA')
            OR COALESCE(idsituacao,0) = 0
-      ),
-
-      /* CORREÇÃO: Capacidade por TURMA com DISTINCT */
-      turmas_agrupadas AS (
-        SELECT DISTINCT
-          idescola,
-          idturma,
-          COALESCE(limite_maximo_aluno, 0) AS capacidade_turma
-        FROM base
-        WHERE idturma IS NOT NULL 
-          AND idturma != 0
-          AND idescola IS NOT NULL
-          AND idescola != 0
-      ),
-
-      /* CORREÇÃO: Ativos distintos por escola */
-      ativos_por_escola AS (
-        SELECT idescola, COUNT(DISTINCT idmatricula) AS ativos_escola
-        FROM matriculas_ativas
         GROUP BY idescola
       ),
 
-      /* CORREÇÃO: Capacidade e vagas por escola com cálculo correto */
       escolas_detalhes AS (
-        SELECT
-          b.idescola,
-          MIN(b.escola) AS escola,
-          MIN(b.zona_escola) AS zona_escola,
-          COUNT(DISTINCT ta.idturma) AS qtde_turmas,
-          COALESCE(ae.ativos_escola, 0) AS qtde_matriculas,
-          COALESCE(SUM(ta.capacidade_turma), 0) AS capacidade_total,
-          GREATEST(COALESCE(SUM(ta.capacidade_turma), 0) - COALESCE(ae.ativos_escola, 0), 0) AS vagas_disponiveis
-        FROM base b
-        LEFT JOIN turmas_agrupadas ta ON ta.idescola = b.idescola
-        LEFT JOIN ativos_por_escola ae ON ae.idescola = b.idescola
-        WHERE b.idescola IS NOT NULL
-        GROUP BY b.idescola, ae.ativos_escola
+        SELECT 
+          t.escola,
+          t.idescola,
+          t.zona_escola,
+          COUNT(t.idturma) AS qtde_turmas,
+          COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas,
+          SUM(COALESCE(t.limite_maximo_aluno, 0)) AS capacidade_total,
+          GREATEST(SUM(COALESCE(t.limite_maximo_aluno, 0)) - COALESCE(tm.qtde_matriculas, 0), 0) AS vagas_disponiveis
+        FROM base_sem_especiais t
+        LEFT JOIN total_matriculas_por_escola tm ON t.idescola = tm.idescola
+        WHERE t.idescola IS NOT NULL
+        GROUP BY t.escola, t.idescola, t.zona_escola, tm.qtde_matriculas
       ),
 
-      /* CORREÇÃO: Totais coerentes: soma das escolas */
       capacidade_agg AS (
         SELECT
           COALESCE(SUM(capacidade_total), 0) AS capacidade_total,
@@ -132,7 +109,6 @@ const buscarAnalytics = async (req, res) => {
         FROM escolas_detalhes
       ),
 
-      /* CORREÇÃO: Capacidades/ativos/vagas POR ZONA a partir das escolas (coerente com os totais) */
       capacidade_por_zona AS (
         SELECT
           COALESCE(zona_escola, 'Sem informação') AS zona,
@@ -143,7 +119,6 @@ const buscarAnalytics = async (req, res) => {
         GROUP BY COALESCE(zona_escola, 'Sem informação')
       ),
 
-      /* Métricas gerais (todas as situações) */
       metricas_base AS (
         SELECT
           COUNT(DISTINCT idmatricula) AS total_matriculas,
@@ -176,39 +151,6 @@ const buscarAnalytics = async (req, res) => {
         SELECT COALESCE(zona_aluno, 'Sem informação') AS zona, COUNT(DISTINCT idmatricula) AS total
         FROM base_sem_especiais
         GROUP BY COALESCE(zona_aluno, 'Sem informação')
-      ),
-
-      /* Entradas/Saídas por mês (mesmo padrão do dashboard) */
-      meses AS (SELECT LPAD(generate_series(1,12)::text, 2, '0') AS mes),
-      entradas_mes AS (
-        SELECT 
-          LPAD(SUBSTRING(entrada_mes_tipo, 1, 2), 2, '0') AS mes,
-          COUNT(DISTINCT idmatricula) AS entradas
-        FROM base_sem_especiais
-        WHERE entrada_mes_tipo IS NOT NULL 
-          AND entrada_mes_tipo <> '-'
-          AND SUBSTRING(entrada_mes_tipo, 1, 2) ~ '^[0-9]+$'
-        GROUP BY SUBSTRING(entrada_mes_tipo, 1, 2)
-      ),
-      saidas_mes AS (
-        SELECT 
-          LPAD(SUBSTRING(saida_mes_situacao, 1, 2), 2, '0') AS mes,
-          COUNT(DISTINCT idmatricula) AS saidas
-        FROM base_sem_especiais
-        WHERE saida_mes_situacao IS NOT NULL 
-          AND saida_mes_situacao <> '-'
-          AND SUBSTRING(saida_mes_situacao, 1, 2) ~ '^[0-9]+$'
-        GROUP BY SUBSTRING(saida_mes_situacao, 1, 2)
-      ),
-      entradas_saidas AS (
-        SELECT 
-          m.mes,
-          COALESCE(e.entradas,0) AS entradas,
-          COALESCE(s.saidas,0) AS saidas
-        FROM meses m
-        LEFT JOIN entradas_mes e ON e.mes = m.mes
-        LEFT JOIN saidas_mes s ON s.mes = m.mes
-        ORDER BY m.mes::int
       )
 
       SELECT
@@ -230,7 +172,7 @@ const buscarAnalytics = async (req, res) => {
           'total_vagas', total_vagas
         ) FROM capacidade_agg) AS totals_agg,
 
-        /* Por zona coerente (a partir das escolas) */
+        /* Por zona coerente */
         (SELECT jsonb_object_agg(zona, jsonb_build_object(
             'capacidade', capacidade,
             'matriculas_ativas', matriculas_ativas,
@@ -241,11 +183,7 @@ const buscarAnalytics = async (req, res) => {
         (SELECT jsonb_object_agg(sexo, total) FROM por_sexo) AS por_sexo,
         (SELECT jsonb_object_agg(turno, total) FROM por_turno) AS por_turno,
         (SELECT jsonb_object_agg(situacao, total) FROM por_situacao) AS por_situacao,
-        (SELECT jsonb_object_agg(zona, total) FROM por_zona_aluno) AS por_zona,
-
-        /* Entradas/Saídas por mês */
-        (SELECT jsonb_object_agg(mes, jsonb_build_object('entradas', entradas, 'saidas', saidas))
-         FROM entradas_saidas) AS entradas_saidas
+        (SELECT jsonb_object_agg(zona, total) FROM por_zona_aluno) AS por_zona
       ;
     `;
 
@@ -257,7 +195,6 @@ const buscarAnalytics = async (req, res) => {
     const capacidadePorZona = row.capacidade_por_zona || {};
 
     const responseData = {
-      // métricas base
       totalMatriculas: Number(metricas.total_matriculas) || 0,
       totalEscolas: Number(metricas.total_escolas) || 0,
       totalTurmas: Number(metricas.total_turmas) || 0,
@@ -265,18 +202,13 @@ const buscarAnalytics = async (req, res) => {
       alunosComDeficiencia: Number(metricas.alunosComDeficiencia) || 0,
       alunosTransporteEscolar: Number(metricas.alunosTransporteEscolar) || 0,
 
-      // por zona (fonte única para consistência)
       capacidadePorZona: capacidadePorZona || {},
 
-      // quebras
       matriculasPorSexo: row.por_sexo || {},
       matriculasPorTurno: row.por_turno || {},
       matriculasPorSituacao: row.por_situacao || {},
       matriculasPorZona: row.por_zona || {},
 
-      entradasSaidasPorMes: row.entradas_saidas || {},
-
-      // derivados/totais coerentes com soma das escolas (via capacidadePorZona)
       capacidadeTotal: Number(totalsAgg.capacidade_total) || 0,
       totalVagas: Number(totalsAgg.total_vagas) || 0,
       taxaOcupacao: 0,
@@ -300,8 +232,7 @@ const buscarAnalytics = async (req, res) => {
 };
 
 /**
- * Alertas de ocupação por escola (excedido/baixo)
- * Usa a mesma base de capacidade (turmas_agrupadas) e ativos distintos
+ * Alertas de ocupação por escola
  */
 const buscarAlertas = async (req, res) => {
   try {
@@ -316,48 +247,46 @@ const buscarAlertas = async (req, res) => {
       WITH base AS (
         SELECT * FROM dados_matriculas WHERE ${clause}
       ),
-      /* CORREÇÃO: turmas_agrupadas com DISTINCT */
-      turmas_agrupadas AS (
-        SELECT DISTINCT
-          idescola,
-          idturma,
-          COALESCE(limite_maximo_aluno, 0) AS capacidade_turma
+      turmas AS (
+        SELECT DISTINCT escola, idescola, idturma, limite_maximo_aluno
         FROM base
-        WHERE idturma IS NOT NULL 
-          AND idturma != 0
-          AND idescola IS NOT NULL
-          AND idescola != 0
+        WHERE idturma IS NOT NULL AND idturma != 0
       ),
-      cap_por_escola AS (
-        SELECT
-          idescola,
-          SUM(capacidade_turma) AS capacidade,
-          MAX(escola) AS escola_nome,
-          MAX(zona_escola) AS zona
-        FROM turmas_agrupadas ta
-        LEFT JOIN base b ON b.idescola = ta.idescola
-        GROUP BY idescola
-      ),
-      ativas_por_escola AS (
-        SELECT idescola, COUNT(DISTINCT idmatricula) AS ativas
+      total_matriculas_por_escola AS (
+        SELECT 
+          idescola, 
+          COUNT(*) AS qtde_matriculas
         FROM base
         WHERE UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA')
            OR COALESCE(idsituacao,0) = 0
         GROUP BY idescola
       ),
+      escolas_detalhes AS (
+        SELECT 
+          t.escola,
+          t.idescola,
+          t.zona_escola,
+          COUNT(t.idturma) AS qtde_turmas,
+          COALESCE(tm.qtde_matriculas, 0) AS qtde_matriculas,
+          SUM(COALESCE(t.limite_maximo_aluno, 0)) AS capacidade_total,
+          GREATEST(SUM(COALESCE(t.limite_maximo_aluno, 0)) - COALESCE(tm.qtde_matriculas, 0), 0) AS vagas_disponiveis
+        FROM base t
+        LEFT JOIN total_matriculas_por_escola tm ON t.idescola = tm.idescola
+        WHERE t.idescola IS NOT NULL
+        GROUP BY t.escola, t.idescola, t.zona_escola, tm.qtde_matriculas
+      ),
       ocupacao_escola AS (
         SELECT
-          c.idescola,
-          c.escola_nome,
-          CASE WHEN UPPER(COALESCE(c.zona,'')) LIKE '%RUR%' THEN 'RURAL' ELSE 'URBANA' END AS zona,
-          c.capacidade,
-          COALESCE(a.ativas,0) AS matriculas_ativas,
+          idescola,
+          escola,
+          CASE WHEN UPPER(COALESCE(zona_escola,'')) LIKE '%RUR%' THEN 'RURAL' ELSE 'URBANA' END AS zona,
+          capacidade_total,
+          qtde_matriculas AS matriculas_ativas,
           CASE 
-            WHEN c.capacidade > 0 THEN ROUND((COALESCE(a.ativas,0)::decimal / c.capacidade::decimal) * 100, 2)
+            WHEN capacidade_total > 0 THEN ROUND((qtde_matriculas::decimal / capacidade_total::decimal) * 100, 2)
             ELSE 0
           END AS taxa_ocupacao
-        FROM cap_por_escola c
-        LEFT JOIN ativas_por_escola a ON a.idescola = c.idescola
+        FROM escolas_detalhes
       )
       SELECT
         jsonb_agg(o.*) FILTER (WHERE o.taxa_ocupacao > 100) AS acima_100,
