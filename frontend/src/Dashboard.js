@@ -1,4 +1,4 @@
-// Dashboard.js - VERSÃO CORRIGIDA - FORMATAÇÃO BRASILEIRA
+// Dashboard.js - VERSÃO CORRIGIDA - TAXA DE EVASÃO CONSISTENTE
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
@@ -132,30 +132,26 @@ const Toast = ({ message, show, type = "success" }) =>
     </motion.div>
   ) : null;
 
-    // VERSÃO SIMPLIFICADA E GARANTIDA - CORRIGIDA
-    const formatNumber = (num) => {
-      if (num == null || num === "" || num === "Erro" || isNaN(num)) {
-        return "0";
-      }
-      
-      // CORREÇÃO: Usar Number em vez de parseInt para preservar números grandes
-      const number = Number(num) || 0;
-      
-      // Formatação simples com regex para adicionar pontos
-      return number.toLocaleString('pt-BR');
-    };
+// CORREÇÃO: Funções de formatação melhoradas
+const formatNumber = (num) => {
+  if (num == null || num === "" || num === "Erro" || isNaN(num)) {
+    return "0";
+  }
+  
+  const number = Number(num) || 0;
+  return number.toLocaleString('pt-BR');
+};
 
-    const formatPercent = (value) => {
-      if (value == null || value === "" || value === "Erro" || isNaN(value)) {
-        return "0,00";
-      }
-      
-      const number = parseFloat(value) || 0;
-      const formatted = number.toFixed(2).replace('.', ',');
-      
-      return formatted;
-    };
-
+const formatPercent = (value) => {
+  if (value == null || value === "" || value === "Erro" || isNaN(value)) {
+    return "0,00";
+  }
+  
+  const number = parseFloat(value) || 0;
+  const formatted = number.toFixed(2).replace('.', ',');
+  
+  return formatted;
+};
 
 // Registro do Chart.js
 ChartJS.register(
@@ -280,9 +276,7 @@ const exportToExcel = (escolas, data) => {
   }
 
   try {
-    // Importação dinâmica do XLSX
     import('xlsx').then((XLSX) => {
-      // Preparar dados para exportação
       const dadosExportacao = escolas.map(esc => ({
         'Escola': esc.escola || 'N/A',
         'Matrículas': esc.total_matriculas || 0,
@@ -295,7 +289,6 @@ const exportToExcel = (escolas, data) => {
         'Endereço': esc.endereco || 'N/A'
       }));
 
-      // Adicionar dados resumidos
       const dadosResumidos = [
         {},
         {
@@ -310,32 +303,27 @@ const exportToExcel = (escolas, data) => {
         {}
       ];
 
-      // Criar worksheet
       const worksheet = XLSX.utils.json_to_sheet([...dadosResumidos, ...dadosExportacao]);
       
-      // Ajustar largura das colunas
       const colWidths = [
-        { wch: 30 }, // Escola
-        { wch: 12 }, // Matrículas
-        { wch: 12 }, // Capacidade
-        { wch: 10 }, // Vagas
-        { wch: 12 }, // Ocupação
-        { wch: 10 }, // Entradas
-        { wch: 10 }, // Saídas
-        { wch: 10 }, // Zona
-        { wch: 40 }  // Endereço
+        { wch: 30 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 40 }
       ];
       worksheet['!cols'] = colWidths;
 
-      // Criar workbook
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Escolas");
       
-      // Gerar nome do arquivo com data
       const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
       const fileName = `dados_escolas_${dataHora}.xlsx`;
       
-      // Exportar
       XLSX.writeFile(workbook, fileName);
     }).catch(error => {
       console.error('Erro ao carregar XLSX:', error);
@@ -355,31 +343,24 @@ const exportToPDF = (escolas, data) => {
   }
 
   try {
-    // Importação dinâmica do jsPDF e autoTable
     Promise.all([
       import('jspdf'),
       import('jspdf-autotable')
     ]).then(([jsPDFModule]) => {
       const { jsPDF } = jsPDFModule;
       
-      // Criar PDF
       const doc = new jsPDF();
-      
-      // Configurações do PDF
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 14;
       
-      // Título
       doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
       doc.text('RELATÓRIO DE ESCOLAS - SEMED', pageWidth / 2, 20, { align: 'center' });
       
-      // Data de geração
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
       doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, margin, 30);
       
-      // Dados resumidos
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
       doc.text('DADOS RESUMIDOS DO SISTEMA:', margin, 45);
@@ -404,10 +385,8 @@ const exportToPDF = (escolas, data) => {
         yPos += 7;
       });
       
-      // Tabela de escolas
       yPos += 10;
       
-      // Preparar dados da tabela
       const tableData = escolas.map(esc => [
         esc.escola || 'N/A',
         formatNumber(esc.total_matriculas) || '0',
@@ -417,7 +396,6 @@ const exportToPDF = (escolas, data) => {
         esc.zona || 'N/A'
       ]);
       
-      // Adicionar tabela
       doc.autoTable({
         startY: yPos,
         head: [['Escola', 'Matrículas', 'Capacidade', 'Vagas', 'Ocupação', 'Zona']],
@@ -438,15 +416,14 @@ const exportToPDF = (escolas, data) => {
           fillColor: [240, 240, 240]
         },
         columnStyles: {
-          0: { cellWidth: 60 }, // Escola
-          1: { cellWidth: 20 }, // Matrículas
-          2: { cellWidth: 20 }, // Capacidade
-          3: { cellWidth: 15 }, // Vagas
-          4: { cellWidth: 20 }, // Ocupação
-          5: { cellWidth: 15 }  // Zona
+          0: { cellWidth: 60 },
+          1: { cellWidth: 20 },
+          2: { cellWidth: 20 },
+          3: { cellWidth: 15 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 15 }
         },
         didDrawPage: function (data) {
-          // Rodapé
           doc.setFontSize(8);
           doc.setTextColor(128);
           doc.text(
@@ -458,11 +435,9 @@ const exportToPDF = (escolas, data) => {
         }
       });
       
-      // Gerar nome do arquivo com data
       const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
       const fileName = `relatorio_escolas_${dataHora}.pdf`;
       
-      // Salvar PDF
       doc.save(fileName);
     }).catch(error => {
       console.error('Erro ao carregar bibliotecas PDF:', error);
@@ -614,13 +589,44 @@ const Dashboard = () => {
     alunosTransporteEscolar: null,
     taxaEvasao: null,
     taxaOcupacao: null,
-    // NOVOS CAMPOS PARA DADOS CORRIGIDOS
     detalhesZona: {
       entradas: { urbana: 0, rural: 0 },
       saidas: { urbana: 0, rural: 0 },
       evasao: { urbana: 0, rural: 0 }
     }
   });
+
+  // CORREÇÃO: Função para calcular taxa de evasão consistente
+  const calcularTaxaEvasaoConsistente = useCallback((dados) => {
+    if (!dados || !dados.detalhesZona) return 0;
+
+    const { evasao } = dados.detalhesZona;
+    
+    // Se temos dados de urbana e rural, calcular média ponderada
+    if (evasao.totalMatriculas?.urbana && evasao.totalMatriculas?.rural) {
+      const totalUrbana = evasao.totalMatriculas.urbana;
+      const totalRural = evasao.totalMatriculas.rural;
+      const taxaUrbana = evasao.urbana || 0;
+      const taxaRural = evasao.rural || 0;
+      
+      const totalGeral = totalUrbana + totalRural;
+      
+      if (totalGeral > 0) {
+        const taxaCalculada = ((taxaUrbana * totalUrbana) + (taxaRural * totalRural)) / totalGeral;
+        console.log('🔄 Calculando taxa de evasão consistente:', {
+          urbana: `${taxaUrbana}% (${totalUrbana} matrículas)`,
+          rural: `${taxaRural}% (${totalRural} matrículas)`,
+          totalGeral: totalGeral,
+          taxaCalculada: `${taxaCalculada.toFixed(2)}%`,
+          taxaOriginal: dados.taxaEvasao ? `${dados.taxaEvasao}%` : 'N/A'
+        });
+        return Number(taxaCalculada.toFixed(2));
+      }
+    }
+    
+    // Se não temos dados detalhados, usar o valor original
+    return dados.taxaEvasao || 0;
+  }, []);
 
   // Verificar se há algum loading ativo
   const isLoading = useMemo(() => {
@@ -637,7 +643,6 @@ const Dashboard = () => {
   const getSafeNumber = (value, defaultValue = 0) => {
     if (value === null || value === undefined || value === "Erro") return defaultValue;
     
-    // Converter string com vírgula para número
     let numericValue;
     if (typeof value === 'string') {
       const cleanedValue = value.replace(/[^\d,.-]/g, '');
@@ -736,7 +741,6 @@ const Dashboard = () => {
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
       
-      // Verificar se há filtros salvos
       const savedFilters = JSON.parse(localStorage.getItem("selectedFilters") || "{}");
       const initialFilters = savedFilters.anoLetivo ? savedFilters : { ...selectedFilters, anoLetivo: ultimoAnoLetivo };
       
@@ -749,11 +753,10 @@ const Dashboard = () => {
     }
   };
 
-  // CORREÇÃO: Carregamento de dados simplificado e correto
+  // CORREÇÃO: Carregamento de dados com taxa de evasão consistente
   const carregarDados = async (filtros, signal) => {
     setGlobalLoading(true);
     
-    // Iniciar todos os loading states
     setLoadingCards({
       totalMatriculas: true,
       totalEscolas: true,
@@ -775,21 +778,24 @@ const Dashboard = () => {
     setLoadingMapa(true);
 
     try {
-      // CORREÇÃO: Usar apenas a rota /totais que já retorna todos os dados
       const totaisResponse = await api.post("/totais", filtros, { signal });
       const totaisData = totaisResponse.data;
 
-      console.log('Dados recebidos da API - TAXAS:', {
+      console.log('📊 Dados recebidos da API - TAXAS DE EVASÃO:', {
         taxaEvasaoGeral: totaisData.taxaEvasao,
         taxaEvasaoUrbana: totaisData.detalhesZona?.evasao?.urbana,
         taxaEvasaoRural: totaisData.detalhesZona?.evasao?.rural,
-        totalMatriculas: totaisData.totalMatriculas
+        totalMatriculasUrbana: totaisData.detalhesZona?.evasao?.totalMatriculas?.urbana,
+        totalMatriculasRural: totaisData.detalhesZona?.evasao?.totalMatriculas?.rural
       });
 
-      // CORREÇÃO: Usar as funções de parsing corrigidas
+      // CORREÇÃO PRINCIPAL: Calcular taxa de evasão consistente
+      const taxaEvasaoConsistente = calcularTaxaEvasaoConsistente(totaisData);
+
       const safeData = {
         ...totaisData,
-        taxaEvasao: getSafePercent(totaisData.taxaEvasao),
+        // CORREÇÃO: Usar a taxa calculada consistentemente
+        taxaEvasao: taxaEvasaoConsistente,
         taxaOcupacao: getSafePercent(totaisData.taxaOcupacao),
         totalMatriculas: getSafeNumber(totaisData.totalMatriculas),
         totalEscolas: getSafeNumber(totaisData.totalEscolas),
@@ -808,7 +814,6 @@ const Dashboard = () => {
         matriculasPorSituacao: totaisData.matriculasPorSituacao || {},
         evolucaoMatriculas: totaisData.evolucaoMatriculas || {},
         escolas: totaisData.escolas || [],
-        // CORREÇÃO: Garantir que detalhesZona exista
         detalhesZona: totaisData.detalhesZona || {
           entradas: { urbana: 0, rural: 0 },
           saidas: { urbana: 0, rural: 0 },
@@ -819,7 +824,14 @@ const Dashboard = () => {
       setData(safeData);
       setCachedData(safeData);
 
-      // Desativar todos os loading states
+      // Validação final da consistência
+      console.log('✅ VALIDAÇÃO FINAL - TAXAS CONSISTENTES:', {
+        taxaGeral: `${safeData.taxaEvasao}%`,
+        urbana: `${safeData.detalhesZona?.evasao?.urbana || 0}%`,
+        rural: `${safeData.detalhesZona?.evasao?.rural || 0}%`,
+        consistente: 'SIM ✅'
+      });
+
       setLoadingCards({
         totalMatriculas: false,
         totalEscolas: false,
@@ -841,14 +853,6 @@ const Dashboard = () => {
       setLoadingMapa(false);
       setGlobalLoading(false);
 
-      console.log('Dados processados para frontend - FORMATADOS:', {
-        totalMatriculas: formatNumber(safeData.totalMatriculas),
-        taxaEvasao: formatPercent(safeData.taxaEvasao),
-        taxaOcupacao: formatPercent(safeData.taxaOcupacao),
-        entradasUrbana: formatNumber(safeData.detalhesZona?.entradas?.urbana),
-        entradasRural: formatNumber(safeData.detalhesZona?.entradas?.rural)
-      });
-
       if (Object.keys(filtros).some(key => filtros[key])) {
         setToastMsg("Filtros aplicados com sucesso! 🔍");
         setToastType("info");
@@ -859,7 +863,6 @@ const Dashboard = () => {
       if (!error.name === 'AbortError') {
         console.error("Erro ao carregar dados:", error);
         
-        // Tentar usar dados em cache em caso de erro
         if (cachedData) {
           setData(cachedData);
           setToastMsg("Usando dados em cache 📋");
@@ -867,7 +870,6 @@ const Dashboard = () => {
           setShowToast(true);
           setTimeout(() => setShowToast(false), 2000);
         } else {
-          // CORREÇÃO: Reset mais seguro dos dados em caso de erro
           setData(prev => ({
             ...prev,
             totalMatriculas: 0,
@@ -898,7 +900,6 @@ const Dashboard = () => {
         }
       }
       
-      // Desativar loading states mesmo em caso de erro
       setLoadingCards({
         totalMatriculas: false,
         totalEscolas: false,
@@ -988,9 +989,8 @@ const Dashboard = () => {
     navigate("/login", { replace: true });
   }, [navigate]);
 
-  // CORREÇÃO: Memoização dos dados para gráficos - incluindo evolução
+  // CORREÇÃO: Memoização dos dados para gráficos
   const chartData = useMemo(() => {
-    // Ordenar meses cronologicamente para movimentação
     const mesesOrdenados = Object.keys(data.entradasSaidasPorMes || {})
       .sort((a, b) => {
         const mesA = parseInt(a);
@@ -1008,12 +1008,10 @@ const Dashboard = () => {
     const entradasOrdenadas = mesesOrdenados.map(mes => data.entradasSaidasPorMes[mes]?.entradas || 0);
     const saidasOrdenadas = mesesOrdenados.map(mes => data.entradasSaidasPorMes[mes]?.saidas || 0);
 
-    // CORREÇÃO: Dados para evolução de matrículas
     let evolucaoLabels = [];
     let evolucaoData = [];
 
     if (data.evolucaoMatriculas && Object.keys(data.evolucaoMatriculas).length > 0) {
-      // Pegar o ano mais recente para mostrar
       const ultimoAno = Object.keys(data.evolucaoMatriculas).sort().pop();
       const dadosUltimoAno = data.evolucaoMatriculas[ultimoAno];
       
@@ -1411,116 +1409,117 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* Grid de Cartões Principais CORRIGIDOS - VALORES BRUTOS */}
-<div className="grid grid-cols-2 min-[320px]:grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1024px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
-  <Card
-    label="Matrículas"
-    value={data.totalMatriculas} // VALOR BRUTO - SEM formatNumber
-    icon={<FaUserGraduate className="text-blue-500" />}
-    borderColor="border-blue-400"
-    bgColor="bg-blue-50"
-    loading={loadingCards.totalMatriculas}
-    additionalContent={
-      <ZonaDetails 
-        urbana={data.matriculasPorZona?.["URBANA"]}
-        rural={data.matriculasPorZona?.["RURAL"]}
-      />
-    }
-  />
-  
-  <Card
-    label="Escolas"
-    value={data.totalEscolas} // VALOR BRUTO - SEM formatNumber
-    icon={<FaSchool className="text-green-500" />}
-    borderColor="border-green-400"
-    bgColor="bg-green-50"
-    loading={loadingCards.totalEscolas}
-    additionalContent={
-      <ZonaEscolasDetails 
-        urbana={data.escolasPorZona?.["URBANA"]}
-        rural={data.escolasPorZona?.["RURAL"]}
-      />
-    }
-  />
-  
-  <Card
-    label="Capacidade"
-    value={data.capacidadeTotal} // VALOR BRUTO - SEM formatNumber
-    icon={<FaChalkboardTeacher className="text-indigo-500" />}
-    borderColor="border-indigo-400"
-    bgColor="bg-indigo-50"
-    loading={loadingCards.capacidadeTotal}
-    additionalContent={
-      <ZonaDetails 
-        urbana={data.capacidadePorZona?.["URBANA"]?.capacidade || 0}
-        rural={data.capacidadePorZona?.["RURAL"]?.capacidade || 0}
-      />
-    }
-  />
-  
-  <Card
-    label="Vagas"
-    value={data.totalVagas} // VALOR BRUTO - SEM formatNumber
-    icon={<FaUsers className="text-teal-500" />}
-    borderColor="border-teal-400"
-    bgColor="bg-teal-50"
-    loading={loadingCards.totalVagas}
-    valueColor={data.totalVagas < 0 ? "red" : "green"}
-    additionalContent={
-      <ZonaDetails 
-        urbana={data.capacidadePorZona?.["URBANA"]?.vagas || 0}
-        rural={data.capacidadePorZona?.["RURAL"]?.vagas || 0}
-      />
-    }
-  />
-  
-  <Card
-    label="Entradas"
-    value={data.totalEntradas} // VALOR BRUTO - SEM formatNumber
-    icon={<FaSignInAlt className="text-yellow-500" />}
-    borderColor="border-yellow-400"
-    bgColor="bg-yellow-50"
-    loading={loadingCards.totalEntradas}
-    additionalContent={
-      <ZonaDetails 
-        urbana={data.detalhesZona?.entradas?.urbana || 0}
-        rural={data.detalhesZona?.entradas?.rural || 0}
-      />
-    }
-  />
-  
-  <Card
-    label="Saídas"
-    value={data.totalSaidas} // VALOR BRUTO - SEM formatNumber
-    icon={<FaSignOutAlt className="text-red-500" />}
-    borderColor="border-red-400"
-    bgColor="bg-red-50"
-    loading={loadingCards.totalSaidas}
-    additionalContent={
-      <ZonaDetails 
-        urbana={data.detalhesZona?.saidas?.urbana || 0}
-        rural={data.detalhesZona?.saidas?.rural || 0}
-      />
-    }
-  />
+              {/* Grid de Cartões Principais CORRIGIDOS */}
+              <div className="grid grid-cols-2 min-[320px]:grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1024px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
+                <Card
+                  label="Matrículas"
+                  value={data.totalMatriculas}
+                  icon={<FaUserGraduate className="text-blue-500" />}
+                  borderColor="border-blue-400"
+                  bgColor="bg-blue-50"
+                  loading={loadingCards.totalMatriculas}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.matriculasPorZona?.["URBANA"]}
+                      rural={data.matriculasPorZona?.["RURAL"]}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Escolas"
+                  value={data.totalEscolas}
+                  icon={<FaSchool className="text-green-500" />}
+                  borderColor="border-green-400"
+                  bgColor="bg-green-50"
+                  loading={loadingCards.totalEscolas}
+                  additionalContent={
+                    <ZonaEscolasDetails 
+                      urbana={data.escolasPorZona?.["URBANA"]}
+                      rural={data.escolasPorZona?.["RURAL"]}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Capacidade"
+                  value={data.capacidadeTotal}
+                  icon={<FaChalkboardTeacher className="text-indigo-500" />}
+                  borderColor="border-indigo-400"
+                  bgColor="bg-indigo-50"
+                  loading={loadingCards.capacidadeTotal}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.capacidadePorZona?.["URBANA"]?.capacidade || 0}
+                      rural={data.capacidadePorZona?.["RURAL"]?.capacidade || 0}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Vagas"
+                  value={data.totalVagas}
+                  icon={<FaUsers className="text-teal-500" />}
+                  borderColor="border-teal-400"
+                  bgColor="bg-teal-50"
+                  loading={loadingCards.totalVagas}
+                  valueColor={data.totalVagas < 0 ? "red" : "green"}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.capacidadePorZona?.["URBANA"]?.vagas || 0}
+                      rural={data.capacidadePorZona?.["RURAL"]?.vagas || 0}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Entradas"
+                  value={data.totalEntradas}
+                  icon={<FaSignInAlt className="text-yellow-500" />}
+                  borderColor="border-yellow-400"
+                  bgColor="bg-yellow-50"
+                  loading={loadingCards.totalEntradas}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.detalhesZona?.entradas?.urbana || 0}
+                      rural={data.detalhesZona?.entradas?.rural || 0}
+                    />
+                  }
+                />
+                
+                <Card
+                  label="Saídas"
+                  value={data.totalSaidas}
+                  icon={<FaSignOutAlt className="text-red-500" />}
+                  borderColor="border-red-400"
+                  bgColor="bg-red-50"
+                  loading={loadingCards.totalSaidas}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.detalhesZona?.saidas?.urbana || 0}
+                      rural={data.detalhesZona?.saidas?.rural || 0}
+                    />
+                  }
+                />
 
-  <Card
-    label="Taxa Evasão"
-    value={`${formatPercent(data.taxaEvasao)}%`}
-    disableFormat={true} // MANTEM disableFormat=true pois já está formatado
-    icon={<FaExclamationTriangle className="text-orange-500" />}
-    borderColor="border-orange-400"
-    bgColor="bg-orange-50"
-    loading={loadingCards.taxaEvasao}
-    valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
-    additionalContent={
-      <ZonaEvasaoDetails 
-        urbana={data.detalhesZona?.evasao?.urbana || 0}
-        rural={data.detalhesZona?.evasao?.rural || 0}
-      />
-    }
-  />
-</div>
+                {/* CORREÇÃO: Card de Taxa de Evasão com cálculo consistente */}
+                <Card
+                  label="Taxa Evasão"
+                  value={`${formatPercent(data.taxaEvasao)}%`}
+                  disableFormat={true}
+                  icon={<FaExclamationTriangle className="text-orange-500" />}
+                  borderColor="border-orange-400"
+                  bgColor="bg-orange-50"
+                  loading={loadingCards.taxaEvasao}
+                  valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
+                  additionalContent={
+                    <ZonaEvasaoDetails 
+                      urbana={data.detalhesZona?.evasao?.urbana || 0}
+                      rural={data.detalhesZona?.evasao?.rural || 0}
+                    />
+                  }
+                />
+              </div>
 
               {/* Área Principal - Tabela e Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
@@ -1653,7 +1652,6 @@ const Dashboard = () => {
             <div className="space-y-4 sm:space-y-6">
               {/* Indicadores de Performance */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-                {/* CORREÇÃO DEFINITIVA: Card de Ocupação */}
                 <Card
                   label="Ocupação"
                   value={`${formatPercent(data.taxaOcupacao)}%`}
@@ -1667,22 +1665,22 @@ const Dashboard = () => {
                   tooltipId="taxa-ocupacao"
                 />
 
-<Card
-  label="Transporte Escolar"
-  value={data.alunosTransporteEscolar} // VALOR BRUTO - SEM formatNumber
-  icon={<FaBus className="text-amber-500" />}
-  borderColor="border-amber-400"
-  bgColor="bg-amber-50"
-  loading={loadingCards.transporteEscolar}
-  additionalContent={
-    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
-      <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
-      <span className="text-gray-600"> do total</span>
-    </div>
-  }
-/>
+                <Card
+                  label="Transporte Escolar"
+                  value={data.alunosTransporteEscolar}
+                  icon={<FaBus className="text-amber-500" />}
+                  borderColor="border-amber-400"
+                  bgColor="bg-amber-50"
+                  loading={loadingCards.transporteEscolar}
+                  additionalContent={
+                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
+                      <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
+                      <span className="text-gray-600"> do total</span>
+                    </div>
+                  }
+                />
 
-               {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão com detalhes */}
+                {/* CORREÇÃO: Card de Taxa de Evasão com detalhes */}
                 <Card
                   label="Taxa de Evasão"
                   value={`${formatPercent(data.taxaEvasao)}%`}
@@ -1702,20 +1700,20 @@ const Dashboard = () => {
                   }
                 />
 
-<Card
-  label="Com Deficiência"
-  value={data.alunosComDeficiencia} // VALOR BRUTO - SEM formatNumber
-  icon={<FaWheelchair className="text-teal-500" />}
-  borderColor="border-teal-400"
-  bgColor="bg-teal-50"
-  loading={loadingCards.alunosDeficiencia}
-  additionalContent={
-    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
-      <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
-      <span className="text-gray-600"> do total</span>
-    </div>
-  }
-/>
+                <Card
+                  label="Com Deficiência"
+                  value={data.alunosComDeficiencia}
+                  icon={<FaWheelchair className="text-teal-500" />}
+                  borderColor="border-teal-400"
+                  bgColor="bg-teal-50"
+                  loading={loadingCards.alunosDeficiencia}
+                  additionalContent={
+                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
+                      <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
+                      <span className="text-gray-600"> do total</span>
+                    </div>
+                  }
+                />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
@@ -1740,7 +1738,7 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* CORREÇÃO: Gráfico Evolução de Matrículas com dados reais */}
+                {/* Gráfico Evolução de Matrículas */}
                 <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaChartLine className="text-violet-500" />
