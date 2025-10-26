@@ -132,50 +132,25 @@ const Toast = ({ message, show, type = "success" }) =>
     </motion.div>
   ) : null;
 
-// CORREÇÃO DEFINITIVA: Função para formatar números com separador de milhar correto (padrão brasileiro)
+// VERSÃO SIMPLIFICADA E GARANTIDA
 const formatNumber = (num) => {
-  if (num === null || num === undefined || num === "Erro" || isNaN(num)) {
+  if (num == null || num === "" || num === "Erro" || isNaN(num)) {
     return "0";
   }
   
-  const numberValue = typeof num === 'string' ? parseFloat(num.replace(',', '.')) : Number(num);
+  const number = parseInt(num) || 0;
   
-  if (isNaN(numberValue)) {
-    return "0";
-  }
-  
-  // CORREÇÃO: Formatação correta para padrão brasileiro: 4.739 (ponto para milhar)
-  // Usamos o formato 'de-DE' que usa ponto para milhar e vírgula para decimal
-  return numberValue.toLocaleString('de-DE', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  });
+  // Formatação simples com regex para adicionar pontos
+  return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 };
 
-// CORREÇÃO DEFINITIVA: Função para formatar percentuais corretamente
 const formatPercent = (value) => {
-  if (value === null || value === undefined || value === "" || isNaN(value)) {
+  if (value == null || value === "" || value === "Erro" || isNaN(value)) {
     return "0,00";
   }
   
-  let numericValue;
-  if (typeof value === 'string') {
-    // Remove tudo exceto números, ponto e vírgula
-    const cleanedValue = value.toString().replace(/[^\d,.-]/g, '');
-    numericValue = parseFloat(cleanedValue.replace(',', '.'));
-  } else {
-    numericValue = parseFloat(value);
-  }
-  
-  if (isNaN(numericValue)) {
-    return "0,00";
-  }
-  
-  // CORREÇÃO: Usar formato brasileiro correto - vírgula para decimais
-  const formatted = numericValue.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
+  const number = parseFloat(value) || 0;
+  const formatted = number.toFixed(2).replace('.', ',');
   
   return formatted;
 };
