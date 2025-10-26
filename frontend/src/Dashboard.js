@@ -1667,24 +1667,22 @@ const Dashboard = () => {
                   tooltipId="taxa-ocupacao"
                 />
 
-                <Card
-                  label="Transporte Escolar"
-                  value={formatNumber(data.alunosTransporteEscolar)}
-                  icon={<FaBus className="text-amber-500" />}
-                  borderColor="border-amber-400"
-                  bgColor="bg-amber-50"
-                  loading={loadingCards.transporteEscolar}
-                  tooltip="Alunos que utilizam transporte escolar"
-                  tooltipId="transporte-escolar"
-                  additionalContent={
-                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
-                      <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
-                      <span className="text-gray-600"> do total</span>
-                    </div>
-                  }
-                />
+<Card
+  label="Transporte Escolar"
+  value={data.alunosTransporteEscolar} // VALOR BRUTO - SEM formatNumber
+  icon={<FaBus className="text-amber-500" />}
+  borderColor="border-amber-400"
+  bgColor="bg-amber-50"
+  loading={loadingCards.transporteEscolar}
+  additionalContent={
+    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
+      <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
+      <span className="text-gray-600"> do total</span>
+    </div>
+  }
+/>
 
-                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão com detalhes */}
+               {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão com detalhes */}
                 <Card
                   label="Taxa de Evasão"
                   value={`${formatPercent(data.taxaEvasao)}%`}
@@ -1704,22 +1702,20 @@ const Dashboard = () => {
                   }
                 />
 
-                <Card
-                  label="Com Deficiência"
-                  value={formatNumber(data.alunosComDeficiencia)}
-                  icon={<FaWheelchair className="text-teal-500" />}
-                  borderColor="border-teal-400"
-                  bgColor="bg-teal-50"
-                  loading={loadingCards.alunosDeficiencia}
-                  tooltip="Alunos com necessidades especiais"
-                  tooltipId="alunos-deficiencia"
-                  additionalContent={
-                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
-                      <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
-                      <span className="text-gray-600"> do total</span>
-                    </div>
-                  }
-                />
+<Card
+  label="Com Deficiência"
+  value={data.alunosComDeficiencia} // VALOR BRUTO - SEM formatNumber
+  icon={<FaWheelchair className="text-teal-500" />}
+  borderColor="border-teal-400"
+  bgColor="bg-teal-50"
+  loading={loadingCards.alunosDeficiencia}
+  additionalContent={
+    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
+      <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
+      <span className="text-gray-600"> do total</span>
+    </div>
+  }
+/>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
