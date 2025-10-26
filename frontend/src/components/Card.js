@@ -7,10 +7,7 @@ const formatNumber = (num) => {
     return "0";
   }
   
-  // CORREÇÃO: Usar parseFloat para lidar com números decimais também
   const number = parseFloat(num) || 0;
-  
-  // CORREÇÃO: Usar Intl.NumberFormat para formatação confiável
   return new Intl.NumberFormat('pt-BR').format(number);
 };
 
@@ -43,9 +40,9 @@ const Card = ({
     if (!comparativo) return null;
     
     const { arrow } = comparativo;
-    if (arrow === "up") return <FaArrowUp className="text-green-500 text-sm" />;
-    if (arrow === "down") return <FaArrowDown className="text-red-500 text-sm" />;
-    return <FaBalanceScale className="text-gray-500 text-sm" />;
+    if (arrow === "up") return <FaArrowUp className="text-green-500 text-xs" />;
+    if (arrow === "down") return <FaArrowDown className="text-red-500 text-xs" />;
+    return <FaBalanceScale className="text-gray-500 text-xs" />;
   };
 
   const getValueColorClass = () => {
@@ -58,83 +55,76 @@ const Card = ({
 
   if (loading) {
     return (
-      <div className={`bg-white rounded-2xl p-4 sm:p-6 shadow-lg border-2 ${borderColor} ${bgColor} animate-pulse w-full`}>
-        <div className="flex justify-between items-start mb-3">
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-          <div className="h-6 bg-gray-200 rounded w-6"></div>
+      <div className={`bg-white rounded-xl p-3 shadow-md border ${borderColor} ${bgColor} animate-pulse w-full h-full min-h-[100px]`}>
+        <div className="flex justify-between items-start mb-2">
+          <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+          <div className="h-5 bg-gray-200 rounded w-5"></div>
         </div>
-        <div className="h-8 bg-gray-200 rounded mb-3"></div>
-        <div className="h-4 bg-gray-100 rounded w-3/4"></div>
+        <div className="h-6 bg-gray-200 rounded mb-2"></div>
+        <div className="h-3 bg-gray-100 rounded w-1/2"></div>
       </div>
     );
   }
 
   return (
-    <div className={`bg-white rounded-2xl p-4 sm:p-6 shadow-lg border-2 ${borderColor} ${bgColor} transition-all duration-300 hover:shadow-xl w-full h-full flex flex-col`}>
+    <div className={`bg-white rounded-xl p-3 shadow-md border ${borderColor} ${bgColor} transition-all duration-200 hover:shadow-lg w-full h-full flex flex-col min-h-[100px]`}>
       
-      {/* Header do Card */}
-      <div className="flex justify-between items-start mb-3 sm:mb-4">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-sm sm:text-base font-semibold text-gray-600 truncate">
+      {/* Header do Card - Compacto */}
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          <span className="text-xs font-semibold text-gray-600 truncate leading-tight">
             {label}
           </span>
-          {tooltip && (
-            <div className="flex-shrink-0" title={tooltip}>
-              <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-              </svg>
-            </div>
-          )}
         </div>
-        <div className="text-2xl sm:text-3xl opacity-80 flex-shrink-0 ml-2">
+        <div className="text-lg opacity-80 flex-shrink-0 ml-1">
           {icon}
         </div>
       </div>
       
-      {/* Valor Principal */}
-      <div className={`text-2xl sm:text-3xl font-bold mb-2 sm:mb-3 ${getValueColorClass()} truncate`}>
+      {/* Valor Principal - Compacto */}
+      <div className={`text-lg font-bold mb-1 ${getValueColorClass()} truncate leading-tight`}>
         {disableFormat ? value : formatNumber(value)}
       </div>
       
-      {/* Conteúdo Comparativo */}
+      {/* Conteúdo Comparativo - Compacto */}
       <div className="flex-1">
         {comparativo && (
-          <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600 mb-2">
+          <div className="flex items-center gap-1 text-xs text-gray-600 mb-1">
             {getTrendIcon()}
-            <span className="truncate">
-              {comparativo.missing > 0 ? '+' : ''}{formatNumber(comparativo.missing)} ({formatPercent(comparativo.percent)}%)
+            <span className="truncate leading-tight">
+              {comparativo.missing > 0 ? '+' : ''}{formatNumber(comparativo.missing)}
             </span>
           </div>
         )}
         
         {isComparativo && comparativo && (
-          <div className="text-xs text-gray-500">
-            vs. ano anterior
+          <div className="text-[10px] text-gray-500 leading-tight">
+            vs. anterior
           </div>
         )}
         
-        {/* Conteúdo Adicional - Compacto em mobile */}
+        {/* Conteúdo Adicional - Ultra Compacto */}
         {additionalContent && (
-          <div className="mt-3 sm:mt-4">
+          <div className="mt-2">
             {additionalContent}
           </div>
         )}
       </div>
 
-      {/* Badge de Status para Valores Críticos (Mobile Only) */}
+      {/* Badge de Status para Valores Críticos */}
       {valueColor === "red" && (
-        <div className="md:hidden mt-2">
-          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-            <FaArrowUp className="mr-1" />
-            Atenção
+        <div className="mt-1">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-800">
+            <FaArrowUp className="mr-0.5" />
+            Crítico
           </span>
         </div>
       )}
       
       {valueColor === "orange" && (
-        <div className="md:hidden mt-2">
-          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-            <FaBalanceScale className="mr-1" />
+        <div className="mt-1">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-orange-100 text-orange-800">
+            <FaBalanceScale className="mr-0.5" />
             Moderado
           </span>
         </div>

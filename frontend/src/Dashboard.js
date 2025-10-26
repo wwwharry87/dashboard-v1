@@ -1,4 +1,4 @@
-// Dashboard.js - VERSÃO CORRIGIDA - LAYOUT MOBILE E TAXA DE EVASÃO CONSISTENTE
+// Dashboard.js - VERSÃO COM CARDS COMPACTOS
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
@@ -172,18 +172,18 @@ const ZonaDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50"
+    className="mt-1 pt-1 border-t border-gray-200/50"
   >
-    <div className="flex justify-between items-center text-xs">
+    <div className="flex justify-between items-center text-[10px]">
       <div className="flex items-center gap-1 text-blue-600">
-        <FaCity className="text-xs" />
+        <FaCity className="text-[8px]" />
         <span>Urbana:</span>
       </div>
       <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
-    <div className="flex justify-between items-center text-xs mt-1">
+    <div className="flex justify-between items-center text-[10px] mt-0.5">
       <div className="flex items-center gap-1 text-green-600">
-        <FaTree className="text-xs" />
+        <FaTree className="text-[8px]" />
         <span>Rural:</span>
       </div>
       <span className="font-bold">{formatNumber(rural)}</span>
@@ -196,18 +196,18 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50"
+    className="mt-1 pt-1 border-t border-gray-200/50"
   >
-    <div className="flex justify-between items-center text-xs">
+    <div className="flex justify-between items-center text-[10px]">
       <div className="flex items-center gap-1 text-blue-600">
-        <FaCity className="text-xs" />
+        <FaCity className="text-[8px]" />
         <span>Urbana:</span>
       </div>
       <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
-    <div className="flex justify-between items-center text-xs mt-1">
+    <div className="flex justify-between items-center text-[10px] mt-0.5">
       <div className="flex items-center gap-1 text-green-600">
-        <FaTree className="text-xs" />
+        <FaTree className="text-[8px]" />
         <span>Rural:</span>
       </div>
       <span className="font-bold">{formatNumber(rural)}</span>
@@ -220,18 +220,18 @@ const ZonaEvasaoDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50"
+    className="mt-1 pt-1 border-t border-gray-200/50"
   >
-    <div className="flex justify-between items-center text-xs">
+    <div className="flex justify-between items-center text-[10px]">
       <div className="flex items-center gap-1 text-blue-600">
-        <FaCity className="text-xs" />
+        <FaCity className="text-[8px]" />
         <span>Urbana:</span>
       </div>
       <span className="font-bold">{formatPercent(urbana)}%</span>
     </div>
-    <div className="flex justify-between items-center text-xs mt-1">
+    <div className="flex justify-between items-center text-[10px] mt-0.5">
       <div className="flex items-center gap-1 text-green-600">
-        <FaTree className="text-xs" />
+        <FaTree className="text-[8px]" />
         <span>Rural:</span>
       </div>
       <span className="font-bold">{formatPercent(rural)}%</span>
@@ -1045,7 +1045,7 @@ const Dashboard = () => {
         return mesA - mesB;
       });
 
-    const nomesMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const nomesMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dec"];
     
     const labelsMovimentacao = mesesOrdenados.map(mes => {
       const mesIndex = parseInt(mes) - 1;
@@ -1303,13 +1303,13 @@ const Dashboard = () => {
 
         {/* HEADER FIXO NO TOPO */}
         <div className="w-full bg-white/95 backdrop-blur-sm shadow-xl border-b border-gray-200/60 z-40">
-          <div className="flex items-center justify-between px-4 py-4 md:px-8 md:py-5">
-            <div className="flex items-center gap-4 flex-1">
+          <div className="flex items-center justify-between px-3 py-3 md:px-6 md:py-4">
+            <div className="flex items-center gap-3 flex-1">
               <button
                 id="filterButton"
                 onClick={() => setShowSidebar(true)}
-                className="bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-2xl shadow-xl flex items-center justify-center p-3 hover:from-violet-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105"
-                style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
+                className="bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-xl shadow-lg flex items-center justify-center p-2 hover:from-violet-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105"
+                style={{ fontSize: 24, minWidth: 44, minHeight: 44 }}
                 title="Abrir filtros"
               >
                 <FaFilter />
@@ -1319,19 +1319,19 @@ const Dashboard = () => {
                 <h1
                   className="font-bold drop-shadow-sm bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent"
                   style={{
-                    fontSize: 'clamp(1.3rem, 2.8vw, 2.2rem)',
+                    fontSize: 'clamp(1.2rem, 2.5vw, 2rem)',
                     lineHeight: 1.2,
                   }}
                 >
                   {clientName || "SEMED - PAINEL"}
                 </h1>
-                <span className="text-[0.95rem] md:text-lg text-gray-600 font-medium">
+                <span className="text-[0.85rem] md:text-base text-gray-600 font-medium">
                   Dashboard de Gestão Educacional
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {formattedUpdateDate && (
                 <div className="hidden md:flex flex-col items-end">
                   <span className="text-xs text-gray-500 font-semibold">
@@ -1345,9 +1345,9 @@ const Dashboard = () => {
 
               <button
                 onClick={sair}
-                className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl shadow-lg flex items-center justify-center p-3 hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
+                className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl shadow-lg flex items-center justify-center p-2 hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 group"
                 title="Sair do sistema"
-                style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
+                style={{ fontSize: 24, minWidth: 44, minHeight: 44 }}
               >
                 <FaSignOutAlt className="group-hover:rotate-180 transition-transform duration-300" />
               </button>
@@ -1356,7 +1356,7 @@ const Dashboard = () => {
 
           {/* Data de atualização para mobile */}
           {formattedUpdateDate && (
-            <div className="md:hidden p-2 text-center text-sm bg-violet-100/80 text-gray-700">
+            <div className="md:hidden p-2 text-center text-xs bg-violet-100/80 text-gray-700">
               Atualizado: {formattedUpdateDate}
             </div>
           )}
@@ -1365,35 +1365,35 @@ const Dashboard = () => {
           <div className="flex border-b border-gray-200">
             <button
               onClick={() => setActiveTab("overview")}
-              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+              className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
                 activeTab === "overview" 
                   ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
                   : 'text-gray-600 hover:text-violet-500'
               }`}
             >
-              <FaHome />
+              <FaHome className="text-sm" />
               <span className="hidden xs:inline">Visão Geral</span>
             </button>
             <button
               onClick={() => setActiveTab("analytics")}
-              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+              className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
                 activeTab === "analytics" 
                   ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
                   : 'text-gray-600 hover:text-violet-500'
               }`}
             >
-              <FaChartBar />
+              <FaChartBar className="text-sm" />
               <span className="hidden xs:inline">Analytics</span>
             </button>
             <button
               onClick={() => setActiveTab("geographic")}
-              className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
+              className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
                 activeTab === "geographic" 
                   ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
                   : 'text-gray-600 hover:text-violet-500'
               }`}
             >
-              <FaMapMarkerAlt />
+              <FaMapMarkerAlt className="text-sm" />
               <span className="hidden xs:inline">Geográfica</span>
             </button>
           </div>
@@ -1403,14 +1403,14 @@ const Dashboard = () => {
             <motion.div 
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-center py-2 bg-violet-50/80"
+              className="text-center py-1 bg-violet-50/80"
             >
-              <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
+              <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow">
                 🎯 Filtro ativo: {selectedSchool.escola}
               </span>
               <button
                 onClick={() => handleSchoolClick(selectedSchool)}
-                className="ml-3 bg-red-500 text-white px-3 py-1 rounded-full text-xs font-semibold hover:bg-red-600 transition-colors shadow"
+                className="ml-2 bg-red-500 text-white px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-red-600 transition-colors"
               >
                 Remover
               </button>
@@ -1419,13 +1419,13 @@ const Dashboard = () => {
         </div>
 
         {/* CONTEÚDO PRINCIPAL POR ABA */}
-        <div className="flex-1 overflow-auto p-2 sm:p-4">
+        <div className="flex-1 overflow-auto p-2 sm:p-3">
           
           {/* ABA: VISÃO GERAL */}
           {activeTab === "overview" && (
             <>
               {/* Alertas Estratégicos */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 {indicadoresEstrategicos.taxaEvasao > 10 && (
                   <AlertIndicator 
                     type="high" 
@@ -1456,8 +1456,8 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* CORREÇÃO: Grid de Cartões Responsivo para Mobile */}
-              <div className="grid grid-cols-1 min-[460px]:grid-cols-2 min-[720px]:grid-cols-3 min-[1024px]:grid-cols-4 min-[1280px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
+              {/* CORREÇÃO: Grid de Cartões Responsivo para Mobile - COMPACTO */}
+              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[640px]:grid-cols-4 min-[1024px]:grid-cols-5 min-[1280px]:grid-cols-7 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 <Card
                   label="Matrículas"
                   value={data.totalMatriculas}
@@ -1569,11 +1569,11 @@ const Dashboard = () => {
               </div>
 
               {/* Área Principal - Tabela e Gráficos */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
                 {/* Tabela Detalhes por Escola */}
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[400px] border-gray-200/50 border">
-                  <div className="p-3 sm:p-4 bg-gradient-to-r from-gray-50 to-gray-100/80 border-gray-200 border-b flex justify-between items-center">
-                    <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg overflow-hidden flex flex-col h-[400px] border-gray-200/50 border">
+                  <div className="p-3 bg-gradient-to-r from-gray-50 to-gray-100/80 border-gray-200 border-b flex justify-between items-center">
+                    <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
                       <FaSchool className="text-violet-500" />
                       Detalhes por Escola
                     </h3>
@@ -1581,9 +1581,9 @@ const Dashboard = () => {
                       <ExportButtons data={data} escolas={filteredEscolas} loading={loadingTable} />
                       <button 
                         onClick={() => setShowSearch(!showSearch)}
-                        className="bg-violet-500 text-white p-2 rounded-xl hover:bg-violet-600 transition-colors shadow"
+                        className="bg-violet-500 text-white p-2 rounded-lg hover:bg-violet-600 transition-colors shadow"
                       >
-                        <FaSearch size={18} />
+                        <FaSearch size={16} />
                       </button>
                     </div>
                   </div>
@@ -1593,7 +1593,7 @@ const Dashboard = () => {
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
-                      className="p-3 bg-white border-gray-200 border-b"
+                      className="p-2 bg-white border-gray-200 border-b"
                     >
                       <input
                         type="text"
@@ -1601,14 +1601,14 @@ const Dashboard = () => {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
                         style={{ textTransform: "uppercase" }}
-                        className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent text-gray-800"
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-gray-800 text-sm"
                       />
                     </motion.div>
                   )}
                   
                   <div className="overflow-auto flex-1">
                     {loadingTable ? (
-                      <div className="p-4 sm:p-6">
+                      <div className="p-3">
                         <TableSkeleton />
                       </div>
                     ) : (
@@ -1626,8 +1626,8 @@ const Dashboard = () => {
                 </div>
                 
                 {/* Gráfico Movimentação Mensal */}
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
-                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[400px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaSync className="text-violet-500" />
                     Movimentação Mensal
                   </h3>
@@ -1648,10 +1648,10 @@ const Dashboard = () => {
               </div>
               
               {/* Gráficos Adicionais */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
                 {/* Gráfico Matrículas por Sexo */}
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] border-gray-200/50 border">
-                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[300px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaUserGraduate className="text-violet-500" />
                     Matrículas por Sexo
                   </h3>
@@ -1671,8 +1671,8 @@ const Dashboard = () => {
                 </div>
                 
                 {/* Gráfico Matrículas por Turno */}
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] border-gray-200/50 border">
-                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[300px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaChalkboardTeacher className="text-violet-500" />
                     Matrículas por Turno
                   </h3>
@@ -1696,9 +1696,9 @@ const Dashboard = () => {
 
           {/* ABA: ANALYTICS */}
           {activeTab === "analytics" && (
-            <div className="space-y-4 sm:space-y-6">
+            <div className="space-y-3 sm:space-y-4">
               {/* Indicadores de Performance */}
-              <div className="grid grid-cols-1 min-[460px]:grid-cols-2 min-[1024px]:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[1024px]:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 <Card
                   label="Ocupação"
                   value={`${formatPercent(data.taxaOcupacao)}%`}
@@ -1720,7 +1720,7 @@ const Dashboard = () => {
                   bgColor="bg-amber-50"
                   loading={loadingCards.transporteEscolar}
                   additionalContent={
-                    <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50 text-xs text-center">
+                    <div className="mt-1 pt-1 border-t border-gray-200/50 text-[10px] text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
                       <span className="text-gray-600"> do total</span>
                     </div>
@@ -1755,7 +1755,7 @@ const Dashboard = () => {
                   bgColor="bg-teal-50"
                   loading={loadingCards.alunosDeficiencia}
                   additionalContent={
-                    <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50 text-xs text-center">
+                    <div className="mt-1 pt-1 border-t border-gray-200/50 text-[10px] text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
                       <span className="text-gray-600"> do total</span>
                     </div>
@@ -1763,10 +1763,10 @@ const Dashboard = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
                 {/* Gráfico Situação da Matrícula */}
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
-                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[400px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaClock className="text-violet-500" />
                     Situação da Matrícula
                   </h3>
@@ -1786,8 +1786,8 @@ const Dashboard = () => {
                 </div>
 
                 {/* Gráfico Evolução de Matrículas */}
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
-                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[400px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaChartLine className="text-violet-500" />
                     Evolução de Matrículas
                   </h3>
@@ -1811,9 +1811,9 @@ const Dashboard = () => {
 
           {/* ABA: VISÃO GEOGRÁFICA */}
           {activeTab === "geographic" && (
-            <div className="space-y-4 sm:space-y-6">
-              <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[500px] sm:h-[600px] border-gray-200/50 border">
-                <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[500px] sm:h-[600px] border-gray-200/50 border">
+                <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                   <FaMapMarkerAlt className="text-violet-500" />
                   Mapa de Calor das Escolas
                 </h3>
@@ -1833,28 +1833,28 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 border-gray-200/50 border">
-                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaCity className="text-violet-500" />
                     Distribuição por Zona
                   </h3>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center p-3 rounded-lg bg-blue-50">
-                      <span className="font-semibold text-blue-700">Urbana</span>
-                      <span className="font-bold text-blue-900">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50">
+                      <span className="font-semibold text-blue-700 text-sm">Urbana</span>
+                      <span className="font-bold text-blue-900 text-sm">
                         {formatNumber(data.matriculasPorZona?.["URBANA"])} 
-                        <span className="text-sm text-blue-600 ml-2">
+                        <span className="text-xs text-blue-600 ml-1">
                           ({data.matriculasPorZona?.["URBANA"] && data.totalMatriculas ? 
                           ((data.matriculasPorZona["URBANA"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
                         </span>
                       </span>
                     </div>
-                    <div className="flex justify-between items-center p-3 rounded-lg bg-green-50">
-                      <span className="font-semibold text-green-700">Rural</span>
-                      <span className="font-bold text-green-900">
+                    <div className="flex justify-between items-center p-2 rounded-lg bg-green-50">
+                      <span className="font-semibold text-green-700 text-sm">Rural</span>
+                      <span className="font-bold text-green-900 text-sm">
                         {formatNumber(data.matriculasPorZona?.["RURAL"])}
-                        <span className="text-sm text-green-600 ml-2">
+                        <span className="text-xs text-green-600 ml-1">
                           ({data.matriculasPorZona?.["RURAL"] && data.totalMatriculas ? 
                           ((data.matriculasPorZona["RURAL"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
                         </span>
@@ -1863,26 +1863,26 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 border-gray-200/50 border">
-                  <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaSchool className="text-violet-500" />
                     Densidade Escolar
                   </h3>
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     <div className="text-center">
-                      <div className="text-2xl sm:text-3xl font-bold text-violet-600">
+                      <div className="text-xl sm:text-2xl font-bold text-violet-600">
                         {data.totalEscolas && data.totalMatriculas ? 
                           Math.round(data.totalMatriculas / data.totalEscolas) : 0}
                       </div>
-                      <div className="text-sm text-gray-600">Alunos por escola (média)</div>
+                      <div className="text-xs text-gray-600">Alunos por escola (média)</div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-center">
                       <div className="p-2 rounded bg-blue-50">
-                        <div className="font-bold text-blue-700">{data.escolasPorZona?.["URBANA"] || 0}</div>
+                        <div className="font-bold text-blue-700 text-sm">{data.escolasPorZona?.["URBANA"] || 0}</div>
                         <div className="text-xs text-blue-600">Escolas Urbanas</div>
                       </div>
                       <div className="p-2 rounded bg-green-50">
-                        <div className="font-bold text-green-700">{data.escolasPorZona?.["RURAL"] || 0}</div>
+                        <div className="font-bold text-green-700 text-sm">{data.escolasPorZona?.["RURAL"] || 0}</div>
                         <div className="text-xs text-green-600">Escolas Rurais</div>
                       </div>
                     </div>
@@ -1911,22 +1911,22 @@ const Dashboard = () => {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -400, opacity: 0 }}
                 transition={{ duration: 0.3, type: "spring", bounce: 0.1 }}
-                className="fixed inset-y-0 left-0 bg-white w-80 md:w-96 p-6 shadow-2xl z-50 border-gray-200/60 border-r overflow-y-auto"
+                className="fixed inset-y-0 left-0 bg-white w-80 md:w-96 p-4 shadow-2xl z-50 border-gray-200/60 border-r overflow-y-auto"
               >
-                <div className="flex justify-between items-center mb-8 pb-4 border-gray-200 border-b">
-                  <h2 className="text-2xl font-bold flex items-center gap-2">
+                <div className="flex justify-between items-center mb-6 pb-3 border-gray-200 border-b">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
                     <FaFilter className="text-violet-500" />
                     Filtros
                   </h2>
                   <button 
                     onClick={() => setShowSidebar(false)} 
-                    className="text-gray-500 hover:text-violet-600 transition-colors text-2xl bg-gray-100 p-2 rounded-xl hover:bg-gray-200"
+                    className="text-gray-500 hover:text-violet-600 transition-colors text-xl bg-gray-100 p-1 rounded-lg hover:bg-gray-200"
                   >
                     ✕
                   </button>
                 </div>
                 
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <FilterSelect
                     label="Ano Letivo"
                     name="anoLetivo"
@@ -2002,7 +2002,7 @@ const Dashboard = () => {
                   />
                 </div>
                 
-                <div className="mt-8 pt-6 border-gray-200 border-t flex justify-center">
+                <div className="mt-6 pt-4 border-gray-200 border-t flex justify-center">
                   <button
                     onClick={() => {
                       const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
@@ -2024,15 +2024,15 @@ const Dashboard = () => {
                       carregarDados(resetFilters);
                       setShowSidebar(false);
                     }}
-                    className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-8 py-3 rounded-xl hover:from-violet-600 hover:to-purple-700 transition-all duration-300 shadow-lg font-semibold"
+                    className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-6 py-2 rounded-lg hover:from-violet-600 hover:to-purple-700 transition-all duration-300 shadow font-semibold text-sm"
                   >
                     🔄 Limpar Filtros
                   </button>
                 </div>
 
                 {/* Informações de Cache */}
-                <div className="mt-6 p-4 rounded-lg bg-gray-100/80 text-sm">
-                  <div className="flex items-center gap-2 mb-2">
+                <div className="mt-4 p-3 rounded-lg bg-gray-100/80 text-xs">
+                  <div className="flex items-center gap-2 mb-1">
                     <FaDatabase className="text-violet-500" />
                     <span className="font-semibold">Sistema de Cache</span>
                   </div>
