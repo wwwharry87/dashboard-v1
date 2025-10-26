@@ -1,4 +1,4 @@
-//Dashboard.js
+// Dashboard.js - Versão Melhorada
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
@@ -43,9 +43,11 @@ import {
   FaDownload,
   FaFileExcel,
   FaFilePdf,
-  FaSun,
-  FaMoon,
   FaDatabase,
+  FaCog,
+  FaChartPie,
+  FaHome,
+  FaGraduationCap,
 } from "react-icons/fa";
 import { Tooltip as ReactTooltip } from "react-tooltip";
 import { isMobile } from "react-device-detect";
@@ -64,17 +66,17 @@ const SituacaoMatriculaChart = lazy(() => import('./components/SituacaoMatricula
 const EvolucaoMatriculasChart = lazy(() => import('./components/EvolucaomatriculasChart'));
 const MapaCalorEscolas = lazy(() => import('./components/MapacalorEscolas'));
 
-// Context para modo escuro
-const DarkModeContext = createContext();
+// Context para configurações
+const AppContext = createContext();
 
 // Spinner com melhor feedback visual
 const Spinner = () => (
   <div className="flex flex-col items-center justify-center">
-    <svg className="animate-spin h-8 w-8 text-violet-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <svg className="animate-spin h-8 w-8 text-violet-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
     </svg>
-    <span className="mt-2 text-violet-600 font-semibold animate-pulse">Carregando...</span>
+    <span className="mt-2 text-violet-700 font-semibold animate-pulse">Carregando...</span>
   </div>
 );
 
@@ -106,7 +108,7 @@ const GlobalLoading = () => (
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    className="fixed top-4 right-4 z-50 bg-blue-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
+    className="fixed top-4 right-4 z-50 bg-gradient-to-r from-blue-500 to-purple-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
   >
     <FaSync className="animate-spin" />
     <span className="font-semibold">Atualizando...</span>
@@ -122,8 +124,8 @@ const Toast = ({ message, show, type = "success" }) =>
       exit={{ opacity: 0, y: -20 }}
       className={`
         fixed top-8 left-1/2 transform -translate-x-1/2 z-50
-        ${type === "success" ? "bg-green-500" : "bg-blue-500"}
-        text-white px-6 py-3 rounded-2xl shadow-lg flex items-center gap-2 text-lg font-semibold
+        ${type === "success" ? "bg-gradient-to-r from-green-500 to-green-600" : "bg-gradient-to-r from-blue-500 to-blue-600"}
+        text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-lg font-semibold
       `}>
       <span role="img" aria-label="party">{type === "success" ? "🎉" : "🔍"}</span>
       {message}
@@ -193,17 +195,17 @@ const ZonaDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-3 pt-3 border-t border-gray-200/50 dark:border-gray-600/50"
+    className="mt-3 pt-3 border-t border-gray-200/50"
   >
     <div className="flex justify-between items-center text-xs">
-      <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+      <div className="flex items-center gap-1 text-blue-600">
         <FaCity className="text-xs" />
         <span>Urbana:</span>
       </div>
       <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
     <div className="flex justify-between items-center text-xs mt-1">
-      <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
+      <div className="flex items-center gap-1 text-green-600">
         <FaTree className="text-xs" />
         <span>Rural:</span>
       </div>
@@ -217,17 +219,17 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-3 pt-3 border-t border-gray-200/50 dark:border-gray-600/50"
+    className="mt-3 pt-3 border-t border-gray-200/50"
   >
     <div className="flex justify-between items-center text-xs">
-      <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+      <div className="flex items-center gap-1 text-blue-600">
         <FaCity className="text-xs" />
         <span>Urbana:</span>
       </div>
       <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
     <div className="flex justify-between items-center text-xs mt-1">
-      <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
+      <div className="flex items-center gap-1 text-green-600">
         <FaTree className="text-xs" />
         <span>Rural:</span>
       </div>
@@ -238,22 +240,14 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
 
 // Componente para indicadores de alerta
 const AlertIndicator = ({ type, value, label }) => {
-  const { darkMode } = useContext(DarkModeContext);
-  
   const getColor = () => {
-    if (type === 'high') return darkMode 
-      ? 'text-red-400 bg-red-900/30 border-red-700' 
-      : 'text-red-500 bg-red-50 border-red-200';
-    if (type === 'medium') return darkMode 
-      ? 'text-yellow-400 bg-yellow-900/30 border-yellow-700' 
-      : 'text-yellow-500 bg-yellow-50 border-yellow-200';
-    return darkMode 
-      ? 'text-green-400 bg-green-900/30 border-green-700' 
-      : 'text-green-500 bg-green-50 border-green-200';
+    if (type === 'high') return 'text-red-600 bg-red-50 border-red-200';
+    if (type === 'medium') return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+    return 'text-green-600 bg-green-50 border-green-200';
   };
 
   return (
-    <div className={`flex items-center gap-2 p-2 rounded-lg border ${getColor()}`}>
+    <div className={`flex items-center gap-2 p-2 rounded-lg border ${getColor()} shadow-sm`}>
       <FaExclamationTriangle className="text-sm" />
       <span className="text-sm font-semibold">{value}</span>
       <span className="text-xs">{label}</span>
@@ -498,7 +492,7 @@ const ExportButtons = ({ data, escolas, loading }) => {
       <button
         onClick={handleExportExcel}
         disabled={loading || !escolas || escolas.length === 0}
-        className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+        className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-green-600 text-white px-3 py-2 rounded-lg hover:from-green-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-sm text-sm font-semibold"
         title="Exportar para Excel"
       >
         <FaFileExcel />
@@ -507,7 +501,7 @@ const ExportButtons = ({ data, escolas, loading }) => {
       <button
         onClick={handleExportPDF}
         disabled={loading || !escolas || escolas.length === 0}
-        className="flex items-center gap-2 bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+        className="flex items-center gap-2 bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-2 rounded-lg hover:from-red-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-sm text-sm font-semibold"
         title="Exportar para PDF"
       >
         <FaFilePdf />
@@ -544,7 +538,6 @@ const Dashboard = () => {
   const navigate = useNavigate();
 
   // === STATES ===
-  const [darkMode, setDarkMode] = useLocalStorage("darkMode", false);
   const [filters, setFilters] = useState({});
   const [selectedFilters, setSelectedFilters] = useLocalStorage("selectedFilters", {
     anoLetivo: "",
@@ -573,15 +566,6 @@ const Dashboard = () => {
   const [isAutoUpdating, setIsAutoUpdating] = useState(false);
   const [activeTab, setActiveTab] = useLocalStorage("activeTab", "overview");
   const [cachedData, setCachedData] = useLocalStorage("cachedData", null);
-
-  // Aplicar modo escuro no body
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [darkMode]);
 
   // === Loading individual ===
   const [loadingCards, setLoadingCards] = useState({
@@ -1087,18 +1071,18 @@ const Dashboard = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: "top", labels: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { size: 12, weight: "bold" } } },
+          legend: { position: "top", labels: { color: "#6B7280", font: { size: 12, weight: "bold" } } },
           datalabels: { display: false },
         },
         scales: {
           x: {
             grid: { display: false },
-            ticks: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { weight: "bold" } },
+            ticks: { color: "#6B7280", font: { weight: "bold" } },
           },
           y: {
-            grid: { color: darkMode ? "#374151" : "#E5E7EB" },
+            grid: { color: "#E5E7EB" },
             ticks: { 
-              color: darkMode ? "#E5E7EB" : "#6B7280", 
+              color: "#6B7280", 
               font: { weight: "bold" }, 
               callback: (value) => formatNumber(value) 
             },
@@ -1110,7 +1094,7 @@ const Dashboard = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: "bottom", labels: { font: { size: 12, weight: "bold" }, color: darkMode ? "#E5E7EB" : "#6B7280" } },
+          legend: { position: "bottom", labels: { font: { size: 12, weight: "bold" }, color: "#6B7280" } },
           datalabels: {
             display: true,
             color: "#fff",
@@ -1137,16 +1121,16 @@ const Dashboard = () => {
         },
         scales: {
           x: {
-            grid: { color: darkMode ? "#374151" : "#E5E7EB" },
+            grid: { color: "#E5E7EB" },
             ticks: { 
-              color: darkMode ? "#E5E7EB" : "#6B7280", 
+              color: "#6B7280", 
               font: { weight: "bold" }, 
               callback: (value) => formatNumber(value) 
             },
           },
           y: {
             grid: { display: false },
-            ticks: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { weight: "bold" } },
+            ticks: { color: "#6B7280", font: { weight: "bold" } },
           },
         },
         layout: { padding: { left: 20, right: 20 } },
@@ -1155,7 +1139,7 @@ const Dashboard = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: "bottom", labels: { font: { size: 11, weight: "bold" }, color: darkMode ? "#E5E7EB" : "#6B7280" } },
+          legend: { position: "bottom", labels: { font: { size: 11, weight: "bold" }, color: "#6B7280" } },
           datalabels: {
             display: true,
             color: "#fff",
@@ -1173,12 +1157,12 @@ const Dashboard = () => {
         scales: {
           x: {
             grid: { display: false },
-            ticks: { color: darkMode ? "#E5E7EB" : "#6B7280", font: { weight: "bold" } },
+            ticks: { color: "#6B7280", font: { weight: "bold" } },
           },
           y: {
-            grid: { color: darkMode ? "#374151" : "#E5E7EB" },
+            grid: { color: "#E5E7EB" },
             ticks: { 
-              color: darkMode ? "#E5E7EB" : "#6B7280", 
+              color: "#6B7280", 
               font: { weight: "bold" }, 
               callback: (value) => formatNumber(value) 
             },
@@ -1186,7 +1170,7 @@ const Dashboard = () => {
         },
       }
     };
-  }, [darkMode]);
+  }, []);
 
   // Filtrar escolas - memoizado
   const filteredEscolas = useMemo(() => {
@@ -1213,18 +1197,15 @@ const Dashboard = () => {
 
   // === RENDER ===
   return (
-    <DarkModeContext.Provider value={{ darkMode, setDarkMode }}>
-      <div className={`h-screen w-screen flex flex-col ${darkMode 
-        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white' 
-        : 'bg-gradient-to-br from-violet-50 via-blue-50 to-pink-50 text-gray-800'
-      } relative overflow-hidden`}>
+    <AppContext.Provider value={{}}>
+      <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 text-gray-800 relative overflow-hidden">
         <AnimatePresence>
           {showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}
           {isLoading && <GlobalLoading />}
         </AnimatePresence>
 
         {/* HEADER FIXO NO TOPO */}
-        <div className={`w-full ${darkMode ? 'bg-gray-800/95' : 'bg-white/95'} backdrop-blur-sm shadow-lg border-b ${darkMode ? 'border-gray-700/60' : 'border-gray-200/60'} z-40`}>
+        <div className="w-full bg-white/95 backdrop-blur-sm shadow-xl border-b border-gray-200/60 z-40">
           <div className="flex items-center justify-between px-4 py-4 md:px-8 md:py-5">
             <div className="flex items-center gap-4 flex-1">
               <button
@@ -1239,7 +1220,7 @@ const Dashboard = () => {
 
               <div className="flex flex-col">
                 <h1
-                  className="font-bold drop-shadow-sm"
+                  className="font-bold drop-shadow-sm bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent"
                   style={{
                     fontSize: 'clamp(1.3rem, 2.8vw, 2.2rem)',
                     lineHeight: 1.2,
@@ -1247,33 +1228,19 @@ const Dashboard = () => {
                 >
                   {clientName || "SEMED - PAINEL"}
                 </h1>
-                <span className={`text-[0.95rem] md:text-lg ${darkMode ? 'text-gray-300' : 'text-gray-600'} font-medium`}>
+                <span className="text-[0.95rem] md:text-lg text-gray-600 font-medium">
                   Dashboard de Gestão Educacional
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Botão Modo Escuro */}
-              <button
-                onClick={() => setDarkMode(!darkMode)}
-                className={`p-3 rounded-2xl shadow-lg transition-all duration-300 transform hover:scale-105 ${
-                  darkMode 
-                    ? 'bg-yellow-500 text-white hover:bg-yellow-600' 
-                    : 'bg-gray-800 text-white hover:bg-gray-900'
-                }`}
-                title={darkMode ? "Modo Claro" : "Modo Escuro"}
-                style={{ fontSize: 28, minWidth: 52, minHeight: 52 }}
-              >
-                {darkMode ? <FaSun /> : <FaMoon />}
-              </button>
-
               {formattedUpdateDate && (
                 <div className="hidden md:flex flex-col items-end">
-                  <span className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'} font-semibold`}>
+                  <span className="text-xs text-gray-500 font-semibold">
                     Última atualização
                   </span>
-                  <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-700'} font-bold`}>
+                  <span className="text-sm text-gray-700 font-bold">
                     {formattedUpdateDate}
                   </span>
                 </div>
@@ -1292,41 +1259,41 @@ const Dashboard = () => {
 
           {/* Data de atualização para mobile */}
           {formattedUpdateDate && (
-            <div className={`md:hidden p-2 text-center text-sm ${darkMode ? 'bg-violet-900/80 text-gray-300' : 'bg-violet-100/80 text-gray-700'}`}>
+            <div className="md:hidden p-2 text-center text-sm bg-violet-100/80 text-gray-700">
               Atualizado: {formattedUpdateDate}
             </div>
           )}
 
           {/* Navegação por abas */}
-          <div className={`flex border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <div className="flex border-b border-gray-200">
             <button
               onClick={() => setActiveTab("overview")}
               className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
                 activeTab === "overview" 
-                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
-                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+                  ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
+                  : 'text-gray-600 hover:text-violet-500'
               }`}
             >
-              <FaChartBar />
+              <FaHome />
               <span className="hidden xs:inline">Visão Geral</span>
             </button>
             <button
               onClick={() => setActiveTab("analytics")}
               className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
                 activeTab === "analytics" 
-                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
-                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+                  ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
+                  : 'text-gray-600 hover:text-violet-500'
               }`}
             >
-              <FaChartLine />
+              <FaChartBar />
               <span className="hidden xs:inline">Analytics</span>
             </button>
             <button
               onClick={() => setActiveTab("geographic")}
               className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-semibold transition-all ${
                 activeTab === "geographic" 
-                  ? `${darkMode ? 'text-violet-400 border-b-2 border-violet-400 bg-gray-700' : 'text-violet-600 border-b-2 border-violet-600 bg-violet-50'}` 
-                  : `${darkMode ? 'text-gray-400 hover:text-violet-400' : 'text-gray-600 hover:text-violet-500'}`
+                  ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
+                  : 'text-gray-600 hover:text-violet-500'
               }`}
             >
               <FaMapMarkerAlt />
@@ -1339,7 +1306,7 @@ const Dashboard = () => {
             <motion.div 
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`text-center py-2 ${darkMode ? 'bg-violet-900/80' : 'bg-violet-50/80'}`}
+              className="text-center py-2 bg-violet-50/80"
             >
               <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
                 🎯 Filtro ativo: {selectedSchool.escola}
@@ -1398,8 +1365,8 @@ const Dashboard = () => {
                   label="Matrículas"
                   value={formatNumber(data.totalMatriculas)}
                   icon={<FaUserGraduate className="text-blue-500" />}
-                  borderColor={darkMode ? "border-blue-600" : "border-blue-400"}
-                  bgColor={darkMode ? "bg-blue-900/30" : "bg-blue-50"}
+                  borderColor="border-blue-400"
+                  bgColor="bg-blue-50"
                   loading={loadingCards.totalMatriculas}
                   tooltip="Total de alunos matriculados no sistema"
                   tooltipId="total-matriculas"
@@ -1415,8 +1382,8 @@ const Dashboard = () => {
                   label="Escolas"
                   value={formatNumber(data.totalEscolas)}
                   icon={<FaSchool className="text-green-500" />}
-                  borderColor={darkMode ? "border-green-600" : "border-green-400"}
-                  bgColor={darkMode ? "bg-green-900/30" : "bg-green-50"}
+                  borderColor="border-green-400"
+                  bgColor="bg-green-50"
                   loading={loadingCards.totalEscolas}
                   tooltip="Total de escolas ativas no sistema"
                   tooltipId="total-escolas"
@@ -1432,8 +1399,8 @@ const Dashboard = () => {
                   label="Capacidade"
                   value={formatNumber(data.capacidadeTotal)}
                   icon={<FaChalkboardTeacher className="text-indigo-500" />}
-                  borderColor={darkMode ? "border-indigo-600" : "border-indigo-400"}
-                  bgColor={darkMode ? "bg-indigo-900/30" : "bg-indigo-50"}
+                  borderColor="border-indigo-400"
+                  bgColor="bg-indigo-50"
                   loading={loadingCards.capacidadeTotal}
                   tooltip="Capacidade total de alunos no sistema"
                   tooltipId="capacidade-total"
@@ -1449,8 +1416,8 @@ const Dashboard = () => {
                   label="Vagas"
                   value={formatNumber(data.totalVagas)}
                   icon={<FaUsers className="text-teal-500" />}
-                  borderColor={darkMode ? "border-teal-600" : "border-teal-400"}
-                  bgColor={darkMode ? "bg-teal-900/30" : "bg-teal-50"}
+                  borderColor="border-teal-400"
+                  bgColor="bg-teal-50"
                   loading={loadingCards.totalVagas}
                   valueColor={data.totalVagas < 0 ? "red" : "green"}
                   tooltip="Vagas disponíveis no sistema"
@@ -1467,8 +1434,8 @@ const Dashboard = () => {
                   label="Entradas"
                   value={formatNumber(data.totalEntradas)}
                   icon={<FaSignInAlt className="text-yellow-500" />}
-                  borderColor={darkMode ? "border-yellow-600" : "border-yellow-400"}
-                  bgColor={darkMode ? "bg-yellow-900/30" : "bg-yellow-50"}
+                  borderColor="border-yellow-400"
+                  bgColor="bg-yellow-50"
                   loading={loadingCards.totalEntradas}
                   tooltip="Total de matrículas de entrada"
                   tooltipId="total-entradas"
@@ -1484,8 +1451,8 @@ const Dashboard = () => {
                   label="Saídas"
                   value={formatNumber(data.totalSaidas)}
                   icon={<FaSignOutAlt className="text-red-500" />}
-                  borderColor={darkMode ? "border-red-600" : "border-red-400"}
-                  bgColor={darkMode ? "bg-red-900/30" : "bg-red-50"}
+                  borderColor="border-red-400"
+                  bgColor="bg-red-50"
                   loading={loadingCards.totalSaidas}
                   tooltip="Total de matrículas de saída"
                   tooltipId="total-saidas"
@@ -1503,8 +1470,8 @@ const Dashboard = () => {
                   value={`${formatPercent(data.taxaEvasao)}%`}
                   disableFormat={true}
                   icon={<FaExclamationTriangle className="text-orange-500" />}
-                  borderColor={darkMode ? "border-orange-600" : "border-orange-400"}
-                  bgColor={darkMode ? "bg-orange-900/30" : "bg-orange-50"}
+                  borderColor="border-orange-400"
+                  bgColor="bg-orange-50"
                   loading={loadingCards.taxaEvasao}
                   valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
                   tooltip="Percentual de alunos que deixaram o sistema"
@@ -1515,8 +1482,8 @@ const Dashboard = () => {
               {/* Área Principal - Tabela e Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
                 {/* Tabela Detalhes por Escola */}
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
-                  <div className={`p-3 sm:p-4 bg-gradient-to-r ${darkMode ? 'from-gray-700 to-gray-600/80 border-gray-600' : 'from-gray-50 to-gray-100/80 border-gray-200'} border-b flex justify-between items-center`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[400px] border-gray-200/50 border">
+                  <div className="p-3 sm:p-4 bg-gradient-to-r from-gray-50 to-gray-100/80 border-gray-200 border-b flex justify-between items-center">
                     <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
                       <FaSchool className="text-violet-500" />
                       Detalhes por Escola
@@ -1537,7 +1504,7 @@ const Dashboard = () => {
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
-                      className={`p-3 ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'} border-b`}
+                      className="p-3 bg-white border-gray-200 border-b"
                     >
                       <input
                         type="text"
@@ -1545,11 +1512,7 @@ const Dashboard = () => {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
                         style={{ textTransform: "uppercase" }}
-                        className={`w-full p-3 border rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent ${
-                          darkMode 
-                            ? 'bg-gray-600 border-gray-500 text-white placeholder-gray-400' 
-                            : 'border-gray-300 text-gray-800'
-                        }`}
+                        className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent text-gray-800"
                       />
                     </motion.div>
                   )}
@@ -1567,7 +1530,6 @@ const Dashboard = () => {
                           selectedSchool={selectedSchool}
                           handleSchoolClick={handleSchoolClick}
                           loading={loadingTable}
-                          darkMode={darkMode}
                         />
                       </Suspense>
                     )}
@@ -1575,7 +1537,7 @@ const Dashboard = () => {
                 </div>
                 
                 {/* Gráfico Movimentação Mensal */}
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaSync className="text-violet-500" />
                     Movimentação Mensal
@@ -1589,7 +1551,6 @@ const Dashboard = () => {
                           data={chartData.movimentacao}
                           options={chartOptions.movimentacao}
                           loading={loadingGraphMov}
-                          darkMode={darkMode}
                         />
                       </Suspense>
                     )}
@@ -1600,7 +1561,7 @@ const Dashboard = () => {
               {/* Gráficos Adicionais */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
                 {/* Gráfico Matrículas por Sexo */}
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaUserGraduate className="text-violet-500" />
                     Matrículas por Sexo
@@ -1614,7 +1575,6 @@ const Dashboard = () => {
                           data={chartData.sexo}
                           options={chartOptions.sexo}
                           loading={loadingPieSexo}
-                          darkMode={darkMode}
                         />
                       </Suspense>
                     )}
@@ -1622,7 +1582,7 @@ const Dashboard = () => {
                 </div>
                 
                 {/* Gráfico Matrículas por Turno */}
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[300px] border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaChalkboardTeacher className="text-violet-500" />
                     Matrículas por Turno
@@ -1636,7 +1596,6 @@ const Dashboard = () => {
                           data={chartData.turno}
                           options={chartOptions.turno}
                           loading={loadingBarTurno}
-                          darkMode={darkMode}
                         />
                       </Suspense>
                     )}
@@ -1657,8 +1616,8 @@ const Dashboard = () => {
                   value={`${formatPercent(data.taxaOcupacao)}%`}
                   disableFormat={true}
                   icon={<FaUsers className="text-indigo-500" />}
-                  borderColor={darkMode ? "border-indigo-600" : "border-indigo-400"}
-                  bgColor={darkMode ? "bg-indigo-900/30" : "bg-indigo-50"}
+                  borderColor="border-indigo-400"
+                  bgColor="bg-indigo-50"
                   loading={loadingCards.taxaOcupacao}
                   valueColor={data.taxaOcupacao > 90 ? "orange" : "green"}
                   tooltip="Percentual de ocupação das vagas disponíveis"
@@ -1669,15 +1628,15 @@ const Dashboard = () => {
                   label="Transporte Escolar"
                   value={formatNumber(data.alunosTransporteEscolar)}
                   icon={<FaBus className="text-amber-500" />}
-                  borderColor={darkMode ? "border-amber-600" : "border-amber-400"}
-                  bgColor={darkMode ? "bg-amber-900/30" : "bg-amber-50"}
+                  borderColor="border-amber-400"
+                  bgColor="bg-amber-50"
                   loading={loadingCards.transporteEscolar}
                   tooltip="Alunos que utilizam transporte escolar"
                   tooltipId="transporte-escolar"
                   additionalContent={
-                    <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
+                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
-                      <span className={darkMode ? "text-gray-400" : "text-gray-600"}> do total</span>
+                      <span className="text-gray-600"> do total</span>
                     </div>
                   }
                 />
@@ -1688,14 +1647,14 @@ const Dashboard = () => {
                   value={`${formatPercent(data.taxaEvasao)}%`}
                   disableFormat={true}
                   icon={<FaExclamationTriangle className="text-red-500" />}
-                  borderColor={darkMode ? "border-red-600" : "border-red-400"}
-                  bgColor={darkMode ? "bg-red-900/30" : "bg-red-50"}
+                  borderColor="border-red-400"
+                  bgColor="bg-red-50"
                   loading={loadingCards.taxaEvasao}
                   valueColor={data.taxaEvasao > 10 ? "red" : "green"}
                   tooltip="Percentual de evasão escolar"
                   tooltipId="taxa-evasao-analytics"
                   additionalContent={
-                    <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
+                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
                       <span className={data.taxaEvasao > 10 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
                         {data.taxaEvasao > 10 ? "Alerta" : "Normal"}
                       </span>
@@ -1707,15 +1666,15 @@ const Dashboard = () => {
                   label="Com Deficiência"
                   value={formatNumber(data.alunosComDeficiencia)}
                   icon={<FaWheelchair className="text-teal-500" />}
-                  borderColor={darkMode ? "border-teal-600" : "border-teal-400"}
-                  bgColor={darkMode ? "bg-teal-900/30" : "bg-teal-50"}
+                  borderColor="border-teal-400"
+                  bgColor="bg-teal-50"
                   loading={loadingCards.alunosDeficiencia}
                   tooltip="Alunos com necessidades especiais"
                   tooltipId="alunos-deficiencia"
                   additionalContent={
-                    <div className={`mt-3 pt-3 border-t ${darkMode ? 'border-gray-600/50' : 'border-gray-200/50'} text-xs text-center`}>
+                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
-                      <span className={darkMode ? "text-gray-400" : "text-gray-600"}> do total</span>
+                      <span className="text-gray-600"> do total</span>
                     </div>
                   }
                 />
@@ -1723,7 +1682,7 @@ const Dashboard = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                 {/* Gráfico Situação da Matrícula */}
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaClock className="text-violet-500" />
                     Situação da Matrícula
@@ -1737,7 +1696,6 @@ const Dashboard = () => {
                           data={chartData.situacao}
                           options={chartOptions.situacao}
                           loading={loadingSituacao}
-                          darkMode={darkMode}
                         />
                       </Suspense>
                     )}
@@ -1745,7 +1703,7 @@ const Dashboard = () => {
                 </div>
 
                 {/* Gráfico Evolução de Matrículas */}
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaChartLine className="text-violet-500" />
                     Evolução de Matrículas
@@ -1759,7 +1717,6 @@ const Dashboard = () => {
                           data={chartData.evolucao}
                           options={chartOptions.evolucao}
                           loading={loadingEvolucao}
-                          darkMode={darkMode}
                         />
                       </Suspense>
                     )}
@@ -1772,7 +1729,7 @@ const Dashboard = () => {
           {/* ABA: VISÃO GEOGRÁFICA */}
           {activeTab === "geographic" && (
             <div className="space-y-4 sm:space-y-6">
-              <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[500px] sm:h-[600px] ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+              <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[500px] sm:h-[600px] border-gray-200/50 border">
                 <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                   <FaMapMarkerAlt className="text-violet-500" />
                   Mapa de Calor das Escolas
@@ -1787,7 +1744,6 @@ const Dashboard = () => {
                       <MapaCalorEscolas 
                         escolas={data.escolas}
                         loading={loadingMapa}
-                        darkMode={darkMode}
                       />
                     </Suspense>
                   )}
@@ -1795,27 +1751,27 @@ const Dashboard = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaCity className="text-violet-500" />
                     Distribuição por Zona
                   </h3>
                   <div className="space-y-4">
-                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
-                      <span className={`font-semibold ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>Urbana</span>
-                      <span className={`font-bold ${darkMode ? 'text-blue-300' : 'text-blue-900'}`}>
+                    <div className="flex justify-between items-center p-3 rounded-lg bg-blue-50">
+                      <span className="font-semibold text-blue-700">Urbana</span>
+                      <span className="font-bold text-blue-900">
                         {formatNumber(data.matriculasPorZona?.["URBANA"])} 
-                        <span className={`text-sm ${darkMode ? 'text-blue-400' : 'text-blue-600'} ml-2`}>
+                        <span className="text-sm text-blue-600 ml-2">
                           ({data.matriculasPorZona?.["URBANA"] && data.totalMatriculas ? 
                           ((data.matriculasPorZona["URBANA"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
                         </span>
                       </span>
                     </div>
-                    <div className={`flex justify-between items-center p-3 rounded-lg ${darkMode ? 'bg-green-900/30' : 'bg-green-50'}`}>
-                      <span className={`font-semibold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>Rural</span>
-                      <span className={`font-bold ${darkMode ? 'text-green-300' : 'text-green-900'}`}>
+                    <div className="flex justify-between items-center p-3 rounded-lg bg-green-50">
+                      <span className="font-semibold text-green-700">Rural</span>
+                      <span className="font-bold text-green-900">
                         {formatNumber(data.matriculasPorZona?.["RURAL"])}
-                        <span className={`text-sm ${darkMode ? 'text-green-400' : 'text-green-600'} ml-2`}>
+                        <span className="text-sm text-green-600 ml-2">
                           ({data.matriculasPorZona?.["RURAL"] && data.totalMatriculas ? 
                           ((data.matriculasPorZona["RURAL"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
                         </span>
@@ -1824,7 +1780,7 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                <div className={`${darkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 ${darkMode ? 'border-gray-700/50' : 'border-gray-200/50'} border`}>
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaSchool className="text-violet-500" />
                     Densidade Escolar
@@ -1835,16 +1791,16 @@ const Dashboard = () => {
                         {data.totalEscolas && data.totalMatriculas ? 
                           Math.round(data.totalMatriculas / data.totalEscolas) : 0}
                       </div>
-                      <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Alunos por escola (média)</div>
+                      <div className="text-sm text-gray-600">Alunos por escola (média)</div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-center">
-                      <div className={`p-2 rounded ${darkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
-                        <div className={`font-bold ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>{data.escolasPorZona?.["URBANA"] || 0}</div>
-                        <div className={`text-xs ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>Escolas Urbanas</div>
+                      <div className="p-2 rounded bg-blue-50">
+                        <div className="font-bold text-blue-700">{data.escolasPorZona?.["URBANA"] || 0}</div>
+                        <div className="text-xs text-blue-600">Escolas Urbanas</div>
                       </div>
-                      <div className={`p-2 rounded ${darkMode ? 'bg-green-900/30' : 'bg-green-50'}`}>
-                        <div className={`font-bold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>{data.escolasPorZona?.["RURAL"] || 0}</div>
-                        <div className={`text-xs ${darkMode ? 'text-green-300' : 'text-green-600'}`}>Escolas Rurais</div>
+                      <div className="p-2 rounded bg-green-50">
+                        <div className="font-bold text-green-700">{data.escolasPorZona?.["RURAL"] || 0}</div>
+                        <div className="text-xs text-green-600">Escolas Rurais</div>
                       </div>
                     </div>
                   </div>
@@ -1872,16 +1828,16 @@ const Dashboard = () => {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: -400, opacity: 0 }}
                 transition={{ duration: 0.3, type: "spring", bounce: 0.1 }}
-                className={`fixed inset-y-0 left-0 ${darkMode ? 'bg-gray-800' : 'bg-white'} w-80 md:w-96 p-6 shadow-2xl z-50 ${darkMode ? 'border-gray-700/60' : 'border-gray-200/60'} border-r overflow-y-auto`}
+                className="fixed inset-y-0 left-0 bg-white w-80 md:w-96 p-6 shadow-2xl z-50 border-gray-200/60 border-r overflow-y-auto"
               >
-                <div className={`flex justify-between items-center mb-8 pb-4 ${darkMode ? 'border-gray-700' : 'border-gray-200'} border-b`}>
+                <div className="flex justify-between items-center mb-8 pb-4 border-gray-200 border-b">
                   <h2 className="text-2xl font-bold flex items-center gap-2">
                     <FaFilter className="text-violet-500" />
                     Filtros
                   </h2>
                   <button 
                     onClick={() => setShowSidebar(false)} 
-                    className={`text-gray-500 hover:text-violet-600 transition-colors text-2xl ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} p-2 rounded-xl ${darkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-200'}`}
+                    className="text-gray-500 hover:text-violet-600 transition-colors text-2xl bg-gray-100 p-2 rounded-xl hover:bg-gray-200"
                   >
                     ✕
                   </button>
@@ -1894,7 +1850,6 @@ const Dashboard = () => {
                     options={filters.ano_letivo}
                     value={selectedFilters.anoLetivo}
                     onChange={handleFilterChange}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Tipo Matrícula"
@@ -1902,7 +1857,6 @@ const Dashboard = () => {
                     options={filters.tipo_matricula}
                     value={selectedFilters.tipoMatricula}
                     onChange={handleFilterChange}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Situação Matrícula"
@@ -1910,7 +1864,6 @@ const Dashboard = () => {
                     options={filters.situacao_matricula}
                     value={selectedFilters.situacaoMatricula}
                     onChange={handleFilterChange}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Grupo Etapa"
@@ -1918,7 +1871,6 @@ const Dashboard = () => {
                     options={filters.grupo_etapa}
                     value={selectedFilters.grupoEtapa}
                     onChange={handleFilterChange}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Etapa Matrícula"
@@ -1927,7 +1879,6 @@ const Dashboard = () => {
                     value={selectedFilters.etapaMatricula}
                     onChange={handleFilterChange}
                     disabled={selectedFilters.etapaTurma !== ""}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Etapa Turma"
@@ -1936,7 +1887,6 @@ const Dashboard = () => {
                     value={selectedFilters.etapaTurma}
                     onChange={handleFilterChange}
                     disabled={selectedFilters.etapaMatricula !== ""}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Multissérie"
@@ -1944,7 +1894,6 @@ const Dashboard = () => {
                     options={filters.multisserie}
                     value={selectedFilters.multisserie}
                     onChange={handleFilterChange}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Deficiência"
@@ -1952,7 +1901,6 @@ const Dashboard = () => {
                     options={filters.deficiencia}
                     value={selectedFilters.deficiencia}
                     onChange={handleFilterChange}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Transporte Escolar"
@@ -1960,7 +1908,6 @@ const Dashboard = () => {
                     options={filters.transporte_escolar}
                     value={selectedFilters.transporteEscolar}
                     onChange={handleFilterChange}
-                    darkMode={darkMode}
                   />
                   <FilterSelect
                     label="Tipo Transporte"
@@ -1969,11 +1916,10 @@ const Dashboard = () => {
                     value={selectedFilters.tipoTransporte}
                     onChange={handleFilterChange}
                     disabled={selectedFilters.transporteEscolar !== "SIM"}
-                    darkMode={darkMode}
                   />
                 </div>
                 
-                <div className={`mt-8 pt-6 ${darkMode ? 'border-gray-700' : 'border-gray-200'} border-t flex justify-center`}>
+                <div className="mt-8 pt-6 border-gray-200 border-t flex justify-center">
                   <button
                     onClick={() => {
                       const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
@@ -2002,12 +1948,12 @@ const Dashboard = () => {
                 </div>
 
                 {/* Informações de Cache */}
-                <div className={`mt-6 p-4 rounded-lg ${darkMode ? 'bg-gray-700/50' : 'bg-gray-100/80'} text-sm`}>
+                <div className="mt-6 p-4 rounded-lg bg-gray-100/80 text-sm">
                   <div className="flex items-center gap-2 mb-2">
                     <FaDatabase className="text-violet-500" />
                     <span className="font-semibold">Sistema de Cache</span>
                   </div>
-                  <p className={darkMode ? 'text-gray-300' : 'text-gray-600'}>
+                  <p className="text-gray-600">
                     Seus filtros e preferências são salvos automaticamente.
                   </p>
                 </div>
@@ -2016,7 +1962,7 @@ const Dashboard = () => {
           )}
         </AnimatePresence>
       </div>
-    </DarkModeContext.Provider>
+    </AppContext.Provider>
   );
 };
 

@@ -142,7 +142,7 @@ const buscarFiltros = async (req, res) => {
 };
 
 /* ============================================================
- * Totais (CORRIGIDO - campos em camelCase para o frontend)
+ * Totais (COM DADOS URBANA/RURAL PARA ENTRADAS, SAÍDAS E EVASÃO)
  * ============================================================ */
 const buscarTotais = async (req, res) => {
   try {
@@ -167,7 +167,7 @@ const buscarTotais = async (req, res) => {
 
     const { clause, params } = buildWhereClause(filters, req.user);
 
-    // QUERY CORRIGIDA baseada no controller antigo que funcionava
+    // QUERY ATUALIZADA com dados Urbana/Rural para Entradas, Saídas e Evasão
     const query = `
       WITH base_filtrada AS (
         SELECT * FROM dados_matriculas WHERE ${clause}
@@ -219,6 +219,37 @@ const buscarTotais = async (req, res) => {
           COUNT(DISTINCT idmatricula) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-') AS total_entradas,
           COUNT(DISTINCT idmatricula) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-') AS total_saidas
         FROM base_sem_especiais
+      ),
+
+      /* >>> NOVO: Entradas por zona_aluno */
+      entradas_por_zona AS (
+        SELECT 
+          COALESCE(zona_aluno, 'Sem informação') AS zona,
+          COUNT(DISTINCT idmatricula) AS total
+        FROM base_sem_especiais
+        WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-'
+        GROUP BY COALESCE(zona_aluno, 'Sem informação')
+      ),
+
+      /* >>> NOVO: Saídas por zona_aluno */
+      saidas_por_zona AS (
+        SELECT 
+          COALESCE(zona_aluno, 'Sem informação') AS zona,
+          COUNT(DISTINCT idmatricula) AS total
+        FROM base_sem_especiais
+        WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao != '-'
+        GROUP BY COALESCE(zona_aluno, 'Sem informação')
+      ),
+
+      /* >>> NOVO: Desistentes por zona_aluno (para cálculo de evasão por zona) */
+      desistentes_por_zona AS (
+        SELECT 
+          COALESCE(zona_aluno, 'Sem informação') AS zona,
+          COUNT(DISTINCT idmatricula) AS total_desistentes,
+          COUNT(DISTINCT idmatricula) AS total_matriculas_zona
+        FROM base_sem_especiais
+        WHERE COALESCE(idsituacao,0) = 2
+        GROUP BY COALESCE(zona_aluno, 'Sem informação')
       ),
 
       /* Totais de capacidade baseados nas escolas */
@@ -300,6 +331,25 @@ const buscarTotais = async (req, res) => {
           END AS taxa_ocupacao
       ),
 
+      /* >>> NOVO: Cálculo de taxa de evasão por zona */
+      taxas_evasao_por_zona AS (
+        SELECT
+          dz.zona,
+          COALESCE(dz.total_desistentes, 0) AS desistentes,
+          COALESCE(mz.total, 0) AS total_matriculas_zona,
+          CASE 
+            WHEN COALESCE(mz.total, 0) > 0 
+            THEN ROUND((COALESCE(dz.total_desistentes, 0) * 100.0 / mz.total), 2)
+            ELSE 0
+          END AS taxa_evasao_zona
+        FROM desistentes_por_zona dz
+        LEFT JOIN (
+          SELECT COALESCE(zona_aluno, 'Sem informação') AS zona, COUNT(DISTINCT idmatricula) AS total
+          FROM base_sem_especiais
+          GROUP BY COALESCE(zona_aluno, 'Sem informação')
+        ) mz ON dz.zona = mz.zona
+      ),
+
       /* >>> CORREÇÃO: Capacidade por zona baseada nas escolas */
       capacidade_por_zona AS (
         SELECT
@@ -368,6 +418,19 @@ const buscarTotais = async (req, res) => {
         (SELECT COALESCE(json_object_agg(mes, json_build_object('entradas', entradas, 'saidas', saidas)),'{}'::json) 
            FROM movimentacao_mensal) AS entradas_saidas_por_mes,
 
+        /* >>> NOVO: Entradas por zona */
+        (SELECT COALESCE(json_object_agg(zona, total), '{}'::json) FROM entradas_por_zona) AS entradas_por_zona,
+
+        /* >>> NOVO: Saídas por zona */
+        (SELECT COALESCE(json_object_agg(zona, total), '{}'::json) FROM saidas_por_zona) AS saidas_por_zona,
+
+        /* >>> NOVO: Taxa de evasão por zona */
+        (SELECT COALESCE(json_object_agg(zona, json_build_object(
+          'desistentes', desistentes,
+          'total_matriculas', total_matriculas_zona,
+          'taxa_evasao', taxa_evasao_zona
+        )), '{}'::json) FROM taxas_evasao_por_zona) AS evasao_por_zona,
+
         /* Turmas por zona para cards Urbana/Rural */
         (SELECT COALESCE(json_object_agg(zona, qtd_turmas), '{}'::json) 
          FROM turmas_por_zona 
@@ -433,6 +496,18 @@ const buscarTotais = async (req, res) => {
     const capacidadeRural = row.capacidade_por_zona?.['RURAL']?.capacidade || 0;
     const vagasUrbana = row.capacidade_por_zona?.['URBANA']?.vagas || 0;
     const vagasRural = row.capacidade_por_zona?.['RURAL']?.vagas || 0;
+    
+    // >>> NOVO: Dados para Entradas e Saídas por zona_aluno
+    const entradasUrbana = row.entradas_por_zona?.['URBANA'] || 0;
+    const entradasRural = row.entradas_por_zona?.['RURAL'] || 0;
+    const saidasUrbana = row.saidas_por_zona?.['URBANA'] || 0;
+    const saidasRural = row.saidas_por_zona?.['RURAL'] || 0;
+    
+    // >>> NOVO: Dados para Taxa de Evasão por zona_aluno
+    const evasaoUrbana = row.evasao_por_zona?.['URBANA']?.taxa_evasao || 0;
+    const evasaoRural = row.evasao_por_zona?.['RURAL']?.taxa_evasao || 0;
+    const desistentesUrbana = row.evasao_por_zona?.['URBANA']?.desistentes || 0;
+    const desistentesRural = row.evasao_por_zona?.['RURAL']?.desistentes || 0;
 
     // >>> CORREÇÃO: ResponseData com campos em camelCase para o frontend
     const responseData = {
@@ -466,7 +541,7 @@ const buscarTotais = async (req, res) => {
       escolasPorZona: row.escolas_por_zona || {},
       ultimaAtualizacao: row.ultima_atualizacao,
 
-      // >>> NOVO: Dados calculados para os detalhes dos cards (URBANA/RURAL)
+      // >>> ATUALIZADO: Dados calculados para os detalhes dos cards (URBANA/RURAL)
       detalhesZona: {
         matriculas: { 
           urbana: matriculasUrbana, 
@@ -487,6 +562,24 @@ const buscarTotais = async (req, res) => {
         vagas: {
           urbana: vagasUrbana,
           rural: vagasRural
+        },
+        // >>> NOVO: Dados para Entradas e Saídas
+        entradas: {
+          urbana: entradasUrbana,
+          rural: entradasRural
+        },
+        saidas: {
+          urbana: saidasUrbana,
+          rural: saidasRural
+        },
+        // >>> NOVO: Dados para Taxa de Evasão
+        evasao: {
+          urbana: evasaoUrbana,
+          rural: evasaoRural,
+          desistentes: {
+            urbana: desistentesUrbana,
+            rural: desistentesRural
+          }
         }
       }
     };
@@ -494,7 +587,12 @@ const buscarTotais = async (req, res) => {
     console.log('Dados processados para frontend:', {
       capacidadeTotal: responseData.capacidadeTotal,
       totalVagas: responseData.totalVagas,
-      detalhesZona: responseData.detalhesZona
+      entradasUrbana: entradasUrbana,
+      entradasRural: entradasRural,
+      saidasUrbana: saidasUrbana,
+      saidasRural: saidasRural,
+      evasaoUrbana: evasaoUrbana,
+      evasaoRural: evasaoRural
     });
 
     // CONSISTÊNCIA entre total e zonas (mantido)
