@@ -7,8 +7,8 @@ const formatNumber = (num) => {
     return "0";
   }
   
-  // CORREÇÃO: Usar Math.floor para garantir número inteiro
-  const number = Math.floor(Number(num)) || 0;
+  // CORREÇÃO: Usar parseFloat para lidar com números decimais também
+  const number = parseFloat(num) || 0;
   
   // CORREÇÃO: Usar Intl.NumberFormat para formatação confiável
   return new Intl.NumberFormat('pt-BR').format(number);

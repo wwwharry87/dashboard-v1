@@ -1411,133 +1411,116 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* Grid de Cartões Principais CORRIGIDOS */}
-              <div className="grid grid-cols-2 min-[320px]:grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1024px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
-                <Card
-                  label="Matrículas"
-                  value={formatNumber(data.totalMatriculas)}
-                  icon={<FaUserGraduate className="text-blue-500" />}
-                  borderColor="border-blue-400"
-                  bgColor="bg-blue-50"
-                  loading={loadingCards.totalMatriculas}
-                  tooltip="Total de alunos matriculados no sistema"
-                  tooltipId="total-matriculas"
-                  additionalContent={
-                    <ZonaDetails 
-                      urbana={data.matriculasPorZona?.["URBANA"]}
-                      rural={data.matriculasPorZona?.["RURAL"]}
-                    />
-                  }
-                />
-                
-                <Card
-                  label="Escolas"
-                  value={formatNumber(data.totalEscolas)}
-                  icon={<FaSchool className="text-green-500" />}
-                  borderColor="border-green-400"
-                  bgColor="bg-green-50"
-                  loading={loadingCards.totalEscolas}
-                  tooltip="Total de escolas ativas no sistema"
-                  tooltipId="total-escolas"
-                  additionalContent={
-                    <ZonaEscolasDetails 
-                      urbana={data.escolasPorZona?.["URBANA"]}
-                      rural={data.escolasPorZona?.["RURAL"]}
-                    />
-                  }
-                />
-                
-                <Card
-                  label="Capacidade"
-                  value={formatNumber(data.capacidadeTotal)}
-                  icon={<FaChalkboardTeacher className="text-indigo-500" />}
-                  borderColor="border-indigo-400"
-                  bgColor="bg-indigo-50"
-                  loading={loadingCards.capacidadeTotal}
-                  tooltip="Capacidade total de alunos no sistema"
-                  tooltipId="capacidade-total"
-                  additionalContent={
-                    <ZonaDetails 
-                      urbana={data.capacidadePorZona?.["URBANA"]?.capacidade || 0}
-                      rural={data.capacidadePorZona?.["RURAL"]?.capacidade || 0}
-                    />
-                  }
-                />
-                
-                <Card
-                  label="Vagas"
-                  value={formatNumber(data.totalVagas)}
-                  icon={<FaUsers className="text-teal-500" />}
-                  borderColor="border-teal-400"
-                  bgColor="bg-teal-50"
-                  loading={loadingCards.totalVagas}
-                  valueColor={data.totalVagas < 0 ? "red" : "green"}
-                  tooltip="Vagas disponíveis no sistema"
-                  tooltipId="total-vagas"
-                  additionalContent={
-                    <ZonaDetails 
-                      urbana={data.capacidadePorZona?.["URBANA"]?.vagas || 0}
-                      rural={data.capacidadePorZona?.["RURAL"]?.vagas || 0}
-                    />
-                  }
-                />
-                
-                {/* CORREÇÃO: Card de Entradas com dados corretos */}
-                <Card
-                  label="Entradas"
-                  value={formatNumber(data.totalEntradas)}
-                  icon={<FaSignInAlt className="text-yellow-500" />}
-                  borderColor="border-yellow-400"
-                  bgColor="bg-yellow-50"
-                  loading={loadingCards.totalEntradas}
-                  tooltip="Total de matrículas de entrada"
-                  tooltipId="total-entradas"
-                  additionalContent={
-                    <ZonaDetails 
-                      urbana={data.detalhesZona?.entradas?.urbana || 0}
-                      rural={data.detalhesZona?.entradas?.rural || 0}
-                    />
-                  }
-                />
-                
-                {/* CORREÇÃO: Card de Saídas com dados corretos */}
-                <Card
-                  label="Saídas"
-                  value={formatNumber(data.totalSaidas)}
-                  icon={<FaSignOutAlt className="text-red-500" />}
-                  borderColor="border-red-400"
-                  bgColor="bg-red-50"
-                  loading={loadingCards.totalSaidas}
-                  tooltip="Total de matrículas de saída"
-                  tooltipId="total-saidas"
-                  additionalContent={
-                    <ZonaDetails 
-                      urbana={data.detalhesZona?.saidas?.urbana || 0}
-                      rural={data.detalhesZona?.saidas?.rural || 0}
-                    />
-                  }
-                />
+              {/* Grid de Cartões Principais CORRIGIDOS - VALORES BRUTOS */}
+<div className="grid grid-cols-2 min-[320px]:grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1024px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
+  <Card
+    label="Matrículas"
+    value={data.totalMatriculas} // VALOR BRUTO - SEM formatNumber
+    icon={<FaUserGraduate className="text-blue-500" />}
+    borderColor="border-blue-400"
+    bgColor="bg-blue-50"
+    loading={loadingCards.totalMatriculas}
+    additionalContent={
+      <ZonaDetails 
+        urbana={data.matriculasPorZona?.["URBANA"]}
+        rural={data.matriculasPorZona?.["RURAL"]}
+      />
+    }
+  />
+  
+  <Card
+    label="Escolas"
+    value={data.totalEscolas} // VALOR BRUTO - SEM formatNumber
+    icon={<FaSchool className="text-green-500" />}
+    borderColor="border-green-400"
+    bgColor="bg-green-50"
+    loading={loadingCards.totalEscolas}
+    additionalContent={
+      <ZonaEscolasDetails 
+        urbana={data.escolasPorZona?.["URBANA"]}
+        rural={data.escolasPorZona?.["RURAL"]}
+      />
+    }
+  />
+  
+  <Card
+    label="Capacidade"
+    value={data.capacidadeTotal} // VALOR BRUTO - SEM formatNumber
+    icon={<FaChalkboardTeacher className="text-indigo-500" />}
+    borderColor="border-indigo-400"
+    bgColor="bg-indigo-50"
+    loading={loadingCards.capacidadeTotal}
+    additionalContent={
+      <ZonaDetails 
+        urbana={data.capacidadePorZona?.["URBANA"]?.capacidade || 0}
+        rural={data.capacidadePorZona?.["RURAL"]?.capacidade || 0}
+      />
+    }
+  />
+  
+  <Card
+    label="Vagas"
+    value={data.totalVagas} // VALOR BRUTO - SEM formatNumber
+    icon={<FaUsers className="text-teal-500" />}
+    borderColor="border-teal-400"
+    bgColor="bg-teal-50"
+    loading={loadingCards.totalVagas}
+    valueColor={data.totalVagas < 0 ? "red" : "green"}
+    additionalContent={
+      <ZonaDetails 
+        urbana={data.capacidadePorZona?.["URBANA"]?.vagas || 0}
+        rural={data.capacidadePorZona?.["RURAL"]?.vagas || 0}
+      />
+    }
+  />
+  
+  <Card
+    label="Entradas"
+    value={data.totalEntradas} // VALOR BRUTO - SEM formatNumber
+    icon={<FaSignInAlt className="text-yellow-500" />}
+    borderColor="border-yellow-400"
+    bgColor="bg-yellow-50"
+    loading={loadingCards.totalEntradas}
+    additionalContent={
+      <ZonaDetails 
+        urbana={data.detalhesZona?.entradas?.urbana || 0}
+        rural={data.detalhesZona?.entradas?.rural || 0}
+      />
+    }
+  />
+  
+  <Card
+    label="Saídas"
+    value={data.totalSaidas} // VALOR BRUTO - SEM formatNumber
+    icon={<FaSignOutAlt className="text-red-500" />}
+    borderColor="border-red-400"
+    bgColor="bg-red-50"
+    loading={loadingCards.totalSaidas}
+    additionalContent={
+      <ZonaDetails 
+        urbana={data.detalhesZona?.saidas?.urbana || 0}
+        rural={data.detalhesZona?.saidas?.rural || 0}
+      />
+    }
+  />
 
-                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão com detalhes Urbana/Rural */}
-                <Card
-                  label="Taxa Evasão"
-                  value={`${formatPercent(data.taxaEvasao)}%`}
-                  disableFormat={true}
-                  icon={<FaExclamationTriangle className="text-orange-500" />}
-                  borderColor="border-orange-400"
-                  bgColor="bg-orange-50"
-                  loading={loadingCards.taxaEvasao}
-                  valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
-                  tooltip="Percentual de alunos que deixaram o sistema"
-                  tooltipId="taxa-evasao"
-                  additionalContent={
-                    <ZonaEvasaoDetails 
-                      urbana={data.detalhesZona?.evasao?.urbana || 0}
-                      rural={data.detalhesZona?.evasao?.rural || 0}
-                    />
-                  }
-                />
-              </div>
+  <Card
+    label="Taxa Evasão"
+    value={`${formatPercent(data.taxaEvasao)}%`}
+    disableFormat={true} // MANTEM disableFormat=true pois já está formatado
+    icon={<FaExclamationTriangle className="text-orange-500" />}
+    borderColor="border-orange-400"
+    bgColor="bg-orange-50"
+    loading={loadingCards.taxaEvasao}
+    valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
+    additionalContent={
+      <ZonaEvasaoDetails 
+        urbana={data.detalhesZona?.evasao?.urbana || 0}
+        rural={data.detalhesZona?.evasao?.rural || 0}
+      />
+    }
+  />
+</div>
 
               {/* Área Principal - Tabela e Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-4 sm:mb-6">
