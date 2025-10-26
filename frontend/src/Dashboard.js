@@ -1,4 +1,4 @@
-// Dashboard.js - Versão Melhorada
+// Dashboard.js - VERSÃO CORRIGIDA
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
@@ -234,6 +234,30 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
         <span>Rural:</span>
       </div>
       <span className="font-bold">{formatNumber(rural)}</span>
+    </div>
+  </motion.div>
+);
+
+// NOVO: Componente para mostrar detalhes de evasão por zona
+const ZonaEvasaoDetails = ({ urbana, rural }) => (
+  <motion.div 
+    initial={{ opacity: 0, height: 0 }}
+    animate={{ opacity: 1, height: "auto" }}
+    className="mt-3 pt-3 border-t border-gray-200/50"
+  >
+    <div className="flex justify-between items-center text-xs">
+      <div className="flex items-center gap-1 text-blue-600">
+        <FaCity className="text-xs" />
+        <span>Urbana:</span>
+      </div>
+      <span className="font-bold">{formatPercent(urbana)}%</span>
+    </div>
+    <div className="flex justify-between items-center text-xs mt-1">
+      <div className="flex items-center gap-1 text-green-600">
+        <FaTree className="text-xs" />
+        <span>Rural:</span>
+      </div>
+      <span className="font-bold">{formatPercent(rural)}%</span>
     </div>
   </motion.div>
 );
@@ -609,6 +633,12 @@ const Dashboard = () => {
     alunosTransporteEscolar: null,
     taxaEvasao: null,
     taxaOcupacao: null,
+    // NOVOS CAMPOS PARA DADOS CORRIGIDOS
+    detalhesZona: {
+      entradas: { urbana: 0, rural: 0 },
+      saidas: { urbana: 0, rural: 0 },
+      evasao: { urbana: 0, rural: 0 }
+    }
   });
 
   // Verificar se há algum loading ativo
@@ -791,7 +821,13 @@ const Dashboard = () => {
         matriculasPorTurno: totaisData.matriculasPorTurno || {},
         matriculasPorSituacao: totaisData.matriculasPorSituacao || {},
         evolucaoMatriculas: totaisData.evolucaoMatriculas || {},
-        escolas: totaisData.escolas || []
+        escolas: totaisData.escolas || [],
+        // CORREÇÃO: Garantir que detalhesZona exista
+        detalhesZona: totaisData.detalhesZona || {
+          entradas: { urbana: 0, rural: 0 },
+          saidas: { urbana: 0, rural: 0 },
+          evasao: { urbana: 0, rural: 0 }
+        }
       };
 
       setData(safeData);
@@ -819,10 +855,13 @@ const Dashboard = () => {
       setLoadingMapa(false);
       setGlobalLoading(false);
 
-      console.log('Dados processados:', {
+      console.log('Dados processados para frontend:', {
         totalMatriculas: safeData.totalMatriculas,
         taxaEvasao: safeData.taxaEvasao,
-        taxaOcupacao: safeData.taxaOcupacao
+        taxaOcupacao: safeData.taxaOcupacao,
+        entradasUrbana: safeData.detalhesZona?.entradas?.urbana,
+        entradasRural: safeData.detalhesZona?.entradas?.rural,
+        evolucaoMatriculas: safeData.evolucaoMatriculas
       });
 
       if (Object.keys(filtros).some(key => filtros[key])) {
@@ -864,7 +903,12 @@ const Dashboard = () => {
             evolucaoMatriculas: {},
             matriculasPorZona: {},
             escolasPorZona: {},
-            turmasPorZona: {}
+            turmasPorZona: {},
+            detalhesZona: {
+              entradas: { urbana: 0, rural: 0 },
+              saidas: { urbana: 0, rural: 0 },
+              evasao: { urbana: 0, rural: 0 }
+            }
           }));
         }
       }
@@ -959,7 +1003,7 @@ const Dashboard = () => {
     navigate("/login", { replace: true });
   }, [navigate]);
 
-  // Memoização dos dados para gráficos
+  // CORREÇÃO: Memoização dos dados para gráficos - incluindo evolução
   const chartData = useMemo(() => {
     // Ordenar meses cronologicamente para movimentação
     const mesesOrdenados = Object.keys(data.entradasSaidasPorMes || {})
@@ -978,6 +1022,29 @@ const Dashboard = () => {
 
     const entradasOrdenadas = mesesOrdenados.map(mes => data.entradasSaidasPorMes[mes]?.entradas || 0);
     const saidasOrdenadas = mesesOrdenados.map(mes => data.entradasSaidasPorMes[mes]?.saidas || 0);
+
+    // CORREÇÃO: Dados para evolução de matrículas
+    let evolucaoLabels = [];
+    let evolucaoData = [];
+
+    if (data.evolucaoMatriculas && Object.keys(data.evolucaoMatriculas).length > 0) {
+      // Pegar o ano mais recente para mostrar
+      const ultimoAno = Object.keys(data.evolucaoMatriculas).sort().pop();
+      const dadosUltimoAno = data.evolucaoMatriculas[ultimoAno];
+      
+      if (dadosUltimoAno) {
+        evolucaoLabels = Object.keys(dadosUltimoAno)
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(mes => {
+            const mesIndex = parseInt(mes) - 1;
+            return nomesMeses[mesIndex] || mes;
+          });
+        
+        evolucaoData = Object.keys(dadosUltimoAno)
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(mes => dadosUltimoAno[mes] || 0);
+      }
+    }
 
     return {
       movimentacao: {
@@ -1047,11 +1114,11 @@ const Dashboard = () => {
         ],
       },
       evolucao: {
-        labels: Object.keys(data.evolucaoMatriculas || {}),
+        labels: evolucaoLabels,
         datasets: [
           {
             label: "Matrículas",
-            data: Object.values(data.evolucaoMatriculas || {}),
+            data: evolucaoData,
             borderColor: "#6366F1",
             backgroundColor: "rgba(99, 102, 241, 0.1)",
             borderWidth: 3,
@@ -1430,6 +1497,7 @@ const Dashboard = () => {
                   }
                 />
                 
+                {/* CORREÇÃO: Card de Entradas com dados corretos */}
                 <Card
                   label="Entradas"
                   value={formatNumber(data.totalEntradas)}
@@ -1441,12 +1509,13 @@ const Dashboard = () => {
                   tooltipId="total-entradas"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.entradasSaidasPorZona?.["URBANA"]?.entradas || 0}
-                      rural={data.entradasSaidasPorZona?.["RURAL"]?.entradas || 0}
+                      urbana={data.detalhesZona?.entradas?.urbana || 0}
+                      rural={data.detalhesZona?.entradas?.rural || 0}
                     />
                   }
                 />
                 
+                {/* CORREÇÃO: Card de Saídas com dados corretos */}
                 <Card
                   label="Saídas"
                   value={formatNumber(data.totalSaidas)}
@@ -1458,13 +1527,13 @@ const Dashboard = () => {
                   tooltipId="total-saidas"
                   additionalContent={
                     <ZonaDetails 
-                      urbana={data.entradasSaidasPorZona?.["URBANA"]?.saidas || 0}
-                      rural={data.entradasSaidasPorZona?.["RURAL"]?.saidas || 0}
+                      urbana={data.detalhesZona?.saidas?.urbana || 0}
+                      rural={data.detalhesZona?.saidas?.rural || 0}
                     />
                   }
                 />
 
-                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão */}
+                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão com detalhes Urbana/Rural */}
                 <Card
                   label="Taxa Evasão"
                   value={`${formatPercent(data.taxaEvasao)}%`}
@@ -1476,6 +1545,12 @@ const Dashboard = () => {
                   valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
                   tooltip="Percentual de alunos que deixaram o sistema"
                   tooltipId="taxa-evasao"
+                  additionalContent={
+                    <ZonaEvasaoDetails 
+                      urbana={data.detalhesZona?.evasao?.urbana || 0}
+                      rural={data.detalhesZona?.evasao?.rural || 0}
+                    />
+                  }
                 />
               </div>
 
@@ -1641,7 +1716,7 @@ const Dashboard = () => {
                   }
                 />
 
-                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão */}
+                {/* CORREÇÃO DEFINITIVA: Card de Taxa de Evasão com detalhes */}
                 <Card
                   label="Taxa de Evasão"
                   value={`${formatPercent(data.taxaEvasao)}%`}
@@ -1654,11 +1729,10 @@ const Dashboard = () => {
                   tooltip="Percentual de evasão escolar"
                   tooltipId="taxa-evasao-analytics"
                   additionalContent={
-                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
-                      <span className={data.taxaEvasao > 10 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
-                        {data.taxaEvasao > 10 ? "Alerta" : "Normal"}
-                      </span>
-                    </div>
+                    <ZonaEvasaoDetails 
+                      urbana={data.detalhesZona?.evasao?.urbana || 0}
+                      rural={data.detalhesZona?.evasao?.rural || 0}
+                    />
                   }
                 />
 
@@ -1702,7 +1776,7 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* Gráfico Evolução de Matrículas */}
+                {/* CORREÇÃO: Gráfico Evolução de Matrículas com dados reais */}
                 <div className="bg-white/90 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col h-[400px] border-gray-200/50 border">
                   <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2">
                     <FaChartLine className="text-violet-500" />
