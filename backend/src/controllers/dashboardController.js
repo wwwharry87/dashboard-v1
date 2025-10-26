@@ -317,22 +317,18 @@ const buscarTotais = async (req, res) => {
       ),
 
             /* >>> CORREÇÃO: Evolução de matrículas por ano/mês - QUERY CORRIGIDA */
-      evolucao_matriculas_base AS (
-        SELECT 
-          ano_letivo,
-          CASE 
-            WHEN entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo != '-' 
-            THEN LPAD(SUBSTRING(entrada_mes_tipo, 1, 2), 2, '0')
-            ELSE NULL
-          END AS mes,
-          COUNT(DISTINCT idmatricula) AS matriculas
-        FROM base_sem_especiais
-        WHERE entrada_mes_tipo IS NOT NULL 
-          AND entrada_mes_tipo <> '-'
-          AND SUBSTRING(entrada_mes_tipo, 1, 2) ~ '^[0-9]+$'
-          AND ano_letivo IS NOT NULL
-        GROUP BY ano_letivo, LPAD(SUBSTRING(entrada_mes_tipo, 1, 2), 2, '0')
-      ),
+    evolucao_matriculas_base AS (
+  SELECT 
+    ano_letivo,
+    LPAD(SUBSTRING(entrada_mes_tipo, 1, 2), 2, '0') AS mes,
+    COUNT(DISTINCT idmatricula) AS matriculas
+  FROM base_sem_especiais
+  WHERE entrada_mes_tipo IS NOT NULL 
+    AND entrada_mes_tipo <> '-'
+    AND SUBSTRING(entrada_mes_tipo, 1, 2) ~ '^[0-9]+$'
+    AND ano_letivo IS NOT NULL
+  GROUP BY ano_letivo, LPAD(SUBSTRING(entrada_mes_tipo, 1, 2), 2, '0')
+),
       evolucao_matriculas_agg AS (
         SELECT
           ano_letivo,
