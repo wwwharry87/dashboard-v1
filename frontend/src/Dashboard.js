@@ -1,4 +1,4 @@
-// Dashboard.js - VERSÃO CORRIGIDA
+// Dashboard.js - VERSÃO CORRIGIDA - FORMATAÇÃO BRASILEIRA
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
@@ -132,7 +132,7 @@ const Toast = ({ message, show, type = "success" }) =>
     </motion.div>
   ) : null;
 
-// CORREÇÃO: Função para formatar números com separador de milhar correto (padrão brasileiro)
+// CORREÇÃO DEFINITIVA: Função para formatar números com separador de milhar correto (padrão brasileiro)
 const formatNumber = (num) => {
   if (num === null || num === undefined || num === "Erro" || isNaN(num)) {
     return "0";
@@ -144,8 +144,9 @@ const formatNumber = (num) => {
     return "0";
   }
   
-  // Formatação correta para padrão brasileiro: 1.000,00
-  return numberValue.toLocaleString('pt-BR', {
+  // CORREÇÃO: Formatação correta para padrão brasileiro: 4.739 (ponto para milhar)
+  // Usamos o formato 'de-DE' que usa ponto para milhar e vírgula para decimal
+  return numberValue.toLocaleString('de-DE', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   });
@@ -159,7 +160,8 @@ const formatPercent = (value) => {
   
   let numericValue;
   if (typeof value === 'string') {
-    const cleanedValue = value.replace(/[^\d,.-]/g, '');
+    // Remove tudo exceto números, ponto e vírgula
+    const cleanedValue = value.toString().replace(/[^\d,.-]/g, '');
     numericValue = parseFloat(cleanedValue.replace(',', '.'));
   } else {
     numericValue = parseFloat(value);
@@ -170,10 +172,12 @@ const formatPercent = (value) => {
   }
   
   // CORREÇÃO: Usar formato brasileiro correto - vírgula para decimais
-  return numericValue.toLocaleString("pt-BR", {
+  const formatted = numericValue.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
+  
+  return formatted;
 };
 
 // Registro do Chart.js
@@ -238,7 +242,7 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   </motion.div>
 );
 
-// NOVO: Componente para mostrar detalhes de evasão por zona
+// CORREÇÃO: Componente para mostrar detalhes de evasão por zona
 const ZonaEvasaoDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
@@ -798,7 +802,12 @@ const Dashboard = () => {
       const totaisResponse = await api.post("/totais", filtros, { signal });
       const totaisData = totaisResponse.data;
 
-      console.log('Dados recebidos da API:', totaisData);
+      console.log('Dados recebidos da API - TAXAS:', {
+        taxaEvasaoGeral: totaisData.taxaEvasao,
+        taxaEvasaoUrbana: totaisData.detalhesZona?.evasao?.urbana,
+        taxaEvasaoRural: totaisData.detalhesZona?.evasao?.rural,
+        totalMatriculas: totaisData.totalMatriculas
+      });
 
       // CORREÇÃO: Usar as funções de parsing corrigidas
       const safeData = {
@@ -855,13 +864,12 @@ const Dashboard = () => {
       setLoadingMapa(false);
       setGlobalLoading(false);
 
-      console.log('Dados processados para frontend:', {
-        totalMatriculas: safeData.totalMatriculas,
-        taxaEvasao: safeData.taxaEvasao,
-        taxaOcupacao: safeData.taxaOcupacao,
-        entradasUrbana: safeData.detalhesZona?.entradas?.urbana,
-        entradasRural: safeData.detalhesZona?.entradas?.rural,
-        evolucaoMatriculas: safeData.evolucaoMatriculas
+      console.log('Dados processados para frontend - FORMATADOS:', {
+        totalMatriculas: formatNumber(safeData.totalMatriculas),
+        taxaEvasao: formatPercent(safeData.taxaEvasao),
+        taxaOcupacao: formatPercent(safeData.taxaOcupacao),
+        entradasUrbana: formatNumber(safeData.detalhesZona?.entradas?.urbana),
+        entradasRural: formatNumber(safeData.detalhesZona?.entradas?.rural)
       });
 
       if (Object.keys(filtros).some(key => filtros[key])) {

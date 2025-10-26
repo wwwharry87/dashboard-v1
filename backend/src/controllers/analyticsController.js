@@ -1,4 +1,4 @@
-// analyticsController.js - VERSÃO CORRIGIDA
+// analyticsController.js - VERSÃO CORRIGIDA - TAXA DE EVASÃO E FORMATAÇÃO
 'use strict';
 
 const pool = require('../config/db');
@@ -59,7 +59,7 @@ const buscarAnalytics = async (req, res) => {
     const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
 
-    // QUERY ATUALIZADA usando zona_escola e dados consistentes
+    // QUERY ATUALIZADA com taxa de evasão corrigida
     const sql = `
       WITH base AS (
         SELECT * FROM dados_matriculas WHERE ${clause}
@@ -117,6 +117,25 @@ const buscarAnalytics = async (req, res) => {
           COALESCE(SUM(vagas_disponiveis), 0) AS vagas
         FROM escolas_detalhes
         GROUP BY COALESCE(zona_escola, 'Sem informação')
+      ),
+
+      /* >>> CORREÇÃO: Cálculo da taxa de evasão geral consistente */
+      total_desistentes_geral AS (
+        SELECT COUNT(DISTINCT idmatricula) AS total_desistentes
+        FROM base_sem_especiais 
+        WHERE COALESCE(idsituacao,0) = 2
+      ),
+
+      taxa_evasao_geral AS (
+        SELECT 
+          CASE 
+            WHEN (SELECT total_matriculas_ativas FROM capacidade_agg) > 0 
+            THEN ROUND(
+              (SELECT total_desistentes FROM total_desistentes_geral) * 100.0 / 
+              (SELECT total_matriculas_ativas FROM capacidade_agg), 2
+            )
+            ELSE 0 
+          END AS taxa_evasao_corrigida
       ),
 
       /* >>> CORREÇÃO: Entradas por zona_escola */
@@ -232,6 +251,9 @@ const buscarAnalytics = async (req, res) => {
           'total_vagas', total_vagas
         ) FROM capacidade_agg) AS totals_agg,
 
+        /* >>> CORREÇÃO: Taxa de evasão geral calculada corretamente */
+        (SELECT taxa_evasao_corrigida FROM taxa_evasao_geral) AS taxa_evasao_geral,
+
         /* Por zona coerente */
         (SELECT jsonb_object_agg(zona, jsonb_build_object(
             'capacidade', capacidade,
@@ -296,11 +318,10 @@ const buscarAnalytics = async (req, res) => {
       capacidadeTotal: Number(totalsAgg.capacidade_total) || 0,
       totalVagas: Number(totalsAgg.total_vagas) || 0,
       taxaOcupacao: 0,
-      taxaEvasao: (() => {
-        const total = Number(metricas.total_matriculas) || 0;
-        const des = Number(metricas.desistentes) || 0;
-        return total > 0 ? Number(((des / total) * 100).toFixed(2)) : 0;
-      })(),
+      
+      /* >>> CORREÇÃO: Usar taxa de evasão geral calculada corretamente */
+      taxaEvasao: Number(row.taxa_evasao_geral) || 0,
+      
       ultimaAtualizacao: row.ultima_atualizacao || new Date().toISOString(),
 
       // >>> CORREÇÃO: Dados para detalhes de zona (URBANA/RURAL)
@@ -319,6 +340,13 @@ const buscarAnalytics = async (req, res) => {
         }
       }
     };
+
+    console.log('Analytics - Taxas calculadas:', {
+      taxaEvasaoGeral: responseData.taxaEvasao,
+      taxaEvasaoUrbana: evasaoUrbana,
+      taxaEvasaoRural: evasaoRural,
+      totalMatriculasAtivas: responseData.totalMatriculasAtivas
+    });
 
     // Força consistência entre totais e zonas
     enforceConsistencyTotals(responseData);
@@ -429,7 +457,7 @@ const buscarAlertas = async (req, res) => {
 };
 
 /**
- * Métricas detalhadas para analytics avançados
+ * Métricas detalhadas para analytics avançados - VERSÃO CORRIGIDA
  */
 const buscarMetricasDetalhadas = async (req, res) => {
   try {
