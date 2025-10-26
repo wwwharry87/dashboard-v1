@@ -1,17 +1,17 @@
 import React from 'react';
 import { FaArrowUp, FaArrowDown, FaBalanceScale } from 'react-icons/fa';
 
-// CORREÇÃO: Função para formatar números com separador de milhar correto (padrão brasileiro)
+// CORREÇÃO DEFINITIVA: Função para formatar números com separador de milhar correto
 const formatNumber = (num) => {
   if (num === null || num === undefined || num === "Erro" || isNaN(num)) {
     return "0";
   }
   
-  // Converte para número inteiro
-  const number = parseInt(num) || 0;
+  // CORREÇÃO: Usar Number em vez de parseInt para preservar números grandes
+  const number = Number(num) || 0;
   
-  // CORREÇÃO: Formatação customizada para garantir ponto como separador de milhar
-  return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  // CORREÇÃO: Usar toLocaleString para formatação brasileira correta
+  return number.toLocaleString('pt-BR');
 };
 
 // CORREÇÃO: Função para formatar percentuais
@@ -35,7 +35,9 @@ const Card = ({
   disableFormat = false,
   valueColor,
   isComparativo = false,
-  additionalContent 
+  additionalContent,
+  tooltip,
+  tooltipId 
 }) => {
   const getTrendIcon = () => {
     if (!comparativo) return null;
@@ -67,7 +69,23 @@ const Card = ({
   }
 
   return (
-    <div className={`bg-white rounded-2xl p-4 shadow-lg border-2 ${borderColor} ${bgColor} transition-all duration-300 hover:shadow-xl`}>
+    <div className={`bg-white rounded-2xl p-4 shadow-lg border-2 ${borderColor} ${bgColor} transition-all duration-300 hover:shadow-xl relative`}>
+      {/* Tooltip */}
+      {tooltip && (
+        <div className="absolute top-2 right-2">
+          <svg 
+            className="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" 
+            data-tooltip-id={tooltipId}
+            data-tooltip-content={tooltip}
+            fill="currentColor" 
+            viewBox="0 0 16 16"
+          >
+            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+          </svg>
+        </div>
+      )}
+      
       <div className="flex justify-between items-start mb-2">
         <span className="text-sm font-semibold text-gray-600">{label}</span>
         <div className="text-2xl opacity-80">

@@ -132,28 +132,30 @@ const Toast = ({ message, show, type = "success" }) =>
     </motion.div>
   ) : null;
 
-// VERSÃO SIMPLIFICADA E GARANTIDA
-const formatNumber = (num) => {
-  if (num == null || num === "" || num === "Erro" || isNaN(num)) {
-    return "0";
-  }
-  
-  const number = parseInt(num) || 0;
-  
-  // Formatação simples com regex para adicionar pontos
-  return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-};
+    // VERSÃO SIMPLIFICADA E GARANTIDA - CORRIGIDA
+    const formatNumber = (num) => {
+      if (num == null || num === "" || num === "Erro" || isNaN(num)) {
+        return "0";
+      }
+      
+      // CORREÇÃO: Usar Number em vez de parseInt para preservar números grandes
+      const number = Number(num) || 0;
+      
+      // Formatação simples com regex para adicionar pontos
+      return number.toLocaleString('pt-BR');
+    };
 
-const formatPercent = (value) => {
-  if (value == null || value === "" || value === "Erro" || isNaN(value)) {
-    return "0,00";
-  }
-  
-  const number = parseFloat(value) || 0;
-  const formatted = number.toFixed(2).replace('.', ',');
-  
-  return formatted;
-};
+    const formatPercent = (value) => {
+      if (value == null || value === "" || value === "Erro" || isNaN(value)) {
+        return "0,00";
+      }
+      
+      const number = parseFloat(value) || 0;
+      const formatted = number.toFixed(2).replace('.', ',');
+      
+      return formatted;
+    };
+
 
 // Registro do Chart.js
 ChartJS.register(
