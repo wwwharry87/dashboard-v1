@@ -1,4 +1,4 @@
-// Dashboard.js - VERSÃO COM LAYOUT MOBILE OTIMIZADO
+// Dashboard.js - VERSÃO COM CARDS COMPACTOS
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
@@ -167,74 +167,74 @@ ChartJS.register(
   ChartDataLabels
 );
 
-// Componente para mostrar detalhes de zona no card de matrículas - MAIS COMPACTO
+// Componente para mostrar detalhes de zona no card de matrículas
 const ZonaDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-1 pt-1 border-t border-gray-200/30"
+    className="mt-1 pt-1 border-t border-gray-200/50"
   >
-    <div className="flex justify-between items-center text-[9px]">
-      <div className="flex items-center gap-0.5 text-blue-600">
-        <FaCity className="text-[7px]" />
-        <span>Urb:</span>
+    <div className="flex justify-between items-center text-[10px]">
+      <div className="flex items-center gap-1 text-blue-600">
+        <FaCity className="text-[8px]" />
+        <span>Urbana:</span>
       </div>
-      <span className="font-bold text-[9px]">{formatNumber(urbana)}</span>
+      <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
-    <div className="flex justify-between items-center text-[9px] mt-0.5">
-      <div className="flex items-center gap-0.5 text-green-600">
-        <FaTree className="text-[7px]" />
-        <span>Rur:</span>
+    <div className="flex justify-between items-center text-[10px] mt-0.5">
+      <div className="flex items-center gap-1 text-green-600">
+        <FaTree className="text-[8px]" />
+        <span>Rural:</span>
       </div>
-      <span className="font-bold text-[9px]">{formatNumber(rural)}</span>
+      <span className="font-bold">{formatNumber(rural)}</span>
     </div>
   </motion.div>
 );
 
-// Componente para mostrar detalhes de zona no card de escolas - MAIS COMPACTO
+// Componente para mostrar detalhes de zona no card de escolas
 const ZonaEscolasDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-1 pt-1 border-t border-gray-200/30"
+    className="mt-1 pt-1 border-t border-gray-200/50"
   >
-    <div className="flex justify-between items-center text-[9px]">
-      <div className="flex items-center gap-0.5 text-blue-600">
-        <FaCity className="text-[7px]" />
-        <span>Urb:</span>
+    <div className="flex justify-between items-center text-[10px]">
+      <div className="flex items-center gap-1 text-blue-600">
+        <FaCity className="text-[8px]" />
+        <span>Urbana:</span>
       </div>
-      <span className="font-bold text-[9px]">{formatNumber(urbana)}</span>
+      <span className="font-bold">{formatNumber(urbana)}</span>
     </div>
-    <div className="flex justify-between items-center text-[9px] mt-0.5">
-      <div className="flex items-center gap-0.5 text-green-600">
-        <FaTree className="text-[7px]" />
-        <span>Rur:</span>
+    <div className="flex justify-between items-center text-[10px] mt-0.5">
+      <div className="flex items-center gap-1 text-green-600">
+        <FaTree className="text-[8px]" />
+        <span>Rural:</span>
       </div>
-      <span className="font-bold text-[9px]">{formatNumber(rural)}</span>
+      <span className="font-bold">{formatNumber(rural)}</span>
     </div>
   </motion.div>
 );
 
-// CORREÇÃO: Componente para mostrar detalhes de evasão por zona - MAIS COMPACTO
+// CORREÇÃO: Componente para mostrar detalhes de evasão por zona
 const ZonaEvasaoDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-1 pt-1 border-t border-gray-200/30"
+    className="mt-1 pt-1 border-t border-gray-200/50"
   >
-    <div className="flex justify-between items-center text-[9px]">
-      <div className="flex items-center gap-0.5 text-blue-600">
-        <FaCity className="text-[7px]" />
-        <span>Urb:</span>
+    <div className="flex justify-between items-center text-[10px]">
+      <div className="flex items-center gap-1 text-blue-600">
+        <FaCity className="text-[8px]" />
+        <span>Urbana:</span>
       </div>
-      <span className="font-bold text-[9px]">{formatPercent(urbana)}%</span>
+      <span className="font-bold">{formatPercent(urbana)}%</span>
     </div>
-    <div className="flex justify-between items-center text-[9px] mt-0.5">
-      <div className="flex items-center gap-0.5 text-green-600">
-        <FaTree className="text-[7px]" />
-        <span>Rur:</span>
+    <div className="flex justify-between items-center text-[10px] mt-0.5">
+      <div className="flex items-center gap-1 text-green-600">
+        <FaTree className="text-[8px]" />
+        <span>Rural:</span>
       </div>
-      <span className="font-bold text-[9px]">{formatPercent(rural)}%</span>
+      <span className="font-bold">{formatPercent(rural)}%</span>
     </div>
   </motion.div>
 );
@@ -1456,8 +1456,8 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* CORREÇÃO: Grid de Cartões Responsivo para Mobile - LAYOUT HARMONIOSO */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 mb-3 sm:mb-4">
+              {/* CORREÇÃO: Grid de Cartões Responsivo para Mobile - COMPACTO */}
+              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[640px]:grid-cols-4 min-[1024px]:grid-cols-5 min-[1280px]:grid-cols-7 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 <Card
                   label="Matrículas"
                   value={data.totalMatriculas}
@@ -1698,7 +1698,7 @@ const Dashboard = () => {
           {activeTab === "analytics" && (
             <div className="space-y-3 sm:space-y-4">
               {/* Indicadores de Performance */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
+              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[1024px]:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 <Card
                   label="Ocupação"
                   value={`${formatPercent(data.taxaOcupacao)}%`}
@@ -1720,7 +1720,7 @@ const Dashboard = () => {
                   bgColor="bg-amber-50"
                   loading={loadingCards.transporteEscolar}
                   additionalContent={
-                    <div className="mt-1 pt-1 border-t border-gray-200/30 text-[9px] text-center">
+                    <div className="mt-1 pt-1 border-t border-gray-200/50 text-[10px] text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
                       <span className="text-gray-600"> do total</span>
                     </div>
@@ -1755,7 +1755,7 @@ const Dashboard = () => {
                   bgColor="bg-teal-50"
                   loading={loadingCards.alunosDeficiencia}
                   additionalContent={
-                    <div className="mt-1 pt-1 border-t border-gray-200/30 text-[9px] text-center">
+                    <div className="mt-1 pt-1 border-t border-gray-200/50 text-[10px] text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
                       <span className="text-gray-600"> do total</span>
                     </div>
