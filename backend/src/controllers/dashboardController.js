@@ -1,4 +1,4 @@
-// dashboardController.js - VERSÃO CORRIGIDA - TAXA DE EVASÃO E FORMATAÇÃO
+// dashboardController.js - VERSÃO CORRIGIDA - TAXA DE EVASÃO CONSISTENTE
 const pool = require('../config/db');
 const NodeCache = require('node-cache');
 
@@ -142,7 +142,7 @@ const buscarFiltros = async (req, res) => {
 };
 
 /* ============================================================
- * Totais (COM TAXA DE EVASÃO CORRIGIDA E DADOS URBANA/RURAL)
+ * Totais (COM TAXA DE EVASÃO CONSISTENTE ENTRE GERAL E ZONAS)
  * ============================================================ */
 const buscarTotais = async (req, res) => {
   try {
@@ -167,7 +167,7 @@ const buscarTotais = async (req, res) => {
 
     const { clause, params } = buildWhereClause(filters, req.user);
 
-    // QUERY COMPLETAMENTE REVISADA - COM TAXA DE EVASÃO CORRIGIDA
+    // QUERY COMPLETAMENTE REVISADA - COM TAXA DE EVASÃO CONSISTENTE
     const query = `
       WITH base_filtrada AS (
         SELECT * FROM dados_matriculas WHERE ${clause}
@@ -175,6 +175,51 @@ const buscarTotais = async (req, res) => {
 
       base_sem_especiais AS (
         SELECT * FROM base_filtrada WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
+      ),
+
+      /* >>> CORREÇÃO: Cálculo consistente de evasão - mesma base para geral e zonas */
+      dados_evasao AS (
+        SELECT 
+          -- Totais gerais
+          COUNT(DISTINCT idmatricula) AS total_matriculas_geral,
+          SUM(CASE WHEN COALESCE(idsituacao,0) = 2 THEN 1 ELSE 0 END) AS desistentes_geral,
+          
+          -- Por zona
+          COALESCE(zona_escola, 'Sem informação') AS zona,
+          COUNT(DISTINCT idmatricula) AS total_matriculas_zona,
+          SUM(CASE WHEN COALESCE(idsituacao,0) = 2 THEN 1 ELSE 0 END) AS desistentes_zona
+        FROM base_sem_especiais
+        GROUP BY GROUPING SETS (
+          (),
+          (COALESCE(zona_escola, 'Sem informação'))
+        )
+      ),
+
+      evasao_geral AS (
+        SELECT 
+          total_matriculas_geral,
+          desistentes_geral,
+          CASE 
+            WHEN total_matriculas_geral > 0 
+            THEN ROUND((desistentes_geral * 100.0 / total_matriculas_geral), 2)
+            ELSE 0 
+          END AS taxa_evasao_geral
+        FROM dados_evasao 
+        WHERE zona IS NULL
+      ),
+
+      evasao_por_zona AS (
+        SELECT 
+          zona,
+          total_matriculas_zona,
+          desistentes_zona,
+          CASE 
+            WHEN total_matriculas_zona > 0 
+            THEN ROUND((desistentes_zona * 100.0 / total_matriculas_zona), 2)
+            ELSE 0 
+          END AS taxa_evasao_zona
+        FROM dados_evasao 
+        WHERE zona IS NOT NULL
       ),
 
       /* Cálculo de capacidade por escola */
@@ -219,7 +264,7 @@ const buscarTotais = async (req, res) => {
         FROM base_sem_especiais
       ),
 
-      /* >>> CORREÇÃO: Entradas por zona_escola (não zona_aluno) */
+      /* >>> CORREÇÃO: Entradas por zona_escola */
       entradas_por_zona AS (
         SELECT 
           COALESCE(dm.zona_escola, 'Sem informação') AS zona,
@@ -229,7 +274,7 @@ const buscarTotais = async (req, res) => {
         GROUP BY COALESCE(dm.zona_escola, 'Sem informação')
       ),
 
-      /* >>> CORREÇÃO: Saídas por zona_escola (não zona_aluno) */
+      /* >>> CORREÇÃO: Saídas por zona_escola */
       saidas_por_zona AS (
         SELECT 
           COALESCE(dm.zona_escola, 'Sem informação') AS zona,
@@ -239,25 +284,6 @@ const buscarTotais = async (req, res) => {
         GROUP BY COALESCE(dm.zona_escola, 'Sem informação')
       ),
 
-      /* >>> CORREÇÃO: Desistentes por zona_escola para cálculo de evasão */
-      desistentes_por_zona AS (
-        SELECT 
-          COALESCE(dm.zona_escola, 'Sem informação') AS zona,
-          COUNT(DISTINCT dm.idmatricula) AS total_desistentes
-        FROM base_sem_especiais dm
-        WHERE COALESCE(dm.idsituacao,0) = 2
-        GROUP BY COALESCE(dm.zona_escola, 'Sem informação')
-      ),
-
-      /* >>> CORREÇÃO: Total de matrículas por zona_escola para cálculo de evasão */
-      matriculas_por_zona_escola AS (
-        SELECT 
-          COALESCE(zona_escola, 'Sem informação') AS zona,
-          COUNT(DISTINCT idmatricula) AS total_matriculas
-        FROM base_sem_especiais
-        GROUP BY COALESCE(zona_escola, 'Sem informação')
-      ),
-
       /* Totais de capacidade baseados nas escolas */
       capacidade_agg AS (
         SELECT
@@ -265,25 +291,6 @@ const buscarTotais = async (req, res) => {
           COALESCE(SUM(qtde_matriculas), 0) AS total_matriculas_ativas,
           COALESCE(SUM(vagas_disponiveis), 0) AS total_vagas
         FROM escolas_detalhes
-      ),
-
-      /* >>> CORREÇÃO: Cálculo da taxa de evasão geral consistente */
-      total_desistentes_geral AS (
-        SELECT COUNT(DISTINCT idmatricula) AS total_desistentes
-        FROM base_sem_especiais 
-        WHERE COALESCE(idsituacao,0) = 2
-      ),
-
-      taxa_evasao_geral AS (
-        SELECT 
-          CASE 
-            WHEN (SELECT total_matriculas_ativas FROM capacidade_agg) > 0 
-            THEN ROUND(
-              (SELECT total_desistentes FROM total_desistentes_geral) * 100.0 / 
-              (SELECT total_matriculas_ativas FROM capacidade_agg), 2
-            )
-            ELSE 0 
-          END AS taxa_evasao_corrigida
       ),
 
       /* Turmas distintas para contagem */
@@ -335,7 +342,7 @@ const buscarTotais = async (req, res) => {
         ORDER BY m.mes::int
       ),
 
-      /* >>> CORREÇÃO: Evolução de matrículas por ano/mês - QUERY CORRIGIDA */
+      /* Evolução de matrículas */
       evolucao_matriculas_base AS (
         SELECT 
           ano_letivo,
@@ -371,21 +378,6 @@ const buscarTotais = async (req, res) => {
             )
             ELSE 0 
           END AS taxa_ocupacao
-      ),
-
-      /* >>> CORREÇÃO: Taxa de evasão por zona_escola - CÁLCULO CONSISTENTE */
-      taxas_evasao_por_zona AS (
-        SELECT
-          dz.zona,
-          COALESCE(dz.total_desistentes, 0) AS desistentes,
-          COALESCE(mz.total_matriculas, 0) AS total_matriculas_zona,
-          CASE 
-            WHEN COALESCE(mz.total_matriculas, 0) > 0 
-            THEN ROUND((COALESCE(dz.total_desistentes, 0) * 100.0 / mz.total_matriculas), 2)
-            ELSE 0
-          END AS taxa_evasao_zona
-        FROM desistentes_por_zona dz
-        LEFT JOIN matriculas_por_zona_escola mz ON dz.zona = mz.zona
       ),
 
       /* Capacidade por zona baseada nas escolas */
@@ -449,8 +441,8 @@ const buscarTotais = async (req, res) => {
         (SELECT COUNT(DISTINCT idmatricula) FROM base_sem_especiais WHERE deficiencia = 'SIM') AS alunos_deficiencia,
         (SELECT COUNT(DISTINCT idmatricula) FROM base_sem_especiais WHERE transporte_escolar = 'SIM') AS alunos_transporte,
 
-        /* >>> CORREÇÃO: Taxa de evasão geral calculada corretamente */
-        (SELECT taxa_evasao_corrigida FROM taxa_evasao_geral) AS taxa_evasao,
+        /* >>> CORREÇÃO: Taxa de evasão geral calculada consistentemente */
+        (SELECT taxa_evasao_geral FROM evasao_geral) AS taxa_evasao,
         (SELECT taxa_ocupacao FROM taxas) AS taxa_ocupacao,
 
         /* Movimentação mensal */
@@ -463,14 +455,14 @@ const buscarTotais = async (req, res) => {
         /* >>> CORREÇÃO: Saídas por zona_escola */
         (SELECT COALESCE(json_object_agg(zona, total), '{}'::json) FROM saidas_por_zona) AS saidas_por_zona,
 
-        /* >>> CORREÇÃO: Taxa de evasão por zona_escola */
+        /* >>> CORREÇÃO: Taxa de evasão por zona_escola - CALCULADA CONSISTENTEMENTE */
         (SELECT COALESCE(json_object_agg(zona, json_build_object(
-          'desistentes', desistentes,
+          'desistentes', desistentes_zona,
           'total_matriculas', total_matriculas_zona,
           'taxa_evasao', taxa_evasao_zona
-        )), '{}'::json) FROM taxas_evasao_por_zona) AS evasao_por_zona,
+        )), '{}'::json) FROM evasao_por_zona) AS evasao_por_zona,
 
-        /* >>> NOVO: Evolução de matrículas */
+        /* Evolução de matrículas */
         (SELECT COALESCE(json_object_agg(ano_letivo::text, dados_mensais), '{}'::json) 
          FROM evolucao_matriculas_agg) AS evolucao_matriculas,
 
@@ -546,11 +538,13 @@ const buscarTotais = async (req, res) => {
     const saidasUrbana = row.saidas_por_zona?.['URBANA'] || 0;
     const saidasRural = row.saidas_por_zona?.['RURAL'] || 0;
     
-    // >>> CORREÇÃO: Dados para Taxa de Evasão por zona_escola
+    // >>> CORREÇÃO: Dados para Taxa de Evasão por zona_escola - AGORA CONSISTENTES
     const evasaoUrbana = row.evasao_por_zona?.['URBANA']?.taxa_evasao || 0;
     const evasaoRural = row.evasao_por_zona?.['RURAL']?.taxa_evasao || 0;
     const desistentesUrbana = row.evasao_por_zona?.['URBANA']?.desistentes || 0;
     const desistentesRural = row.evasao_por_zona?.['RURAL']?.desistentes || 0;
+    const matriculasUrbanaEvasao = row.evasao_por_zona?.['URBANA']?.total_matriculas || 0;
+    const matriculasRuralEvasao = row.evasao_por_zona?.['RURAL']?.total_matriculas || 0;
 
     // >>> CORREÇÃO: ResponseData com campos em camelCase para o frontend
     const responseData = {
@@ -570,7 +564,7 @@ const buscarTotais = async (req, res) => {
       alunosComDeficiencia: parseInt(row.alunos_deficiencia) || 0,
       alunosTransporteEscolar: parseInt(row.alunos_transporte) || 0,
       
-      /* >>> CORREÇÃO: Taxas calculadas corretamente */
+      /* >>> CORREÇÃO: Taxas calculadas corretamente e consistentes */
       taxaEvasao: parseFloat(row.taxa_evasao) || 0,
       taxaOcupacao: parseFloat(row.taxa_ocupacao) || 0,
 
@@ -618,25 +612,34 @@ const buscarTotais = async (req, res) => {
           urbana: saidasUrbana,
           rural: saidasRural
         },
-        // >>> CORREÇÃO: Dados para Taxa de Evasão por zona_escola
+        // >>> CORREÇÃO: Dados para Taxa de Evasão por zona_escola - AGORA CONSISTENTES
         evasao: {
           urbana: evasaoUrbana,
           rural: evasaoRural,
           desistentes: {
             urbana: desistentesUrbana,
             rural: desistentesRural
+          },
+          totalMatriculas: {
+            urbana: matriculasUrbanaEvasao,
+            rural: matriculasRuralEvasao
           }
         }
       }
     };
 
-    console.log('Dados processados para frontend - TAXAS:', {
+    console.log('Dashboard - Taxas calculadas CONSISTENTEMENTE:', {
       taxaEvasaoGeral: responseData.taxaEvasao,
       taxaEvasaoUrbana: evasaoUrbana,
       taxaEvasaoRural: evasaoRural,
-      totalMatriculasAtivas: responseData.totalMatriculasAtivas,
-      totalDesistentesUrbana: desistentesUrbana,
-      totalDesistentesRural: desistentesRural
+      totalMatriculasUrbana: matriculasUrbanaEvasao,
+      totalMatriculasRural: matriculasRuralEvasao,
+      desistentesUrbana: desistentesUrbana,
+      desistentesRural: desistentesRural,
+      // Verificação de consistência
+      somaDesistentes: desistentesUrbana + desistentesRural,
+      somaMatriculas: matriculasUrbanaEvasao + matriculasRuralEvasao,
+      taxaCalculada: ((desistentesUrbana + desistentesRural) * 100 / (matriculasUrbanaEvasao + matriculasRuralEvasao)).toFixed(2)
     });
 
     // CONSISTÊNCIA entre total e zonas (mantido)

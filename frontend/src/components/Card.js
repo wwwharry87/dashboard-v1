@@ -1,6 +1,29 @@
 import React from 'react';
 import { FaArrowUp, FaArrowDown, FaBalanceScale } from 'react-icons/fa';
 
+// CORREÇÃO: Função para formatar números com separador de milhar correto (padrão brasileiro)
+const formatNumber = (num) => {
+  if (num === null || num === undefined || num === "Erro" || isNaN(num)) {
+    return "0";
+  }
+  
+  // Converte para número inteiro
+  const number = parseInt(num) || 0;
+  
+  // CORREÇÃO: Formatação customizada para garantir ponto como separador de milhar
+  return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
+
+// CORREÇÃO: Função para formatar percentuais
+const formatPercent = (value) => {
+  if (value == null || value === "" || value === "Erro" || isNaN(value)) {
+    return "0,00";
+  }
+  
+  const number = parseFloat(value) || 0;
+  return number.toFixed(2).replace('.', ',');
+};
+
 const Card = ({ 
   label, 
   value, 
@@ -14,11 +37,6 @@ const Card = ({
   isComparativo = false,
   additionalContent 
 }) => {
-  const formatNumber = (num) => {
-    if (num === null || num === undefined || num === "Erro") return num;
-    return Number(num).toLocaleString("pt-BR");
-  };
-
   const getTrendIcon = () => {
     if (!comparativo) return null;
     
@@ -65,7 +83,7 @@ const Card = ({
         <div className="flex items-center gap-1 text-xs text-gray-600">
           {getTrendIcon()}
           <span>
-            {comparativo.missing > 0 ? '+' : ''}{formatNumber(comparativo.missing)} ({comparativo.percent}%)
+            {comparativo.missing > 0 ? '+' : ''}{formatNumber(comparativo.missing)} ({formatPercent(comparativo.percent)}%)
           </span>
         </div>
       )}
