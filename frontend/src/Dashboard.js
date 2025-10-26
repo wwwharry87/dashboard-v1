@@ -1,4 +1,4 @@
-// Dashboard.js - VERSÃO CORRIGIDA - TAXA DE EVASÃO CONSISTENTE
+// Dashboard.js - VERSÃO CORRIGIDA - LAYOUT MOBILE E TAXA DE EVASÃO CONSISTENTE
 import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
@@ -172,7 +172,7 @@ const ZonaDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-3 pt-3 border-t border-gray-200/50"
+    className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50"
   >
     <div className="flex justify-between items-center text-xs">
       <div className="flex items-center gap-1 text-blue-600">
@@ -196,7 +196,7 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-3 pt-3 border-t border-gray-200/50"
+    className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50"
   >
     <div className="flex justify-between items-center text-xs">
       <div className="flex items-center gap-1 text-blue-600">
@@ -220,7 +220,7 @@ const ZonaEvasaoDetails = ({ urbana, rural }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }}
     animate={{ opacity: 1, height: "auto" }}
-    className="mt-3 pt-3 border-t border-gray-200/50"
+    className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50"
   >
     <div className="flex justify-between items-center text-xs">
       <div className="flex items-center gap-1 text-blue-600">
@@ -596,35 +596,80 @@ const Dashboard = () => {
     }
   });
 
-  // CORREÇÃO: Função para calcular taxa de evasão consistente
+  // CORREÇÃO: Função para calcular taxa de evasão consistente - MELHORADA
   const calcularTaxaEvasaoConsistente = useCallback((dados) => {
-    if (!dados || !dados.detalhesZona) return 0;
+    if (!dados || !dados.detalhesZona) return dados?.taxaEvasao || 0;
 
     const { evasao } = dados.detalhesZona;
     
-    // Se temos dados de urbana e rural, calcular média ponderada
-    if (evasao.totalMatriculas?.urbana && evasao.totalMatriculas?.rural) {
-      const totalUrbana = evasao.totalMatriculas.urbana;
-      const totalRural = evasao.totalMatriculas.rural;
+    // DEBUG: Log detalhado para entender os dados
+    console.log('🔍 DEBUG - Dados de evasão:', {
+      geralAPI: dados.taxaEvasao,
+      urbana: evasao?.urbana,
+      rural: evasao?.rural,
+      totalUrbana: evasao?.totalMatriculas?.urbana,
+      totalRural: evasao?.totalMatriculas?.rural,
+      desistentesUrbana: evasao?.desistentes?.urbana,
+      desistentesRural: evasao?.desistentes?.rural
+    });
+
+    // Se temos dados detalhados de desistentes e matriculas por zona
+    if (evasao?.desistentes && evasao?.totalMatriculas) {
+      const desistentesUrbana = evasao.desistentes.urbana || 0;
+      const desistentesRural = evasao.desistentes.rural || 0;
+      const totalUrbana = evasao.totalMatriculas.urbana || 0;
+      const totalRural = evasao.totalMatriculas.rural || 0;
+      
+      const totalDesistentes = desistentesUrbana + desistentesRural;
+      const totalMatriculas = totalUrbana + totalRural;
+      
+      if (totalMatriculas > 0) {
+        const taxaCalculada = (totalDesistentes * 100) / totalMatriculas;
+        
+        console.log('🔄 Calculando taxa de evasão consistente:', {
+          desistentesUrbana,
+          desistentesRural,
+          totalDesistentes,
+          totalUrbana,
+          totalRural,
+          totalMatriculas,
+          taxaCalculada: taxaCalculada.toFixed(2),
+          taxaOriginal: dados.taxaEvasao
+        });
+        
+        return Number(taxaCalculada.toFixed(2));
+      }
+    }
+    
+    // Se temos taxas por zona mas não temos dados detalhados de desistentes
+    if (evasao?.urbana !== undefined && evasao?.rural !== undefined && 
+        evasao?.totalMatriculas?.urbana && evasao?.totalMatriculas?.rural) {
       const taxaUrbana = evasao.urbana || 0;
       const taxaRural = evasao.rural || 0;
+      const totalUrbana = evasao.totalMatriculas.urbana || 0;
+      const totalRural = evasao.totalMatriculas.rural || 0;
       
       const totalGeral = totalUrbana + totalRural;
       
       if (totalGeral > 0) {
         const taxaCalculada = ((taxaUrbana * totalUrbana) + (taxaRural * totalRural)) / totalGeral;
-        console.log('🔄 Calculando taxa de evasão consistente:', {
-          urbana: `${taxaUrbana}% (${totalUrbana} matrículas)`,
-          rural: `${taxaRural}% (${totalRural} matrículas)`,
-          totalGeral: totalGeral,
-          taxaCalculada: `${taxaCalculada.toFixed(2)}%`,
-          taxaOriginal: dados.taxaEvasao ? `${dados.taxaEvasao}%` : 'N/A'
+        
+        console.log('🔄 Calculando taxa de evasão por média ponderada:', {
+          taxaUrbana,
+          taxaRural,
+          totalUrbana,
+          totalRural,
+          totalGeral,
+          taxaCalculada: taxaCalculada.toFixed(2),
+          taxaOriginal: dados.taxaEvasao
         });
+        
         return Number(taxaCalculada.toFixed(2));
       }
     }
     
-    // Se não temos dados detalhados, usar o valor original
+    // Se não temos dados suficientes, usar o valor da API
+    console.log('⚠️ Usando taxa da API (dados insuficientes):', dados.taxaEvasao);
     return dados.taxaEvasao || 0;
   }, []);
 
@@ -753,7 +798,7 @@ const Dashboard = () => {
     }
   };
 
-  // CORREÇÃO: Carregamento de dados com taxa de evasão consistente
+  // CORREÇÃO: Carregamento de dados com taxa de evasão consistente - MELHORADA
   const carregarDados = async (filtros, signal) => {
     setGlobalLoading(true);
     
@@ -786,7 +831,9 @@ const Dashboard = () => {
         taxaEvasaoUrbana: totaisData.detalhesZona?.evasao?.urbana,
         taxaEvasaoRural: totaisData.detalhesZona?.evasao?.rural,
         totalMatriculasUrbana: totaisData.detalhesZona?.evasao?.totalMatriculas?.urbana,
-        totalMatriculasRural: totaisData.detalhesZona?.evasao?.totalMatriculas?.rural
+        totalMatriculasRural: totaisData.detalhesZona?.evasao?.totalMatriculas?.rural,
+        desistentesUrbana: totaisData.detalhesZona?.evasao?.desistentes?.urbana,
+        desistentesRural: totaisData.detalhesZona?.evasao?.desistentes?.rural
       });
 
       // CORREÇÃO PRINCIPAL: Calcular taxa de evasão consistente
@@ -1409,8 +1456,8 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* Grid de Cartões Principais CORRIGIDOS */}
-              <div className="grid grid-cols-2 min-[320px]:grid-cols-2 min-[461px]:grid-cols-3 min-[720px]:grid-cols-4 min-[1024px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
+              {/* CORREÇÃO: Grid de Cartões Responsivo para Mobile */}
+              <div className="grid grid-cols-1 min-[460px]:grid-cols-2 min-[720px]:grid-cols-3 min-[1024px]:grid-cols-4 min-[1280px]:grid-cols-7 gap-3 sm:gap-4 mb-4 sm:mb-6">
                 <Card
                   label="Matrículas"
                   value={data.totalMatriculas}
@@ -1651,7 +1698,7 @@ const Dashboard = () => {
           {activeTab === "analytics" && (
             <div className="space-y-4 sm:space-y-6">
               {/* Indicadores de Performance */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+              <div className="grid grid-cols-1 min-[460px]:grid-cols-2 min-[1024px]:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
                 <Card
                   label="Ocupação"
                   value={`${formatPercent(data.taxaOcupacao)}%`}
@@ -1673,7 +1720,7 @@ const Dashboard = () => {
                   bgColor="bg-amber-50"
                   loading={loadingCards.transporteEscolar}
                   additionalContent={
-                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
+                    <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50 text-xs text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualTransporte}%</span>
                       <span className="text-gray-600"> do total</span>
                     </div>
@@ -1708,7 +1755,7 @@ const Dashboard = () => {
                   bgColor="bg-teal-50"
                   loading={loadingCards.alunosDeficiencia}
                   additionalContent={
-                    <div className="mt-3 pt-3 border-t border-gray-200/50 text-xs text-center">
+                    <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200/50 text-xs text-center">
                       <span className="font-bold">{indicadoresEstrategicos.percentualDeficiencia}%</span>
                       <span className="text-gray-600"> do total</span>
                     </div>
