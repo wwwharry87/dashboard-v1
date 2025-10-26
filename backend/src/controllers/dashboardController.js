@@ -316,7 +316,7 @@ const buscarTotais = async (req, res) => {
         ORDER BY m.mes::int
       ),
 
-      /* >>> NOVO: Evolução de matrículas por ano/mês */
+            /* >>> CORREÇÃO: Evolução de matrículas por ano/mês - QUERY CORRIGIDA */
       evolucao_matriculas_base AS (
         SELECT 
           ano_letivo,
@@ -330,6 +330,7 @@ const buscarTotais = async (req, res) => {
         WHERE entrada_mes_tipo IS NOT NULL 
           AND entrada_mes_tipo <> '-'
           AND SUBSTRING(entrada_mes_tipo, 1, 2) ~ '^[0-9]+$'
+          AND ano_letivo IS NOT NULL
         GROUP BY ano_letivo, LPAD(SUBSTRING(entrada_mes_tipo, 1, 2), 2, '0')
       ),
       evolucao_matriculas_agg AS (
@@ -340,7 +341,7 @@ const buscarTotais = async (req, res) => {
             matriculas
           ) AS dados_mensais
         FROM evolucao_matriculas_base
-        WHERE mes IS NOT NULL
+        WHERE mes IS NOT NULL AND ano_letivo IS NOT NULL
         GROUP BY ano_letivo
       ),
 
