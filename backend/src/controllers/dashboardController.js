@@ -1,4 +1,4 @@
-// dashboardController.js - VERSÃO CORRIGIDA - TAXA DE EVASÃO CONSISTENTE
+// dashboardController.js - VERSÃO FINAL CORRIGIDA - TAXA DE EVASÃO CONSISTENTE
 const pool = require('../config/db');
 const NodeCache = require('node-cache');
 
@@ -177,57 +177,43 @@ const buscarTotais = async (req, res) => {
         SELECT * FROM base_filtrada WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
       ),
 
-      /* >>> CORREÇÃO: Cálculo consistente de evasão - mesma base para geral e zonas */
+      /* >>> CORREÇÃO: Cálculo CONSISTENTE de evasão - mesma base e mesma lógica */
       dados_evasao AS (
-  SELECT 
-    -- Totais gerais (SOMA de todas as zonas)
-    SUM(total_matriculas_zona) AS total_matriculas_geral,
-    SUM(desistentes_zona) AS desistentes_geral,
-    
-    -- Por zona
-    zona,
-    total_matriculas_zona,
-    desistentes_zona
-  FROM (
-    SELECT 
-      COALESCE(zona_escola, 'Sem informação') AS zona,
-      COUNT(DISTINCT idmatricula) AS total_matriculas_zona,
-      SUM(CASE WHEN COALESCE(idsituacao,0) = 2 THEN 1 ELSE 0 END) AS desistentes_zona
-    FROM base_sem_especiais
-    GROUP BY COALESCE(zona_escola, 'Sem informação')
-  ) zonas
-  GROUP BY GROUPING SETS (
-    (),
-    (zona, total_matriculas_zona, desistentes_zona)
-  )
-),
+        SELECT 
+          zona,
+          total_matriculas_zona,
+          desistentes_zona,
+          CASE 
+            WHEN total_matriculas_zona > 0 
+            THEN ROUND((desistentes_zona * 100.0 / total_matriculas_zona), 2)
+            ELSE 0 
+          END AS taxa_evasao_zona
+        FROM (
+          SELECT 
+            COALESCE(zona_escola, 'Sem informação') AS zona,
+            COUNT(DISTINCT idmatricula) AS total_matriculas_zona,
+            SUM(CASE WHEN COALESCE(idsituacao,0) = 2 THEN 1 ELSE 0 END) AS desistentes_zona
+          FROM base_sem_especiais
+          GROUP BY COALESCE(zona_escola, 'Sem informação')
+        ) zonas
+      ),
 
-evasao_geral AS (
-  SELECT 
-    total_matriculas_geral,
-    desistentes_geral,
-    CASE 
-      WHEN total_matriculas_geral > 0 
-      THEN ROUND((desistentes_geral * 100.0 / total_matriculas_geral), 2)
-      ELSE 0 
-    END AS taxa_evasao_geral
-  FROM dados_evasao 
-  WHERE zona IS NULL
-),
+      /* >>> CORREÇÃO: Cálculo geral baseado na SOMA das zonas */
+      evasao_geral AS (
+        SELECT 
+          SUM(total_matriculas_zona) AS total_matriculas_geral,
+          SUM(desistentes_zona) AS desistentes_geral,
+          CASE 
+            WHEN SUM(total_matriculas_zona) > 0 
+            THEN ROUND((SUM(desistentes_zona) * 100.0 / SUM(total_matriculas_zona)), 2)
+            ELSE 0 
+          END AS taxa_evasao_geral
+        FROM dados_evasao
+      ),
 
-evasao_por_zona AS (
-  SELECT 
-    zona,
-    total_matriculas_zona,
-    desistentes_zona,
-    CASE 
-      WHEN total_matriculas_zona > 0 
-      THEN ROUND((desistentes_zona * 100.0 / total_matriculas_zona), 2)
-      ELSE 0 
-    END AS taxa_evasao_zona
-  FROM dados_evasao 
-  WHERE zona IS NOT NULL
-),
+      evasao_por_zona AS (
+        SELECT * FROM dados_evasao
+      ),
 
       /* Cálculo de capacidade por escola */
       turmas AS (
@@ -635,19 +621,43 @@ evasao_por_zona AS (
       }
     };
 
-    console.log('Dashboard - Taxas calculadas CONSISTENTEMENTE:', {
-      taxaEvasaoGeral: responseData.taxaEvasao,
-      taxaEvasaoUrbana: evasaoUrbana,
-      taxaEvasaoRural: evasaoRural,
+    // >>> CORREÇÃO: VALIDAÇÃO FINAL - GARANTIR QUE A SOMA BATA
+    console.log('✅ VALIDAÇÃO FINAL - TAXAS DE EVASÃO:', {
+      taxaGeral: responseData.taxaEvasao + '%',
+      urbana: evasaoUrbana + '%',
+      rural: evasaoRural + '%',
+      totalMatriculasGeral: responseData.totalMatriculas,
       totalMatriculasUrbana: matriculasUrbanaEvasao,
       totalMatriculasRural: matriculasRuralEvasao,
+      somaMatriculasZonas: matriculasUrbanaEvasao + matriculasRuralEvasao,
+      desistentesGeral: desistentesUrbana + desistentesRural,
       desistentesUrbana: desistentesUrbana,
       desistentesRural: desistentesRural,
-      // Verificação de consistência
-      somaDesistentes: desistentesUrbana + desistentesRural,
-      somaMatriculas: matriculasUrbanaEvasao + matriculasRuralEvasao,
-      taxaCalculada: ((desistentesUrbana + desistentesRural) * 100 / (matriculasUrbanaEvasao + matriculasRuralEvasao)).toFixed(2)
+      somaDesistentesZonas: desistentesUrbana + desistentesRural
     });
+
+    // >>> CORREÇÃO: FORÇAR CONSISTÊNCIA SE NECESSÁRIO
+    const totalMatriculasEvasao = matriculasUrbanaEvasao + matriculasRuralEvasao;
+    const totalDesistentes = desistentesUrbana + desistentesRural;
+    
+    if (totalMatriculasEvasao > 0) {
+      const taxaCalculadaManual = (totalDesistentes * 100 / totalMatriculasEvasao);
+      const taxaCalculadaFormatada = Number(taxaCalculadaManual.toFixed(2));
+      
+      if (Math.abs(responseData.taxaEvasao - taxaCalculadaFormatada) > 0.01) {
+        console.log('🔄 CORRIGINDO TAXA DE EVASÃO:',
+          responseData.taxaEvasao + '% → ' + taxaCalculadaFormatada + '%');
+        
+        responseData.taxaEvasao = taxaCalculadaFormatada;
+        
+        console.log('✅ TAXA CORRIGIDA COM SUCESSO:', {
+          taxaEvasaoGeral: responseData.taxaEvasao + '%',
+          taxaEvasaoUrbana: evasaoUrbana + '%',
+          taxaEvasaoRural: evasaoRural + '%',
+          consistente: 'SIM ✅'
+        });
+      }
+    }
 
     // CONSISTÊNCIA entre total e zonas (mantido)
     const sumZona = (obj, field) =>
@@ -672,50 +682,6 @@ evasao_por_zona AS (
       r.totalMatriculasAtivas = sane(r.totalMatriculasAtivas);
       r.taxaOcupacao = sane(r.taxaOcupacao);
     })(responseData);
-
-    // VALIDAÇÃO DA TAXA DE EVASÃO - CORREÇÃO DA MÉDIA PONDERADA
-console.log('🔍 VALIDAÇÃO TAXA EVASÃO - MÉDIA PONDERADA:', {
-  taxaEvasaoAtual: responseData.taxaEvasao,
-  taxaEvasaoUrbana: evasaoUrbana,
-  taxaEvasaoRural: evasaoRural,
-  totalMatriculasUrbana: matriculasUrbanaEvasao,
-  totalMatriculasRural: matriculasRuralEvasao,
-  desistentesUrbana: desistentesUrbana,
-  desistentesRural: desistentesRural,
-});
-
-// Cálculo da média ponderada correta
-const totalMatriculas = matriculasUrbanaEvasao + matriculasRuralEvasao;
-const totalDesistentes = desistentesUrbana + desistentesRural;
-
-if (totalMatriculas > 0) {
-  const taxaCalculadaManual = (totalDesistentes * 100 / totalMatriculas);
-  const taxaCalculadaFormatada = Number(taxaCalculadaManual.toFixed(2));
-  
-  console.log('📊 CÁLCULO MÉDIA PONDERADA:', {
-    totalMatriculas,
-    totalDesistentes,
-    taxaCalculadaManual: taxaCalculadaManual.toFixed(4) + '%',
-    taxaCalculadaFormatada: taxaCalculadaFormatada + '%',
-    taxaAtualSistema: responseData.taxaEvasao + '%',
-    diferenca: Math.abs(responseData.taxaEvasao - taxaCalculadaFormatada).toFixed(4) + '%'
-  });
-
-  // Se houver diferença significativa, corrigir automaticamente
-  if (Math.abs(responseData.taxaEvasao - taxaCalculadaFormatada) > 0.01) {
-    console.log('🔄 CORRIGINDO TAXA DE EVASÃO:',
-      responseData.taxaEvasao + '% → ' + taxaCalculadaFormatada + '%');
-    
-    responseData.taxaEvasao = taxaCalculadaFormatada;
-    
-    console.log('✅ TAXA CORRIGIDA COM SUCESSO:', {
-      taxaEvasaoGeral: responseData.taxaEvasao + '%',
-      taxaEvasaoUrbana: evasaoUrbana + '%',
-      taxaEvasaoRural: evasaoRural + '%',
-      consistente: 'SIM ✅'
-    });
-  }
-}
 
     cache.set(cacheKey, responseData);
     res.json(responseData);
