@@ -351,6 +351,69 @@ const buscarAnalytics = async (req, res) => {
     // Força consistência entre totais e zonas
     enforceConsistencyTotals(responseData);
 
+    // 🟢🟢🟢 VALIDAÇÃO DA TAXA DE EVASÃO - CORREÇÃO DA MÉDIA PONDERADA 🟢🟢🟢
+    console.log('🔍 [Analytics] VALIDAÇÃO TAXA EVASÃO - MÉDIA PONDERADA:', {
+      taxaEvasaoAtual: responseData.taxaEvasao,
+      taxaEvasaoUrbana: evasaoUrbana,
+      taxaEvasaoRural: evasaoRural,
+    });
+
+    // Obter dados completos para cálculo da média ponderada
+    const evasaoUrbanaData = row.evasao_por_zona?.['URBANA'] || {};
+    const evasaoRuralData = row.evasao_por_zona?.['RURAL'] || {};
+
+    const totalMatriculasUrbana = evasaoUrbanaData.total_matriculas || 0;
+    const totalMatriculasRural = evasaoRuralData.total_matriculas || 0;
+    const desistentesUrbana = evasaoUrbanaData.desistentes || 0;
+    const desistentesRural = evasaoRuralData.desistentes || 0;
+
+    // Cálculo da média ponderada correta
+    const totalMatriculas = totalMatriculasUrbana + totalMatriculasRural;
+    const totalDesistentes = desistentesUrbana + desistentesRural;
+
+    if (totalMatriculas > 0) {
+      const taxaCalculadaManual = (totalDesistentes * 100 / totalMatriculas);
+      const taxaCalculadaFormatada = Number(taxaCalculadaManual.toFixed(2));
+      
+      console.log('📊 [Analytics] CÁLCULO MÉDIA PONDERADA:', {
+        totalMatriculasUrbana,
+        totalMatriculasRural,
+        totalMatriculas,
+        desistentesUrbana,
+        desistentesRural,
+        totalDesistentes,
+        taxaCalculadaManual: taxaCalculadaManual.toFixed(4) + '%',
+        taxaCalculadaFormatada: taxaCalculadaFormatada + '%',
+        taxaAtualSistema: responseData.taxaEvasao + '%',
+        diferenca: Math.abs(responseData.taxaEvasao - taxaCalculadaFormatada).toFixed(4) + '%'
+      });
+
+      // Se houver diferença significativa, corrigir automaticamente
+      if (Math.abs(responseData.taxaEvasao - taxaCalculadaFormatada) > 0.01) {
+        console.log('🔄 [Analytics] CORRIGINDO TAXA DE EVASÃO:',
+          responseData.taxaEvasao + '% → ' + taxaCalculadaFormatada + '%');
+        
+        responseData.taxaEvasao = taxaCalculadaFormatada;
+        
+        // Atualizar também os detalhes de zona se necessário
+        if (responseData.detalhesZona && responseData.detalhesZona.evasao) {
+          responseData.detalhesZona.evasao.urbana = evasaoUrbana;
+          responseData.detalhesZona.evasao.rural = evasaoRural;
+        }
+        
+        console.log('✅ [Analytics] TAXA CORRIGIDA COM SUCESSO:', {
+          taxaEvasaoGeral: responseData.taxaEvasao + '%',
+          taxaEvasaoUrbana: evasaoUrbana + '%',
+          taxaEvasaoRural: evasaoRural + '%',
+          consistente: 'SIM ✅'
+        });
+      } else {
+        console.log('✅ [Analytics] Taxa de evasão já está consistente');
+      }
+    } else {
+      console.log('⚠️ [Analytics] Não há matrículas para calcular taxa de evasão');
+    }
+
     cache.set(cacheKey, responseData);
     return res.json(responseData);
   } catch (err) {
