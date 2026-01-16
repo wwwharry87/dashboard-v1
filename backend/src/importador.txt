@@ -42,7 +42,7 @@ CREATE TEMP TABLE staging_matriculas (
 -- Nota: Se o CSV não tiver as colunas idtipo e idsituacao, você pode:
 -- a) Remover estas colunas da tabela staging, ou
 -- b) Manter e definir valores padrão (ex: NULL ou 0)
-\copy staging_matriculas FROM '/Users/wesleymelo/bw-solucoes-dashboard/backend/data/matriculas.csv' WITH (FORMAT csv, HEADER true, DELIMITER ';');
+\copy staging_matriculas FROM '/Users/wesleymelo/Desktop/matriculas.csv' WITH (FORMAT csv, HEADER true, DELIMITER ';');
 
 -- 3. Insira (ou atualize) os dados na tabela de destino "dados_matriculas"
 INSERT INTO dados_matriculas (
