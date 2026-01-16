@@ -1,4 +1,4 @@
-// Dashboard.js - VERSÃO COM CARDS COMPACTOS (AJUSTADA)
+// Dashboard.js - VERSÃO COM CARDS COMPACTOS (AJUSTADO: Excel/PDF + Layout cards sem buraco + remove Taxa Evasão da HOME)
 import React, {
   useEffect,
   useState,
@@ -80,7 +80,6 @@ const Spinner = () => (
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
-      aria-label="Carregando"
     >
       <circle
         className="opacity-25"
@@ -154,14 +153,14 @@ const Toast = ({ message, show, type = "success" }) =>
         text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-lg font-semibold
       `}
     >
-      <span role="img" aria-label="toast">
+      <span role="img" aria-label="party">
         {type === "success" ? "🎉" : "🔍"}
       </span>
       {message}
     </motion.div>
   ) : null;
 
-// Funções de formatação (mantidas aqui para compatibilidade imediata)
+// === Formatadores (mantidos aqui por compatibilidade com seu arquivo atual) ===
 const formatNumber = (num) => {
   if (num == null || num === "" || num === "Erro" || isNaN(num)) {
     return "0";
@@ -176,6 +175,66 @@ const formatPercent = (value) => {
   }
   const number = parseFloat(value) || 0;
   return number.toFixed(2).replace(".", ",");
+};
+
+// === Normalização robusta de campos (resolve colunas em branco no Excel/PDF) ===
+const pick = (obj, keys, fallback = null) => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return fallback;
+};
+
+const normalizeSchoolRow = (esc) => {
+  // Ajuste de chaves mais comuns (se ainda vier branco, me manda um console.log(data.escolas[0]) e eu travo 100%)
+  const escola = pick(esc, ["escola", "nomeEscola", "nome", "ds_escola"], "N/A");
+
+  const matriculas = Number(
+    pick(
+      esc,
+      [
+        "total_matriculas",
+        "totalMatriculas",
+        "matriculas",
+        "qtd_matriculas",
+        "qtdMatriculas",
+        "matriculas_total",
+        "matriculasTotal",
+      ],
+      0
+    )
+  );
+
+  const capacidade = Number(
+    pick(
+      esc,
+      ["capacidade", "capacidadeTotal", "capacidade_total", "capacidadeTotalEscola"],
+      0
+    )
+  );
+
+  const vagas = Number(
+    pick(
+      esc,
+      ["vagas", "totalVagas", "vagasDisponiveis", "vagas_disponiveis", "vagasDisponiveisEscola"],
+      0
+    )
+  );
+
+  const ocupacao = Number(
+    pick(esc, ["taxa_ocupacao", "taxaOcupacao", "ocupacao", "ocupacaoPercentual"], 0)
+  );
+
+  const zona = String(
+    pick(
+      esc,
+      ["zona", "localizacao", "area", "tp_zona", "zona_escola", "zonaEscola"],
+      "N/A"
+    )
+  );
+
+  return { escola, matriculas, capacidade, vagas, ocupacao, zona };
 };
 
 // Registro do Chart.js
@@ -240,7 +299,7 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   </motion.div>
 );
 
-// Detalhes de evasão por zona (usado no Analytics)
+// Componente para mostrar detalhes de evasão por zona
 const ZonaEvasaoDetails = ({ urbana, rural }) => (
   <motion.div
     initial={{ opacity: 0, height: 0 }}
@@ -264,7 +323,7 @@ const ZonaEvasaoDetails = ({ urbana, rural }) => (
   </motion.div>
 );
 
-// Indicador de alerta
+// Componente para indicadores de alerta
 const AlertIndicator = ({ type, value, label }) => {
   const getColor = () => {
     if (type === "high") return "text-red-600 bg-red-50 border-red-200";
@@ -296,47 +355,7 @@ const InfoTooltip = ({ content, id }) => (
   </>
 );
 
-/**
- * Helpers para export:
- * - pick: tenta múltiplas chaves (porque o backend/endpoint pode variar nomes)
- * - normalizeSchoolRow: transforma o objeto escola em colunas consistentes para Excel/PDF
- */
-const pick = (obj, keys, fallback = null) => {
-  for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && v !== "") return v;
-  }
-  return fallback;
-};
-
-const normalizeSchoolRow = (esc) => {
-  return {
-    escola: pick(esc, ["escola", "nomeEscola", "nome", "ds_escola"], "N/A"),
-    matriculas: Number(
-      pick(
-        esc,
-        ["total_matriculas", "totalMatriculas", "matriculas", "qtd_matriculas"],
-        0
-      )
-    ),
-    capacidade: Number(
-      pick(esc, ["capacidade", "capacidadeTotal", "capacidade_total"], 0)
-    ),
-    vagas: Number(
-      pick(
-        esc,
-        ["vagas", "totalVagas", "vagasDisponiveis", "vagas_disponiveis"],
-        0
-      )
-    ),
-    ocupacao: Number(
-      pick(esc, ["taxa_ocupacao", "taxaOcupacao", "ocupacao"], 0)
-    ),
-    zona: String(pick(esc, ["zona", "localizacao", "area", "tp_zona"], "N/A")),
-  };
-};
-
-// ✅ Exportação Excel (exceljs) - 2 abas: Resumo + Escolas (COM NORMALIZAÇÃO)
+// ✅ Exportação Excel (exceljs) - 2 abas: Resumo + Escolas
 const exportToExcel = async (escolas, data) => {
   if (!escolas || escolas.length === 0) {
     alert("Nenhum dado disponível para exportação");
@@ -351,8 +370,11 @@ const exportToExcel = async (escolas, data) => {
     wb.creator = "Dashboard";
     wb.created = new Date();
 
+    // =========================
     // Aba 1: RESUMO
+    // =========================
     const wsResumo = wb.addWorksheet("Resumo");
+
     wsResumo.columns = [
       { header: "Métrica", key: "metrica", width: 32 },
       { header: "Valor", key: "valor", width: 18 },
@@ -366,15 +388,17 @@ const exportToExcel = async (escolas, data) => {
       { metrica: "Taxa de Ocupação (%)", valor: Number(data?.taxaOcupacao ?? 0) },
       { metrica: "Entradas", valor: data?.totalEntradas ?? 0 },
       { metrica: "Saídas", valor: data?.totalSaidas ?? 0 },
-      // Mantém no relatório mesmo removendo card da HOME
+      // pode manter no resumo mesmo removendo o card da Home
       { metrica: "Taxa de Evasão (%)", valor: Number(data?.taxaEvasao ?? 0) },
     ]);
 
     wsResumo.getRow(1).font = { bold: true };
-    wsResumo.views = [{ state: "frozen", ySplit: 1 }];
 
+    // =========================
     // Aba 2: ESCOLAS
+    // =========================
     const wsEscolas = wb.addWorksheet("Escolas");
+
     wsEscolas.columns = [
       { header: "Escola", key: "escola", width: 40 },
       { header: "Matrículas", key: "matriculas", width: 12 },
@@ -383,15 +407,17 @@ const exportToExcel = async (escolas, data) => {
       { header: "Ocupação (%)", key: "ocupacao", width: 12 },
       { header: "Zona", key: "zona", width: 10 },
     ];
+
     wsEscolas.getRow(1).font = { bold: true };
-    wsEscolas.views = [{ state: "frozen", ySplit: 1 }];
 
     escolas.forEach((esc) => {
       const row = normalizeSchoolRow(esc);
       wsEscolas.addRow(row);
     });
 
-    // Download
+    wsResumo.views = [{ state: "frozen", ySplit: 1 }];
+    wsEscolas.views = [{ state: "frozen", ySplit: 1 }];
+
     const buffer = await wb.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -412,7 +438,7 @@ const exportToExcel = async (escolas, data) => {
   }
 };
 
-// ✅ Exportação PDF (jsPDF + jspdf-autotable) com resolver robusto (CRA/ESM safe)
+// ✅ Exportação PDF (jsPDF + jspdf-autotable) compatível com CRA/ESM
 const exportToPDF = async (escolas, data) => {
   if (!escolas || escolas.length === 0) {
     alert("Nenhum dado disponível para exportação");
@@ -425,6 +451,7 @@ const exportToPDF = async (escolas, data) => {
 
     const jsPDF = jsPDFModule?.jsPDF ?? jsPDFModule?.default ?? jsPDFModule;
 
+    // Resolver robusto para autoTable (CRA/ESM varia muito)
     const resolveAutoTable = (mod) => {
       if (!mod) return null;
       if (typeof mod === "function") return mod;
@@ -436,7 +463,9 @@ const exportToPDF = async (escolas, data) => {
 
     const autoTable = resolveAutoTable(autoTableModule);
     if (!autoTable) {
-      throw new Error("jspdf-autotable não carregou corretamente (autoTable não encontrado).");
+      throw new Error(
+        "jspdf-autotable não carregou corretamente (autoTable não encontrado)."
+      );
     }
 
     const doc = new jsPDF();
@@ -481,10 +510,9 @@ const exportToPDF = async (escolas, data) => {
       headStyles: { fontStyle: "bold" },
     });
 
-    const startY = doc.lastAutoTable?.finalY
-      ? doc.lastAutoTable.finalY + 10
-      : 80;
+    const startY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 10 : 80;
 
+    // tabela escolas (normalizada)
     const body = escolas.map((esc) => {
       const row = normalizeSchoolRow(esc);
       return [
@@ -523,7 +551,7 @@ const exportToPDF = async (escolas, data) => {
   }
 };
 
-// Botões de export
+// Componente de Exportação
 const ExportButtons = ({ data, escolas, loading }) => {
   const handleExportExcel = () => {
     if (loading) {
@@ -593,26 +621,20 @@ const Dashboard = () => {
 
   // === STATES ===
   const [filters, setFilters] = useState({});
-  const [selectedFilters, setSelectedFilters] = useLocalStorage(
-    "selectedFilters",
-    {
-      anoLetivo: "",
-      deficiencia: "",
-      grupoEtapa: "",
-      etapaMatricula: "",
-      etapaTurma: "",
-      multisserie: "",
-      situacaoMatricula: "",
-      tipoMatricula: "",
-      tipoTransporte: "",
-      transporteEscolar: "",
-      idescola: "",
-    }
-  );
-  const [selectedSchool, setSelectedSchool] = useLocalStorage(
-    "selectedSchool",
-    null
-  );
+  const [selectedFilters, setSelectedFilters] = useLocalStorage("selectedFilters", {
+    anoLetivo: "",
+    deficiencia: "",
+    grupoEtapa: "",
+    etapaMatricula: "",
+    etapaTurma: "",
+    multisserie: "",
+    situacaoMatricula: "",
+    tipoMatricula: "",
+    tipoTransporte: "",
+    transporteEscolar: "",
+    idescola: "",
+  });
+  const [selectedSchool, setSelectedSchool] = useLocalStorage("selectedSchool", null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -675,13 +697,12 @@ const Dashboard = () => {
     },
   });
 
-  // Taxa evasão consistente
+  // Função para calcular taxa de evasão consistente
   const calcularTaxaEvasaoConsistente = useCallback((dados) => {
     if (!dados || !dados.detalhesZona) return dados?.taxaEvasao || 0;
 
     const { evasao } = dados.detalhesZona;
 
-    // Se temos dados detalhados de desistentes e matriculas por zona
     if (evasao?.desistentes && evasao?.totalMatriculas) {
       const desistentesUrbana = evasao.desistentes.urbana || 0;
       const desistentesRural = evasao.desistentes.rural || 0;
@@ -697,7 +718,6 @@ const Dashboard = () => {
       }
     }
 
-    // Se temos taxas por zona e total por zona (média ponderada)
     if (
       evasao?.urbana !== undefined &&
       evasao?.rural !== undefined &&
@@ -748,7 +768,6 @@ const Dashboard = () => {
     isAutoUpdating,
   ]);
 
-  // Safe number
   const getSafeNumber = (value, defaultValue = 0) => {
     if (value === null || value === undefined || value === "Erro")
       return defaultValue;
@@ -764,14 +783,8 @@ const Dashboard = () => {
     return isNaN(numericValue) ? defaultValue : numericValue;
   };
 
-  // Safe percent
   const getSafePercent = (value, defaultValue = 0) => {
-    if (
-      value === null ||
-      value === undefined ||
-      value === "Erro" ||
-      isNaN(value)
-    )
+    if (value === null || value === undefined || value === "Erro" || isNaN(value))
       return defaultValue;
     const numericValue = parseFloat(value);
     return isNaN(numericValue)
@@ -823,25 +836,43 @@ const Dashboard = () => {
     fetchClientName();
   }, []);
 
+  // Filtros iniciais
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const initialize = async () => {
+      try {
+        await carregarFiltros(controller.signal);
+      } catch (error) {
+        if (!error.name === "AbortError") {
+          console.error("Erro ao inicializar:", error);
+        }
+      }
+    };
+
+    initialize();
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      controller.abort();
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleClickOutside = useCallback((event) => {
-    if (
-      !event.target.closest("#sidebar") &&
-      !event.target.closest("#filterButton")
-    ) {
+    if (!event.target.closest("#sidebar") && !event.target.closest("#filterButton")) {
       setShowSidebar(false);
     }
   }, []);
 
-  // Carregamento de filtros otimizado
   const carregarFiltros = async (signal) => {
     try {
       const response = await api.get("/filtros", { signal });
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
 
-      const savedFilters = JSON.parse(
-        localStorage.getItem("selectedFilters") || "{}"
-      );
+      const savedFilters = JSON.parse(localStorage.getItem("selectedFilters") || "{}");
       const initialFilters = savedFilters.anoLetivo
         ? savedFilters
         : { ...selectedFilters, anoLetivo: ultimoAnoLetivo };
@@ -855,7 +886,6 @@ const Dashboard = () => {
     }
   };
 
-  // Carregamento de dados
   const carregarDados = async (filtros, signal) => {
     setGlobalLoading(true);
 
@@ -896,9 +926,7 @@ const Dashboard = () => {
         totalEntradas: getSafeNumber(totaisData.totalEntradas),
         totalSaidas: getSafeNumber(totaisData.totalSaidas),
         alunosComDeficiencia: getSafeNumber(totaisData.alunosComDeficiencia),
-        alunosTransporteEscolar: getSafeNumber(
-          totaisData.alunosTransporteEscolar
-        ),
+        alunosTransporteEscolar: getSafeNumber(totaisData.alunosTransporteEscolar),
         matriculasPorZona: totaisData.matriculasPorZona || {},
         escolasPorZona: totaisData.escolasPorZona || {},
         turmasPorZona: totaisData.turmasPorZona || {},
@@ -908,11 +936,12 @@ const Dashboard = () => {
         matriculasPorSituacao: totaisData.matriculasPorSituacao || {},
         evolucaoMatriculas: totaisData.evolucaoMatriculas || {},
         escolas: totaisData.escolas || [],
-        detalhesZona: totaisData.detalhesZona || {
-          entradas: { urbana: 0, rural: 0 },
-          saidas: { urbana: 0, rural: 0 },
-          evasao: { urbana: 0, rural: 0 },
-        },
+        detalhesZona:
+          totaisData.detalhesZona || {
+            entradas: { urbana: 0, rural: 0 },
+            saidas: { urbana: 0, rural: 0 },
+            evasao: { urbana: 0, rural: 0 },
+          },
       };
 
       setData(safeData);
@@ -1009,30 +1038,6 @@ const Dashboard = () => {
     }
   };
 
-  // Filtros iniciais
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const initialize = async () => {
-      try {
-        await carregarFiltros(controller.signal);
-      } catch (error) {
-        if (!error.name === "AbortError") {
-          console.error("Erro ao inicializar:", error);
-        }
-      }
-    };
-
-    initialize();
-    document.addEventListener("mousedown", handleClickOutside);
-
-    return () => {
-      controller.abort();
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [handleClickOutside]); // ✅ depende do callback memoizado
-
-  // Handler de filtros: agora só atualiza state (carregarDados via debounce no useEffect abaixo)
   const handleFilterChange = useCallback((e) => {
     const { name, value } = e.target;
 
@@ -1050,11 +1055,12 @@ const Dashboard = () => {
         updatedFilters.etapaMatricula = "";
       }
 
+      carregarDados(updatedFilters);
+
       return updatedFilters;
     });
   }, []);
 
-  // Handler de clique em escola (seleciona/limpa e o debounce dispara o load)
   const handleSchoolClick = useCallback(
     (escola) => {
       setSelectedFilters((prev) => {
@@ -1068,20 +1074,13 @@ const Dashboard = () => {
           updatedFilters.idescola = escola.idescola;
         }
 
+        carregarDados(updatedFilters);
+
         return updatedFilters;
       });
     },
-    [selectedSchool, setSelectedSchool, setSelectedFilters]
+    [selectedSchool]
   );
-
-  // ✅ Debounce: reduz requests/render quando mexe em filtros rapidamente
-  useEffect(() => {
-    const t = setTimeout(() => {
-      carregarDados(selectedFilters);
-    }, 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFilters]);
 
   const indicadoresEstrategicos = useMemo(() => {
     const totalMatriculas = data.totalMatriculas || 1;
@@ -1091,15 +1090,11 @@ const Dashboard = () => {
       taxaOcupacao: data.taxaOcupacao || 0,
       percentualDeficiencia:
         data.alunosComDeficiencia && totalMatriculas
-          ? parseFloat(
-              ((data.alunosComDeficiencia * 100) / totalMatriculas).toFixed(2)
-            )
+          ? parseFloat(((data.alunosComDeficiencia * 100) / totalMatriculas).toFixed(2))
           : 0,
       percentualTransporte:
         data.alunosTransporteEscolar && totalMatriculas
-          ? parseFloat(
-              ((data.alunosTransporteEscolar * 100) / totalMatriculas).toFixed(2)
-            )
+          ? parseFloat(((data.alunosTransporteEscolar * 100) / totalMatriculas).toFixed(2))
           : 0,
     };
   }, [data]);
@@ -1113,26 +1108,15 @@ const Dashboard = () => {
     navigate("/login", { replace: true });
   }, [navigate]);
 
-  // Memoização dos dados para gráficos
+  // Dados de gráficos memoizados
   const chartData = useMemo(() => {
-    const mesesOrdenados = Object.keys(data.entradasSaidasPorMes || {}).sort(
-      (a, b) => parseInt(a) - parseInt(b)
-    );
+    const mesesOrdenados = Object.keys(data.entradasSaidasPorMes || {}).sort((a, b) => {
+      const mesA = parseInt(a);
+      const mesB = parseInt(b);
+      return mesA - mesB;
+    });
 
-    const nomesMeses = [
-      "Jan",
-      "Fev",
-      "Mar",
-      "Abr",
-      "Mai",
-      "Jun",
-      "Jul",
-      "Ago",
-      "Set",
-      "Out",
-      "Nov",
-      "Dec",
-    ];
+    const nomesMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dec"];
 
     const labelsMovimentacao = mesesOrdenados.map((mes) => {
       const mesIndex = parseInt(mes) - 1;
@@ -1252,7 +1236,10 @@ const Dashboard = () => {
         },
         scales: {
           x: { grid: { display: false }, ticks: { color: "#6B7280", font: { weight: "bold" } } },
-          y: { grid: { color: "#E5E7EB" }, ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (v) => formatNumber(v) } },
+          y: {
+            grid: { color: "#E5E7EB" },
+            ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
+          },
         },
         layout: { padding: { top: 20, bottom: 20 } },
       },
@@ -1261,7 +1248,12 @@ const Dashboard = () => {
         maintainAspectRatio: false,
         plugins: {
           legend: { position: "bottom", labels: { font: { size: 12, weight: "bold" }, color: "#6B7280" } },
-          datalabels: { display: true, color: "#fff", font: { weight: "bold", size: 11 }, formatter: (v) => formatNumber(v) },
+          datalabels: {
+            display: true,
+            color: "#fff",
+            font: { weight: "bold", size: 11 },
+            formatter: (value) => formatNumber(value),
+          },
         },
       },
       turno: {
@@ -1277,11 +1269,14 @@ const Dashboard = () => {
             anchor: "end",
             align: "right",
             offset: 4,
-            formatter: (v) => formatNumber(v),
+            formatter: (value) => formatNumber(value),
           },
         },
         scales: {
-          x: { grid: { color: "#E5E7EB" }, ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (v) => formatNumber(v) } },
+          x: {
+            grid: { color: "#E5E7EB" },
+            ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) },
+          },
           y: { grid: { display: false }, ticks: { color: "#6B7280", font: { weight: "bold" } } },
         },
         layout: { padding: { left: 20, right: 20 } },
@@ -1291,7 +1286,7 @@ const Dashboard = () => {
         maintainAspectRatio: false,
         plugins: {
           legend: { position: "bottom", labels: { font: { size: 11, weight: "bold" }, color: "#6B7280" } },
-          datalabels: { display: true, color: "#fff", font: { weight: "bold", size: 10 }, formatter: (v) => formatNumber(v) },
+          datalabels: { display: true, color: "#fff", font: { weight: "bold", size: 10 }, formatter: (value) => formatNumber(value) },
         },
       },
       evolucao: {
@@ -1300,23 +1295,20 @@ const Dashboard = () => {
         plugins: { legend: { display: false } },
         scales: {
           x: { grid: { display: false }, ticks: { color: "#6B7280", font: { weight: "bold" } } },
-          y: { grid: { color: "#E5E7EB" }, ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (v) => formatNumber(v) } },
+          y: { grid: { color: "#E5E7EB" }, ticks: { color: "#6B7280", font: { weight: "bold" }, callback: (value) => formatNumber(value) } },
         },
       },
     };
   }, []);
 
-  // ✅ Busca eficiente e consistente
   const filteredEscolas = useMemo(() => {
     const term = (searchTerm || "").trim().toLowerCase();
     if (!term) return data.escolas;
-
     return data.escolas.filter((escola) =>
-      String(escola?.escola || "").toLowerCase().includes(term)
+      String(escola.escola || "").toLowerCase().includes(term)
     );
   }, [data.escolas, searchTerm]);
 
-  // Data de atualização
   const formattedUpdateDate = useMemo(() => {
     if (!data.ultimaAtualizacao) return null;
 
@@ -1332,7 +1324,6 @@ const Dashboard = () => {
     return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
   }, [data.ultimaAtualizacao]);
 
-  // === RENDER ===
   return (
     <AppContext.Provider value={{}}>
       <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 text-gray-800 relative overflow-hidden">
@@ -1341,7 +1332,7 @@ const Dashboard = () => {
           {isLoading && <GlobalLoading />}
         </AnimatePresence>
 
-        {/* HEADER */}
+        {/* HEADER FIXO NO TOPO */}
         <div className="w-full bg-white/95 backdrop-blur-sm shadow-xl border-b border-gray-200/60 z-40">
           <div className="flex items-center justify-between px-3 py-3 md:px-6 md:py-4">
             <div className="flex items-center gap-3 flex-1">
@@ -1393,7 +1384,7 @@ const Dashboard = () => {
             </div>
           )}
 
-          {/* Abas */}
+          {/* Navegação por abas */}
           <div className="flex border-b border-gray-200">
             <button
               onClick={() => setActiveTab("overview")}
@@ -1406,7 +1397,6 @@ const Dashboard = () => {
               <FaHome className="text-sm" />
               <span className="hidden xs:inline">Visão Geral</span>
             </button>
-
             <button
               onClick={() => setActiveTab("analytics")}
               className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
@@ -1418,7 +1408,6 @@ const Dashboard = () => {
               <FaChartBar className="text-sm" />
               <span className="hidden xs:inline">Analytics</span>
             </button>
-
             <button
               onClick={() => setActiveTab("geographic")}
               className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
@@ -1432,13 +1421,8 @@ const Dashboard = () => {
             </button>
           </div>
 
-          {/* Badge filtro ativo */}
           {selectedSchool && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center py-1 bg-violet-50/80"
-            >
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center py-1 bg-violet-50/80">
               <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow">
                 🎯 Filtro ativo: {selectedSchool.escola}
               </span>
@@ -1452,26 +1436,18 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* CONTEÚDO */}
+        {/* CONTEÚDO PRINCIPAL POR ABA */}
         <div className="flex-1 overflow-auto p-2 sm:p-3">
           {/* ABA: VISÃO GERAL */}
           {activeTab === "overview" && (
             <>
-              {/* Alertas */}
+              {/* Alertas Estratégicos */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 {indicadoresEstrategicos.taxaEvasao > 10 && (
-                  <AlertIndicator
-                    type="high"
-                    value={`${formatPercent(indicadoresEstrategicos.taxaEvasao)}%`}
-                    label="Taxa de Evasão Alta"
-                  />
+                  <AlertIndicator type="high" value={`${formatPercent(indicadoresEstrategicos.taxaEvasao)}%`} label="Taxa de Evasão Alta" />
                 )}
                 {indicadoresEstrategicos.taxaOcupacao > 90 && (
-                  <AlertIndicator
-                    type="medium"
-                    value={`${formatPercent(indicadoresEstrategicos.taxaOcupacao)}%`}
-                    label="Alta Ocupação"
-                  />
+                  <AlertIndicator type="medium" value={`${formatPercent(indicadoresEstrategicos.taxaOcupacao)}%`} label="Alta Ocupação" />
                 )}
                 {data.totalSaidas > data.totalEntradas && (
                   <AlertIndicator type="high" value="Crítico" label="Mais Saídas que Entradas" />
@@ -1481,8 +1457,8 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {/* Cards (REMOVIDO: Taxa Evasão na HOME) */}
-              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[640px]:grid-cols-4 min-[1024px]:grid-cols-5 min-[1280px]:grid-cols-7 gap-2 sm:gap-3 mb-3 sm:mb-4">
+              {/* ✅ GRID DOS CARDS SEM BURACO (agora são 6 cards na Home) */}
+              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[640px]:grid-cols-4 min-[1024px]:grid-cols-6 min-[1280px]:grid-cols-6 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 <Card
                   label="Matrículas"
                   value={data.totalMatriculas}
@@ -1491,10 +1467,7 @@ const Dashboard = () => {
                   bgColor="bg-blue-50"
                   loading={loadingCards.totalMatriculas}
                   additionalContent={
-                    <ZonaDetails
-                      urbana={data.matriculasPorZona?.["URBANA"]}
-                      rural={data.matriculasPorZona?.["RURAL"]}
-                    />
+                    <ZonaDetails urbana={data.matriculasPorZona?.["URBANA"]} rural={data.matriculasPorZona?.["RURAL"]} />
                   }
                 />
 
@@ -1505,12 +1478,7 @@ const Dashboard = () => {
                   borderColor="border-green-400"
                   bgColor="bg-green-50"
                   loading={loadingCards.totalEscolas}
-                  additionalContent={
-                    <ZonaEscolasDetails
-                      urbana={data.escolasPorZona?.["URBANA"]}
-                      rural={data.escolasPorZona?.["RURAL"]}
-                    />
-                  }
+                  additionalContent={<ZonaEscolasDetails urbana={data.escolasPorZona?.["URBANA"]} rural={data.escolasPorZona?.["RURAL"]} />}
                 />
 
                 <Card
@@ -1552,10 +1520,7 @@ const Dashboard = () => {
                   bgColor="bg-yellow-50"
                   loading={loadingCards.totalEntradas}
                   additionalContent={
-                    <ZonaDetails
-                      urbana={data.detalhesZona?.entradas?.urbana || 0}
-                      rural={data.detalhesZona?.entradas?.rural || 0}
-                    />
+                    <ZonaDetails urbana={data.detalhesZona?.entradas?.urbana || 0} rural={data.detalhesZona?.entradas?.rural || 0} />
                   }
                 />
 
@@ -1567,15 +1532,12 @@ const Dashboard = () => {
                   bgColor="bg-red-50"
                   loading={loadingCards.totalSaidas}
                   additionalContent={
-                    <ZonaDetails
-                      urbana={data.detalhesZona?.saidas?.urbana || 0}
-                      rural={data.detalhesZona?.saidas?.rural || 0}
-                    />
+                    <ZonaDetails urbana={data.detalhesZona?.saidas?.urbana || 0} rural={data.detalhesZona?.saidas?.rural || 0} />
                   }
                 />
               </div>
 
-              {/* Tabela e gráfico */}
+              {/* Área Principal - Tabela e Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
                 <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg overflow-hidden flex flex-col h-[400px] border-gray-200/50 border">
                   <div className="p-3 bg-gradient-to-r from-gray-50 to-gray-100/80 border-gray-200 border-b flex justify-between items-center">
@@ -1588,7 +1550,6 @@ const Dashboard = () => {
                       <button
                         onClick={() => setShowSearch(!showSearch)}
                         className="bg-violet-500 text-white p-2 rounded-lg hover:bg-violet-600 transition-colors shadow"
-                        title="Buscar"
                       >
                         <FaSearch size={16} />
                       </button>
@@ -1596,12 +1557,7 @@ const Dashboard = () => {
                   </div>
 
                   {showSearch && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="p-2 bg-white border-gray-200 border-b"
-                    >
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="p-2 bg-white border-gray-200 border-b">
                       <input
                         type="text"
                         placeholder="Buscar escola..."
@@ -1648,7 +1604,6 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Gráficos adicionais */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
                 <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[300px] border-gray-200/50 border">
                   <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
@@ -1717,7 +1672,7 @@ const Dashboard = () => {
                   }
                 />
 
-                {/* Taxa de Evasão fica SOMENTE aqui */}
+                {/* Taxa de evasão fica somente aqui (Analytics), como você pediu */}
                 <Card
                   label="Taxa de Evasão"
                   value={`${formatPercent(data.taxaEvasao)}%`}
@@ -1730,10 +1685,7 @@ const Dashboard = () => {
                   tooltip="Percentual de evasão escolar"
                   tooltipId="taxa-evasao-analytics"
                   additionalContent={
-                    <ZonaEvasaoDetails
-                      urbana={data.detalhesZona?.evasao?.urbana || 0}
-                      rural={data.detalhesZona?.evasao?.rural || 0}
-                    />
+                    <ZonaEvasaoDetails urbana={data.detalhesZona?.evasao?.urbana || 0} rural={data.detalhesZona?.evasao?.rural || 0} />
                   }
                 />
 
@@ -1789,7 +1741,7 @@ const Dashboard = () => {
             </div>
           )}
 
-          {/* ABA: GEOGRÁFICA */}
+          {/* ABA: VISÃO GEOGRÁFICA */}
           {activeTab === "geographic" && (
             <div className="space-y-3 sm:space-y-4">
               <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[500px] sm:h-[600px] border-gray-200/50 border">
@@ -1822,22 +1774,19 @@ const Dashboard = () => {
                       <span className="font-bold text-blue-900 text-sm">
                         {formatNumber(data.matriculasPorZona?.["URBANA"])}
                         <span className="text-xs text-blue-600 ml-1">
-                          (
-                          {data.matriculasPorZona?.["URBANA"] && data.totalMatriculas
+                          ({data.matriculasPorZona?.["URBANA"] && data.totalMatriculas
                             ? ((data.matriculasPorZona["URBANA"] / data.totalMatriculas) * 100).toFixed(1)
                             : 0}
                           %)
                         </span>
                       </span>
                     </div>
-
                     <div className="flex justify-between items-center p-2 rounded-lg bg-green-50">
                       <span className="font-semibold text-green-700 text-sm">Rural</span>
                       <span className="font-bold text-green-900 text-sm">
                         {formatNumber(data.matriculasPorZona?.["RURAL"])}
                         <span className="text-xs text-green-600 ml-1">
-                          (
-                          {data.matriculasPorZona?.["RURAL"] && data.totalMatriculas
+                          ({data.matriculasPorZona?.["RURAL"] && data.totalMatriculas
                             ? ((data.matriculasPorZona["RURAL"] / data.totalMatriculas) * 100).toFixed(1)
                             : 0}
                           %)
@@ -1855,13 +1804,10 @@ const Dashboard = () => {
                   <div className="space-y-2">
                     <div className="text-center">
                       <div className="text-xl sm:text-2xl font-bold text-violet-600">
-                        {data.totalEscolas && data.totalMatriculas
-                          ? Math.round(data.totalMatriculas / data.totalEscolas)
-                          : 0}
+                        {data.totalEscolas && data.totalMatriculas ? Math.round(data.totalMatriculas / data.totalEscolas) : 0}
                       </div>
                       <div className="text-xs text-gray-600">Alunos por escola (média)</div>
                     </div>
-
                     <div className="grid grid-cols-2 gap-2 text-center">
                       <div className="p-2 rounded bg-blue-50">
                         <div className="font-bold text-blue-700 text-sm">{data.escolasPorZona?.["URBANA"] || 0}</div>
@@ -1883,13 +1829,7 @@ const Dashboard = () => {
         <AnimatePresence>
           {showSidebar && (
             <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowSidebar(false)}
-                className="fixed inset-0 bg-black/50 z-40"
-              />
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSidebar(false)} className="fixed inset-0 bg-black/50 z-40" />
 
               <motion.div
                 id="sidebar"
@@ -1904,11 +1844,7 @@ const Dashboard = () => {
                     <FaFilter className="text-violet-500" />
                     Filtros
                   </h2>
-                  <button
-                    onClick={() => setShowSidebar(false)}
-                    className="text-gray-500 hover:text-violet-600 transition-colors text-xl bg-gray-100 p-1 rounded-lg hover:bg-gray-200"
-                    title="Fechar"
-                  >
+                  <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-violet-600 transition-colors text-xl bg-gray-100 p-1 rounded-lg hover:bg-gray-200">
                     ✕
                   </button>
                 </div>
@@ -1945,6 +1881,7 @@ const Dashboard = () => {
                       };
                       setSelectedFilters(resetFilters);
                       setSelectedSchool(null);
+                      carregarDados(resetFilters);
                       setShowSidebar(false);
                     }}
                     className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-6 py-2 rounded-lg hover:from-violet-600 hover:to-purple-700 transition-all duration-300 shadow font-semibold text-sm"
@@ -1958,9 +1895,7 @@ const Dashboard = () => {
                     <FaDatabase className="text-violet-500" />
                     <span className="font-semibold">Sistema de Cache</span>
                   </div>
-                  <p className="text-gray-600">
-                    Seus filtros e preferências são salvos automaticamente.
-                  </p>
+                  <p className="text-gray-600">Seus filtros e preferências são salvos automaticamente.</p>
                 </div>
               </motion.div>
             </>
