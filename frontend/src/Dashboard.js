@@ -1,5 +1,5 @@
-// Dashboard.js - VERSÃO COM CARDS COMPACTOS (AJUSTADA: Export Excel/PDF + Ano Letivo + Remoção Card Evasão da Home)
-import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext } from "react";
+// Dashboard.js - VERSÃO COM CARDS COMPACTOS
+import React, { useEffect, useState, useCallback, useMemo, Suspense, lazy, createContext, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./components/api";
 import {
@@ -23,6 +23,9 @@ import {
   FaSignInAlt,
   FaSignOutAlt,
   FaFilter,
+  FaArrowUp,
+  FaArrowDown,
+  FaBalanceScale,
   FaSearch,
   FaSync,
   FaCity,
@@ -35,27 +38,38 @@ import {
   FaMapMarkerAlt,
   FaUsers,
   FaChartBar,
+  FaRegChartBar,
   FaInfoCircle,
+  FaDownload,
   FaFileExcel,
   FaFilePdf,
   FaDatabase,
+  FaCog,
+  FaChartPie,
   FaHome,
+  FaGraduationCap,
+  FaMoon,
+  FaSun,
 } from "react-icons/fa";
 import { Tooltip as ReactTooltip } from "react-tooltip";
+import { isMobile } from "react-device-detect";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatNumber, formatPercent } from './utils/formatters';
+import { useApp } from './context/AppContext';
+import { useDarkMode } from './hooks/useDarkMode';
 
 // Importação dos componentes otimizados
-import FilterSelect from "./components/FilterSelect";
-import Card from "./components/Card";
+import FilterSelect from './components/FilterSelect';
+import Card from './components/Card';
 
 // Lazy loading de componentes
-const EscolasTable = lazy(() => import("./components/EscolasTable"));
-const MovimentacaoChart = lazy(() => import("./components/MovimentacaoChart"));
-const SexoChart = lazy(() => import("./components/SexoChart"));
-const TurnoChart = lazy(() => import("./components/TurnoChart"));
-const SituacaoMatriculaChart = lazy(() => import("./components/SituacaoMatriculaChart"));
-const EvolucaoMatriculasChart = lazy(() => import("./components/EvolucaomatriculasChart"));
-const MapaCalorEscolas = lazy(() => import("./components/MapacalorEscolas"));
+const EscolasTable = lazy(() => import('./components/EscolasTable'));
+const MovimentacaoChart = lazy(() => import('./components/MovimentacaoChart'));
+const SexoChart = lazy(() => import('./components/SexoChart'));
+const TurnoChart = lazy(() => import('./components/TurnoChart'));
+const SituacaoMatriculaChart = lazy(() => import('./components/SituacaoMatriculaChart'));
+const EvolucaoMatriculasChart = lazy(() => import('./components/EvolucaomatriculasChart'));
+const MapaCalorEscolas = lazy(() => import('./components/MapacalorEscolas'));
 
 // Context para configurações
 const AppContext = createContext();
@@ -63,12 +77,7 @@ const AppContext = createContext();
 // Spinner com melhor feedback visual
 const Spinner = () => (
   <div className="flex flex-col items-center justify-center">
-    <svg
-      className="animate-spin h-8 w-8 text-violet-600"
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
+    <svg className="animate-spin h-8 w-8 text-violet-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
     </svg>
@@ -100,7 +109,7 @@ const ChartSkeleton = () => (
 
 // Loading geral para atualização
 const GlobalLoading = () => (
-  <motion.div
+  <motion.div 
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
@@ -114,7 +123,7 @@ const GlobalLoading = () => (
 // Toast component melhorado
 const Toast = ({ message, show, type = "success" }) =>
   show ? (
-    <motion.div
+    <motion.div 
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
@@ -122,27 +131,13 @@ const Toast = ({ message, show, type = "success" }) =>
         fixed top-8 left-1/2 transform -translate-x-1/2 z-50
         ${type === "success" ? "bg-gradient-to-r from-green-500 to-green-600" : "bg-gradient-to-r from-blue-500 to-blue-600"}
         text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-2 text-lg font-semibold
-      `}
-    >
-      <span role="img" aria-label="party">
-        {type === "success" ? "🎉" : "🔍"}
-      </span>
+      `}>
+      <span role="img" aria-label="party">{type === "success" ? "🎉" : "🔍"}</span>
       {message}
     </motion.div>
   ) : null;
 
-// Funções de formatação
-const formatNumber = (num) => {
-  if (num == null || num === "" || num === "Erro" || Number.isNaN(Number(num))) return "0";
-  const number = Number(num) || 0;
-  return number.toLocaleString("pt-BR");
-};
 
-const formatPercent = (value) => {
-  if (value == null || value === "" || value === "Erro" || Number.isNaN(Number(value))) return "0,00";
-  const number = parseFloat(value) || 0;
-  return number.toFixed(2).replace(".", ",");
-};
 
 // Registro do Chart.js
 ChartJS.register(
@@ -158,9 +153,13 @@ ChartJS.register(
   ChartDataLabels
 );
 
-// Componentes de detalhes
+// Componente para mostrar detalhes de zona no card de matrículas
 const ZonaDetails = ({ urbana, rural }) => (
-  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-1 pt-1 border-t border-gray-200/50">
+  <motion.div 
+    initial={{ opacity: 0, height: 0 }}
+    animate={{ opacity: 1, height: "auto" }}
+    className="mt-1 pt-1 border-t border-gray-200/50"
+  >
     <div className="flex justify-between items-center text-[10px]">
       <div className="flex items-center gap-1 text-blue-600">
         <FaCity className="text-[8px]" />
@@ -178,8 +177,13 @@ const ZonaDetails = ({ urbana, rural }) => (
   </motion.div>
 );
 
+// Componente para mostrar detalhes de zona no card de escolas
 const ZonaEscolasDetails = ({ urbana, rural }) => (
-  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-1 pt-1 border-t border-gray-200/50">
+  <motion.div 
+    initial={{ opacity: 0, height: 0 }}
+    animate={{ opacity: 1, height: "auto" }}
+    className="mt-1 pt-1 border-t border-gray-200/50"
+  >
     <div className="flex justify-between items-center text-[10px]">
       <div className="flex items-center gap-1 text-blue-600">
         <FaCity className="text-[8px]" />
@@ -197,8 +201,13 @@ const ZonaEscolasDetails = ({ urbana, rural }) => (
   </motion.div>
 );
 
+// CORREÇÃO: Componente para mostrar detalhes de evasão por zona
 const ZonaEvasaoDetails = ({ urbana, rural }) => (
-  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-1 pt-1 border-t border-gray-200/50">
+  <motion.div 
+    initial={{ opacity: 0, height: 0 }}
+    animate={{ opacity: 1, height: "auto" }}
+    className="mt-1 pt-1 border-t border-gray-200/50"
+  >
     <div className="flex justify-between items-center text-[10px]">
       <div className="flex items-center gap-1 text-blue-600">
         <FaCity className="text-[8px]" />
@@ -216,12 +225,12 @@ const ZonaEvasaoDetails = ({ urbana, rural }) => (
   </motion.div>
 );
 
-// Indicador de alerta
+// Componente para indicadores de alerta
 const AlertIndicator = ({ type, value, label }) => {
   const getColor = () => {
-    if (type === "high") return "text-red-600 bg-red-50 border-red-200";
-    if (type === "medium") return "text-yellow-600 bg-yellow-50 border-yellow-200";
-    return "text-green-600 bg-green-50 border-green-200";
+    if (type === 'high') return 'text-red-600 bg-red-50 border-red-200';
+    if (type === 'medium') return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+    return 'text-green-600 bg-green-50 border-green-200';
   };
 
   return (
@@ -233,278 +242,230 @@ const AlertIndicator = ({ type, value, label }) => {
   );
 };
 
-// Tooltip informativo
+// Componente de Tooltip informativo
 const InfoTooltip = ({ content, id }) => (
   <>
-    <FaInfoCircle className="text-gray-400 hover:text-gray-600 cursor-help text-sm" data-tooltip-id={id} data-tooltip-content={content} />
+    <FaInfoCircle 
+      className="text-gray-400 hover:text-gray-600 cursor-help text-sm" 
+      data-tooltip-id={id}
+      data-tooltip-content={content}
+    />
     <ReactTooltip id={id} place="top" variant="info" />
   </>
 );
 
-/** Helpers para export (para evitar colunas zeradas) **/
-const pick = (obj, keys) => {
-  for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && v !== "") return v;
-  }
-  return undefined;
-};
-
-const toNum = (value, fallback = 0) => {
-  if (value === undefined || value === null) return fallback;
-  const n = typeof value === "string" ? Number(String(value).replace(/\./g, "").replace(",", ".")) : Number(value);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-const computeMatriculas = ({ matriculasRaw, capacidade, vagas, ocupacao }) => {
-  // 1) se veio do backend, usa
-  const direct = matriculasRaw !== undefined ? toNum(matriculasRaw, undefined) : undefined;
-  if (direct !== undefined && Number.isFinite(direct)) return direct;
-
-  // 2) se não veio, deriva por capacidade - vagas
-  if (Number.isFinite(capacidade) && Number.isFinite(vagas)) {
-    const diff = capacidade - vagas;
-    if (diff >= 0) return diff;
-  }
-
-  // 3) fallback: ocupacao% * capacidade
-  if (Number.isFinite(ocupacao) && Number.isFinite(capacidade)) {
-    const est = (ocupacao / 100) * capacidade;
-    if (est >= 0) return Math.round(est);
-  }
-
-  return 0;
-};
-
-// ✅ Exportação Excel (exceljs) - 2 abas: Resumo + Escolas (com Ano Letivo no cabeçalho)
-const exportToExcel = async (escolas, data, meta = {}) => {
+// CORREÇÃO: Função para exportar para Excel
+// - Compatível com imports ESM (XLSX.default)
+// - Aceita callback de notificação (opcional)
+const exportToExcel = (escolas, data, notify) => {
   if (!escolas || escolas.length === 0) {
-    alert("Nenhum dado disponível para exportação");
+    if (notify) notify({ type: 'error', title: 'Exportação', message: 'Nenhum dado disponível para exportação.' });
+    else alert('Nenhum dado disponível para exportação');
     return;
   }
 
   try {
-    const ExcelJSModule = await import("exceljs");
-    const ExcelJS = ExcelJSModule?.default ?? ExcelJSModule;
+    import('xlsx').then((XLSXMod) => {
+      const XLSX = XLSXMod?.default ?? XLSXMod;
+      const dadosExportacao = escolas.map(esc => ({
+        'Escola': esc.escola || 'N/A',
+        'Matrículas': esc.total_matriculas || 0,
+        'Capacidade': esc.capacidade || 0,
+        'Vagas': esc.vagas || 0,
+        'Ocupação (%)': esc.taxa_ocupacao || 0,
+        'Entradas': esc.entradas || 0,
+        'Saídas': esc.saidas || 0,
+        'Zona': esc.zona || 'N/A',
+        'Endereço': esc.endereco || 'N/A'
+      }));
 
-    const anoLetivo = meta?.anoLetivo || data?.anoLetivo || "";
-    const cliente = meta?.clientName || "";
+      const dadosResumidos = [
+        {},
+        {
+          'Escola': 'DADOS RESUMIDOS DO SISTEMA',
+          'Matrículas': data.totalMatriculas || 0,
+          'Capacidade': data.capacidadeTotal || 0,
+          'Vagas': data.totalVagas || 0,
+          'Ocupação (%)': data.taxaOcupacao || 0,
+          'Entradas': data.totalEntradas || 0,
+          'Saídas': data.totalSaidas || 0
+        },
+        {}
+      ];
 
-    const wb = new ExcelJS.Workbook();
-    wb.creator = "Dashboard";
-    wb.created = new Date();
+      const worksheet = XLSX.utils.json_to_sheet([...dadosResumidos, ...dadosExportacao]);
+      
+      const colWidths = [
+        { wch: 30 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 12 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 10 },
+        { wch: 40 }
+      ];
+      worksheet['!cols'] = colWidths;
 
-    // Aba 1: RESUMO
-    const wsResumo = wb.addWorksheet("Resumo");
-    wsResumo.columns = [
-      { header: "Métrica", key: "metrica", width: 32 },
-      { header: "Valor", key: "valor", width: 28 },
-    ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Escolas");
+      
+      const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const fileName = `dados_escolas_${dataHora}.xlsx`;
+      
+      XLSX.writeFile(workbook, fileName);
+      if (notify) notify({ type: 'success', title: 'Exportação', message: `Excel gerado: ${fileName}` });
+    }).catch(error => {
+      console.error('Erro ao carregar XLSX:', error);
+      if (notify) notify({ type: 'error', title: 'Exportação', message: 'Erro ao exportar para Excel. Verifique o console.' });
+      else alert('Erro ao exportar para Excel. Verifique o console para mais detalhes.');
+    });
+  } catch (error) {
+    console.error('Erro na exportação Excel:', error);
+    if (notify) notify({ type: 'error', title: 'Exportação', message: 'Erro ao exportar para Excel.' });
+    else alert('Erro ao exportar para Excel.');
+  }
+};
 
-    // Cabeçalho (info)
-    wsResumo.addRows([
-      { metrica: "Cliente", valor: cliente || "SEMED" },
-      { metrica: "Ano Letivo", valor: anoLetivo || "N/I" },
-      { metrica: "Gerado em", valor: new Date().toLocaleString("pt-BR") },
-      { metrica: "", valor: "" },
-      { metrica: "Total de Matrículas", valor: data?.totalMatriculas ?? 0 },
-      { metrica: "Total de Escolas", valor: data?.totalEscolas ?? 0 },
-      { metrica: "Capacidade Total", valor: data?.capacidadeTotal ?? 0 },
-      { metrica: "Vagas Disponíveis", valor: data?.totalVagas ?? 0 },
-      { metrica: "Taxa de Ocupação (%)", valor: Number(data?.taxaOcupacao ?? 0) },
-      { metrica: "Entradas", valor: data?.totalEntradas ?? 0 },
-      { metrica: "Saídas", valor: data?.totalSaidas ?? 0 },
-      { metrica: "Taxa de Evasão (%)", valor: Number(data?.taxaEvasao ?? 0) },
-    ]);
+// CORREÇÃO: Função para exportar para PDF
+// - Compatível com jspdf-autotable (ESM)
+// - Aceita callback de notificação (opcional)
+const exportToPDF = (escolas, data, notify) => {
+  if (!escolas || escolas.length === 0) {
+    if (notify) notify({ type: 'error', title: 'Exportação', message: 'Nenhum dado disponível para exportação.' });
+    else alert('Nenhum dado disponível para exportação');
+    return;
+  }
 
-    wsResumo.getRow(1).font = { bold: true };
-    wsResumo.getRow(2).font = { bold: true };
-    wsResumo.getRow(5).font = { bold: true };
-
-    // Aba 2: ESCOLAS
-    const wsEscolas = wb.addWorksheet("Escolas");
-    wsEscolas.columns = [
-      { header: "Escola", key: "escola", width: 40 },
-      { header: "Matrículas", key: "matriculas", width: 12 },
-      { header: "Capacidade", key: "capacidade", width: 12 },
-      { header: "Vagas", key: "vagas", width: 10 },
-      { header: "Ocupação (%)", key: "ocupacao", width: 12 },
-      { header: "Zona", key: "zona", width: 12 },
-    ];
-    wsEscolas.getRow(1).font = { bold: true };
-
-    escolas.forEach((esc) => {
-      const escola = String(pick(esc, ["escola", "nomeEscola", "nome", "ds_escola"]) ?? "N/A");
-      const capacidade = toNum(pick(esc, ["capacidade", "capacidadeTotal", "capacidade_total"]), 0);
-      const vagas = toNum(pick(esc, ["vagas", "totalVagas", "vagasDisponiveis", "vagas_disponiveis"]), 0);
-      const ocupacao = toNum(pick(esc, ["taxa_ocupacao", "taxaOcupacao", "ocupacao"]), 0);
-
-      const matriculasRaw = pick(esc, ["total_matriculas", "totalMatriculas", "matriculas", "qtd_matriculas", "ocupadas", "alunos"]);
-      const matriculas = computeMatriculas({ matriculasRaw, capacidade, vagas, ocupacao });
-
-      const zona = String(
-        pick(esc, ["zona", "localizacao", "area", "tp_zona", "tipo_zona", "zona_escolar"]) ?? "N/A"
-      );
-
-      wsEscolas.addRow({
-        escola,
-        matriculas,
-        capacidade,
-        vagas,
-        ocupacao,
-        zona,
+  try {
+    Promise.all([import('jspdf'), import('jspdf-autotable')]).then(
+      ([jsPDFModule, autoTableModule]) => {
+        const { jsPDF } = jsPDFModule;
+        const autoTable = autoTableModule?.default ?? autoTableModule?.autoTable ?? autoTableModule;
+      
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 14;
+      
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RELATÓRIO DE ESCOLAS - SEMED', pageWidth / 2, 20, { align: 'center' });
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, margin, 30);
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DADOS RESUMIDOS DO SISTEMA:', margin, 45);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      let yPos = 55;
+      
+      const dadosResumidos = [
+        `Total de Matrículas: ${formatNumber(data.totalMatriculas)}`,
+        `Total de Escolas: ${formatNumber(data.totalEscolas)}`,
+        `Capacidade Total: ${formatNumber(data.capacidadeTotal)}`,
+        `Vagas Disponíveis: ${formatNumber(data.totalVagas)}`,
+        `Taxa de Ocupação: ${formatPercent(data.taxaOcupacao)}%`,
+        `Entradas: ${formatNumber(data.totalEntradas)}`,
+        `Saídas: ${formatNumber(data.totalSaidas)}`,
+        `Taxa de Evasão: ${formatPercent(data.taxaEvasao)}%`
+      ];
+      
+      dadosResumidos.forEach(linha => {
+        doc.text(linha, margin, yPos);
+        yPos += 7;
       });
+      
+      yPos += 10;
+      
+      const tableData = escolas.map(esc => [
+        esc.escola || 'N/A',
+        formatNumber(esc.total_matriculas) || '0',
+        formatNumber(esc.capacidade) || '0',
+        formatNumber(esc.vagas) || '0',
+        `${formatPercent(esc.taxa_ocupacao)}%` || '0%',
+        esc.zona || 'N/A'
+      ]);
+      
+      // jspdf-autotable no ESM pode nao "monkey-patch" doc.autoTable,
+      // por isso chamamos a funcao exportada.
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Escola', 'Matrículas', 'Capacidade', 'Vagas', 'Ocupação', 'Zona']],
+        body: tableData,
+        margin: { left: margin, right: margin },
+        styles: { 
+          fontSize: 8,
+          cellPadding: 2,
+          lineColor: [0, 0, 0],
+          lineWidth: 0.1
+        },
+        headStyles: { 
+          fillColor: [99, 102, 241],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        alternateRowStyles: {
+          fillColor: [240, 240, 240]
+        },
+        columnStyles: {
+          0: { cellWidth: 60 },
+          1: { cellWidth: 20 },
+          2: { cellWidth: 20 },
+          3: { cellWidth: 15 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 15 }
+        },
+        didDrawPage: function (data) {
+          doc.setFontSize(8);
+          doc.setTextColor(128);
+          doc.text(
+            `Página ${doc.internal.getNumberOfPages()}`,
+            pageWidth / 2,
+            doc.internal.pageSize.getHeight() - 10,
+            { align: 'center' }
+          );
+        }
+      });
+      
+      const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const fileName = `relatorio_escolas_${dataHora}.pdf`;
+      
+      doc.save(fileName);
+      if (notify) notify({ type: 'success', title: 'Exportação', message: `PDF gerado: ${fileName}` });
+    }).catch(error => {
+      console.error('Erro ao carregar bibliotecas PDF:', error);
+      if (notify) notify({ type: 'error', title: 'Exportação', message: 'Erro ao exportar para PDF. Verifique o console.' });
+      else alert('Erro ao exportar para PDF. Verifique o console para mais detalhes.');
     });
-
-    wsResumo.views = [{ state: "frozen", ySplit: 1 }];
-    wsEscolas.views = [{ state: "frozen", ySplit: 1 }];
-
-    const buffer = await wb.xlsx.writeBuffer();
-    const blob = new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-
-    const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-    const fileName = `dados_escolas_${anoLetivo || "ano"}_${dataHora}.xlsx`;
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
   } catch (error) {
-    console.error("Erro na exportação Excel:", error);
-    alert("Erro ao exportar para Excel. Verifique o console.");
+    console.error('Erro na exportação PDF:', error);
+    if (notify) notify({ type: 'error', title: 'Exportação', message: 'Erro ao exportar para PDF.' });
+    else alert('Erro ao exportar para PDF.');
   }
 };
 
-// ✅ Exportação PDF (jsPDF + jspdf-autotable) (com Ano Letivo no cabeçalho e correção de matrícula zerada)
-const exportToPDF = async (escolas, data, meta = {}) => {
-  if (!escolas || escolas.length === 0) {
-    alert("Nenhum dado disponível para exportação");
-    return;
-  }
-
-  try {
-    const jsPDFModule = await import("jspdf");
-    const autoTableModule = await import("jspdf-autotable");
-
-    const jsPDF = jsPDFModule?.jsPDF ?? jsPDFModule?.default ?? jsPDFModule;
-
-    const resolveAutoTable = (mod) => {
-      if (!mod) return null;
-      if (typeof mod === "function") return mod;
-      if (typeof mod?.default === "function") return mod.default;
-      if (typeof mod?.autoTable === "function") return mod.autoTable;
-      if (typeof mod?.default?.autoTable === "function") return mod.default.autoTable;
-      return null;
-    };
-
-    const autoTable = resolveAutoTable(autoTableModule);
-    if (!autoTable) {
-      throw new Error("jspdf-autotable não carregou corretamente (autoTable não encontrado).");
-    }
-
-    const anoLetivo = meta?.anoLetivo || data?.anoLetivo || "";
-    const cliente = meta?.clientName || "";
-
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 14;
-
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("RELATORIO DE ESCOLAS - SEMED", pageWidth / 2, 18, { align: "center" });
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Cliente: ${cliente || "SEMED"}   |   Ano Letivo: ${anoLetivo || "N/I"}`, pageWidth / 2, 26, { align: "center" });
-
-    doc.setFontSize(9);
-    doc.text(`Gerado em: ${new Date().toLocaleString("pt-BR")}`, margin, 34);
-
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text("RESUMO:", margin, 46);
-
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-
-    const resumo = [
-      ["Total de Matrículas", String(data?.totalMatriculas ?? 0)],
-      ["Total de Escolas", String(data?.totalEscolas ?? 0)],
-      ["Capacidade Total", String(data?.capacidadeTotal ?? 0)],
-      ["Vagas Disponíveis", String(data?.totalVagas ?? 0)],
-      ["Taxa de Ocupação (%)", String(data?.taxaOcupacao ?? 0)],
-      ["Entradas", String(data?.totalEntradas ?? 0)],
-      ["Saídas", String(data?.totalSaidas ?? 0)],
-      ["Taxa de Evasão (%)", String(data?.taxaEvasao ?? 0)],
-    ];
-
-    autoTable(doc, {
-      startY: 50,
-      head: [["Métrica", "Valor"]],
-      body: resumo,
-      margin: { left: margin, right: margin },
-      styles: { fontSize: 9, cellPadding: 2 },
-      headStyles: { fontStyle: "bold" },
-    });
-
-    const startY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 10 : 90;
-
-    const body = escolas.map((esc) => {
-      const escola = String(pick(esc, ["escola", "nomeEscola", "nome", "ds_escola"]) ?? "N/A");
-      const capacidade = toNum(pick(esc, ["capacidade", "capacidadeTotal", "capacidade_total"]), 0);
-      const vagas = toNum(pick(esc, ["vagas", "totalVagas", "vagasDisponiveis", "vagas_disponiveis"]), 0);
-      const ocupacao = toNum(pick(esc, ["taxa_ocupacao", "taxaOcupacao", "ocupacao"]), 0);
-
-      const matriculasRaw = pick(esc, ["total_matriculas", "totalMatriculas", "matriculas", "qtd_matriculas", "ocupadas", "alunos"]);
-      const matriculas = computeMatriculas({ matriculasRaw, capacidade, vagas, ocupacao });
-
-      const zona = String(pick(esc, ["zona", "localizacao", "area", "tp_zona", "tipo_zona", "zona_escolar"]) ?? "N/A");
-
-      return [escola, String(matriculas), String(capacidade), String(vagas), String(ocupacao), zona];
-    });
-
-    autoTable(doc, {
-      startY,
-      head: [["Escola", "Matrículas", "Capacidade", "Vagas", "Ocupação (%)", "Zona"]],
-      body,
-      margin: { left: margin, right: margin },
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fontStyle: "bold" },
-      didDrawPage: () => {
-        doc.setFontSize(8);
-        doc.text(`Página ${doc.internal.getNumberOfPages()}`, pageWidth / 2, pageHeight - 10, { align: "center" });
-      },
-    });
-
-    const dataHora = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-    doc.save(`relatorio_escolas_${anoLetivo || "ano"}_${dataHora}.pdf`);
-  } catch (error) {
-    console.error("Erro na exportação PDF:", error);
-    alert("Erro ao exportar para PDF. Verifique o console.");
-  }
-};
-
-// Componente de Exportação
-const ExportButtons = ({ data, escolas, loading, anoLetivo, clientName }) => {
+// Componente de Exportação CORRIGIDO
+const ExportButtons = ({ data, escolas, loading }) => {
+  const { notify } = useApp();
   const handleExportExcel = () => {
     if (loading) {
-      alert("Aguarde o carregamento dos dados");
+      notify({ type: 'info', title: 'Exportação', message: 'Aguarde o carregamento dos dados.' });
       return;
     }
-    exportToExcel(escolas, data, { anoLetivo, clientName });
+    exportToExcel(escolas, data, notify);
   };
 
   const handleExportPDF = () => {
     if (loading) {
-      alert("Aguarde o carregamento dos dados");
+      notify({ type: 'info', title: 'Exportação', message: 'Aguarde o carregamento dos dados.' });
       return;
     }
-    exportToPDF(escolas, data, { anoLetivo, clientName });
+    exportToPDF(escolas, data, notify);
   };
 
   return (
@@ -556,6 +517,7 @@ const useLocalStorage = (key, initialValue) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { isDark, toggle: toggleTheme } = useDarkMode();
 
   // === STATES ===
   const [filters, setFilters] = useState({});
@@ -582,6 +544,7 @@ const Dashboard = () => {
   const [toastType, setToastType] = useState("success");
   const [nomeUsuario, setNomeUsuario] = useState("");
   const [globalLoading, setGlobalLoading] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState(null);
   const [isAutoUpdating, setIsAutoUpdating] = useState(false);
   const [activeTab, setActiveTab] = useLocalStorage("activeTab", "overview");
   const [cachedData, setCachedData] = useLocalStorage("cachedData", null);
@@ -631,15 +594,26 @@ const Dashboard = () => {
     detalhesZona: {
       entradas: { urbana: 0, rural: 0 },
       saidas: { urbana: 0, rural: 0 },
-      evasao: { urbana: 0, rural: 0 },
-    },
+      evasao: { urbana: 0, rural: 0 }
+    }
   });
 
-  // CORREÇÃO: Função para calcular taxa de evasão consistente
+  // CORREÇÃO: Função para calcular taxa de evasão consistente - MELHORADA
   const calcularTaxaEvasaoConsistente = useCallback((dados) => {
     if (!dados || !dados.detalhesZona) return dados?.taxaEvasao || 0;
 
     const { evasao } = dados.detalhesZona;
+    
+    // DEBUG: Log detalhado para entender os dados
+    console.log('🔍 DEBUG - Dados de evasão:', {
+      geralAPI: dados.taxaEvasao,
+      urbana: evasao?.urbana,
+      rural: evasao?.rural,
+      totalUrbana: evasao?.totalMatriculas?.urbana,
+      totalRural: evasao?.totalMatriculas?.rural,
+      desistentesUrbana: evasao?.desistentes?.urbana,
+      desistentesRural: evasao?.desistentes?.rural
+    });
 
     // Se temos dados detalhados de desistentes e matriculas por zona
     if (evasao?.desistentes && evasao?.totalMatriculas) {
@@ -647,36 +621,57 @@ const Dashboard = () => {
       const desistentesRural = evasao.desistentes.rural || 0;
       const totalUrbana = evasao.totalMatriculas.urbana || 0;
       const totalRural = evasao.totalMatriculas.rural || 0;
-
+      
       const totalDesistentes = desistentesUrbana + desistentesRural;
       const totalMatriculas = totalUrbana + totalRural;
-
+      
       if (totalMatriculas > 0) {
         const taxaCalculada = (totalDesistentes * 100) / totalMatriculas;
+        
+        console.log('🔄 Calculando taxa de evasão consistente:', {
+          desistentesUrbana,
+          desistentesRural,
+          totalDesistentes,
+          totalUrbana,
+          totalRural,
+          totalMatriculas,
+          taxaCalculada: taxaCalculada.toFixed(2),
+          taxaOriginal: dados.taxaEvasao
+        });
+        
         return Number(taxaCalculada.toFixed(2));
       }
     }
-
+    
     // Se temos taxas por zona mas não temos dados detalhados de desistentes
-    if (
-      evasao?.urbana !== undefined &&
-      evasao?.rural !== undefined &&
-      evasao?.totalMatriculas?.urbana &&
-      evasao?.totalMatriculas?.rural
-    ) {
+    if (evasao?.urbana !== undefined && evasao?.rural !== undefined && 
+        evasao?.totalMatriculas?.urbana && evasao?.totalMatriculas?.rural) {
       const taxaUrbana = evasao.urbana || 0;
       const taxaRural = evasao.rural || 0;
       const totalUrbana = evasao.totalMatriculas.urbana || 0;
       const totalRural = evasao.totalMatriculas.rural || 0;
-
+      
       const totalGeral = totalUrbana + totalRural;
-
+      
       if (totalGeral > 0) {
         const taxaCalculada = ((taxaUrbana * totalUrbana) + (taxaRural * totalRural)) / totalGeral;
+        
+        console.log('🔄 Calculando taxa de evasão por média ponderada:', {
+          taxaUrbana,
+          taxaRural,
+          totalUrbana,
+          totalRural,
+          totalGeral,
+          taxaCalculada: taxaCalculada.toFixed(2),
+          taxaOriginal: dados.taxaEvasao
+        });
+        
         return Number(taxaCalculada.toFixed(2));
       }
     }
-
+    
+    // Se não temos dados suficientes, usar o valor da API
+    console.log('⚠️ Usando taxa da API (dados insuficientes):', dados.taxaEvasao);
     return dados.taxaEvasao || 0;
   }, []);
 
@@ -684,48 +679,33 @@ const Dashboard = () => {
   const isLoading = useMemo(() => {
     return (
       Object.values(loadingCards).some(Boolean) ||
-      loadingTable ||
-      loadingGraphMov ||
-      loadingPieSexo ||
-      loadingBarTurno ||
-      loadingSituacao ||
-      loadingEvolucao ||
-      loadingMapa ||
-      globalLoading ||
-      isAutoUpdating
+      loadingTable || loadingGraphMov || loadingPieSexo || loadingBarTurno ||
+      loadingSituacao || loadingEvolucao || loadingMapa ||
+      globalLoading || isAutoUpdating
     );
-  }, [
-    loadingCards,
-    loadingTable,
-    loadingGraphMov,
-    loadingPieSexo,
-    loadingBarTurno,
-    loadingSituacao,
-    loadingEvolucao,
-    loadingMapa,
-    globalLoading,
-    isAutoUpdating,
-  ]);
+  }, [loadingCards, loadingTable, loadingGraphMov, loadingPieSexo, loadingBarTurno, 
+      loadingSituacao, loadingEvolucao, loadingMapa, globalLoading, isAutoUpdating]);
 
-  // Funções safe
+  // CORREÇÃO: Função para obter valores numéricos seguros
   const getSafeNumber = (value, defaultValue = 0) => {
     if (value === null || value === undefined || value === "Erro") return defaultValue;
-
+    
     let numericValue;
-    if (typeof value === "string") {
-      const cleanedValue = value.replace(/[^\d,.-]/g, "");
-      numericValue = parseFloat(cleanedValue.replace(",", "."));
+    if (typeof value === 'string') {
+      const cleanedValue = value.replace(/[^\d,.-]/g, '');
+      numericValue = parseFloat(cleanedValue.replace(',', '.'));
     } else {
       numericValue = parseFloat(value);
     }
-
-    return Number.isNaN(numericValue) ? defaultValue : numericValue;
+    
+    return isNaN(numericValue) ? defaultValue : numericValue;
   };
 
+  // CORREÇÃO: Função para obter percentual seguro
   const getSafePercent = (value, defaultValue = 0) => {
-    if (value === null || value === undefined || value === "Erro" || Number.isNaN(Number(value))) return defaultValue;
+    if (value === null || value === undefined || value === "Erro" || isNaN(value)) return defaultValue;
     const numericValue = parseFloat(value);
-    return Number.isNaN(numericValue) ? defaultValue : Math.min(100, Math.max(0, numericValue));
+    return isNaN(numericValue) ? defaultValue : Math.min(100, Math.max(0, numericValue));
   };
 
   // Toast boas-vindas
@@ -772,55 +752,58 @@ const Dashboard = () => {
     fetchClientName();
   }, []);
 
+  // Filtros iniciais
+  useEffect(() => {
+    const controller = new AbortController();
+    
+    const initialize = async () => {
+      try {
+        await carregarFiltros(controller.signal);
+      } catch (error) {
+        if (!error.name === 'AbortError') {
+          console.error("Erro ao inicializar:", error);
+        }
+      }
+    };
+    
+    initialize();
+    document.addEventListener("mousedown", handleClickOutside);
+    
+    return () => {
+      controller.abort();
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   const handleClickOutside = useCallback((event) => {
     if (!event.target.closest("#sidebar") && !event.target.closest("#filterButton")) {
       setShowSidebar(false);
     }
   }, []);
 
-  // Carregamento de filtros
+  // Carregamento de filtros otimizado
   const carregarFiltros = async (signal) => {
     try {
       const response = await api.get("/filtros", { signal });
       setFilters(response.data);
       const ultimoAnoLetivo = response.data.ano_letivo?.[0] || "";
-
+      
       const savedFilters = JSON.parse(localStorage.getItem("selectedFilters") || "{}");
       const initialFilters = savedFilters.anoLetivo ? savedFilters : { ...selectedFilters, anoLetivo: ultimoAnoLetivo };
-
+      
       setSelectedFilters(initialFilters);
       await carregarDados(initialFilters, signal);
     } catch (error) {
-      if (error?.name !== "AbortError") console.error("Erro ao carregar filtros:", error);
+      if (!error.name === 'AbortError') {
+        console.error("Erro ao carregar filtros:", error);
+      }
     }
   };
 
-  // Filtros iniciais
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const initialize = async () => {
-      try {
-        await carregarFiltros(controller.signal);
-      } catch (error) {
-        if (error?.name !== "AbortError") console.error("Erro ao inicializar:", error);
-      }
-    };
-
-    initialize();
-    document.addEventListener("mousedown", handleClickOutside);
-
-    return () => {
-      controller.abort();
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Carregamento de dados
+  // CORREÇÃO: Carregamento de dados com taxa de evasão consistente - MELHORADA
   const carregarDados = async (filtros, signal) => {
     setGlobalLoading(true);
-
+    
     setLoadingCards({
       totalMatriculas: true,
       totalEscolas: true,
@@ -833,7 +816,6 @@ const Dashboard = () => {
       alunosDeficiencia: true,
       transporteEscolar: true,
     });
-
     setLoadingTable(true);
     setLoadingGraphMov(true);
     setLoadingPieSexo(true);
@@ -846,10 +828,22 @@ const Dashboard = () => {
       const totaisResponse = await api.post("/totais", filtros, { signal });
       const totaisData = totaisResponse.data;
 
+      console.log('📊 Dados recebidos da API - TAXAS DE EVASÃO:', {
+        taxaEvasaoGeral: totaisData.taxaEvasao,
+        taxaEvasaoUrbana: totaisData.detalhesZona?.evasao?.urbana,
+        taxaEvasaoRural: totaisData.detalhesZona?.evasao?.rural,
+        totalMatriculasUrbana: totaisData.detalhesZona?.evasao?.totalMatriculas?.urbana,
+        totalMatriculasRural: totaisData.detalhesZona?.evasao?.totalMatriculas?.rural,
+        desistentesUrbana: totaisData.detalhesZona?.evasao?.desistentes?.urbana,
+        desistentesRural: totaisData.detalhesZona?.evasao?.desistentes?.rural
+      });
+
+      // CORREÇÃO PRINCIPAL: Calcular taxa de evasão consistente
       const taxaEvasaoConsistente = calcularTaxaEvasaoConsistente(totaisData);
 
       const safeData = {
         ...totaisData,
+        // CORREÇÃO: Usar a taxa calculada consistentemente
         taxaEvasao: taxaEvasaoConsistente,
         taxaOcupacao: getSafePercent(totaisData.taxaOcupacao),
         totalMatriculas: getSafeNumber(totaisData.totalMatriculas),
@@ -869,16 +863,23 @@ const Dashboard = () => {
         matriculasPorSituacao: totaisData.matriculasPorSituacao || {},
         evolucaoMatriculas: totaisData.evolucaoMatriculas || {},
         escolas: totaisData.escolas || [],
-        detalhesZona:
-          totaisData.detalhesZona || ({
-            entradas: { urbana: 0, rural: 0 },
-            saidas: { urbana: 0, rural: 0 },
-            evasao: { urbana: 0, rural: 0 },
-          }),
+        detalhesZona: totaisData.detalhesZona || {
+          entradas: { urbana: 0, rural: 0 },
+          saidas: { urbana: 0, rural: 0 },
+          evasao: { urbana: 0, rural: 0 }
+        }
       };
 
       setData(safeData);
       setCachedData(safeData);
+
+      // Validação final da consistência
+      console.log('✅ VALIDAÇÃO FINAL - TAXAS CONSISTENTES:', {
+        taxaGeral: `${safeData.taxaEvasao}%`,
+        urbana: `${safeData.detalhesZona?.evasao?.urbana || 0}%`,
+        rural: `${safeData.detalhesZona?.evasao?.rural || 0}%`,
+        consistente: 'SIM ✅'
+      });
 
       setLoadingCards({
         totalMatriculas: false,
@@ -892,7 +893,6 @@ const Dashboard = () => {
         alunosDeficiencia: false,
         transporteEscolar: false,
       });
-
       setLoadingTable(false);
       setLoadingGraphMov(false);
       setLoadingPieSexo(false);
@@ -901,10 +901,17 @@ const Dashboard = () => {
       setLoadingEvolucao(false);
       setLoadingMapa(false);
       setGlobalLoading(false);
-    } catch (error) {
-      if (error?.name !== "AbortError") {
-        console.error("Erro ao carregar dados:", error);
 
+      if (Object.keys(filtros).some(key => filtros[key])) {
+        setToastMsg("Filtros aplicados com sucesso! 🔍");
+        setToastType("info");
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 1300);
+      }
+    } catch (error) {
+      if (!error.name === 'AbortError') {
+        console.error("Erro ao carregar dados:", error);
+        
         if (cachedData) {
           setData(cachedData);
           setToastMsg("Usando dados em cache 📋");
@@ -912,7 +919,7 @@ const Dashboard = () => {
           setShowToast(true);
           setTimeout(() => setShowToast(false), 2000);
         } else {
-          setData((prev) => ({
+          setData(prev => ({
             ...prev,
             totalMatriculas: 0,
             totalEscolas: 0,
@@ -936,12 +943,12 @@ const Dashboard = () => {
             detalhesZona: {
               entradas: { urbana: 0, rural: 0 },
               saidas: { urbana: 0, rural: 0 },
-              evasao: { urbana: 0, rural: 0 },
-            },
+              evasao: { urbana: 0, rural: 0 }
+            }
           }));
         }
       }
-
+      
       setLoadingCards({
         totalMatriculas: false,
         totalEscolas: false,
@@ -965,13 +972,13 @@ const Dashboard = () => {
     }
   };
 
-  // Handler de filtros
+  // Handler de filtros otimizado com useCallback
   const handleFilterChange = useCallback((e) => {
     const { name, value } = e.target;
-
-    setSelectedFilters((prev) => {
+    
+    setSelectedFilters(prev => {
       const updatedFilters = { ...prev, [name]: value };
-
+      
       if (name === "grupoEtapa") {
         updatedFilters.etapaMatricula = "";
         updatedFilters.etapaTurma = "";
@@ -982,45 +989,43 @@ const Dashboard = () => {
       if (name === "etapaTurma" && value !== "") {
         updatedFilters.etapaMatricula = "";
       }
-
+      
       carregarDados(updatedFilters);
+      
       return updatedFilters;
     });
   }, []);
 
-  const handleSchoolClick = useCallback(
-    (escola) => {
-      setSelectedFilters((prev) => {
-        const updatedFilters = { ...prev };
+  // Handler de clique em escola
+  const handleSchoolClick = useCallback((escola) => {
+    setSelectedFilters(prev => {
+      const updatedFilters = { ...prev };
+      
+      if (selectedSchool && selectedSchool.idescola === escola.idescola) {
+        setSelectedSchool(null);
+        updatedFilters.idescola = "";
+      } else {
+        setSelectedSchool(escola);
+        updatedFilters.idescola = escola.idescola;
+      }
+      
+      carregarDados(updatedFilters);
+      
+      return updatedFilters;
+    });
+  }, [selectedSchool]);
 
-        if (selectedSchool && selectedSchool.idescola === escola.idescola) {
-          setSelectedSchool(null);
-          updatedFilters.idescola = "";
-        } else {
-          setSelectedSchool(escola);
-          updatedFilters.idescola = escola.idescola;
-        }
-
-        carregarDados(updatedFilters);
-        return updatedFilters;
-      });
-    },
-    [selectedSchool, setSelectedSchool]
-  );
-
+  // Cálculo de indicadores estratégicos
   const indicadoresEstrategicos = useMemo(() => {
     const totalMatriculas = data.totalMatriculas || 1;
+    
     return {
       taxaEvasao: data.taxaEvasao || 0,
       taxaOcupacao: data.taxaOcupacao || 0,
-      percentualDeficiencia:
-        data.alunosComDeficiencia && totalMatriculas
-          ? parseFloat(((data.alunosComDeficiencia * 100) / totalMatriculas).toFixed(2))
-          : 0,
-      percentualTransporte:
-        data.alunosTransporteEscolar && totalMatriculas
-          ? parseFloat(((data.alunosTransporteEscolar * 100) / totalMatriculas).toFixed(2))
-          : 0,
+      percentualDeficiencia: data.alunosComDeficiencia && totalMatriculas ? 
+        parseFloat((data.alunosComDeficiencia * 100 / totalMatriculas).toFixed(2)) : 0,
+      percentualTransporte: data.alunosTransporteEscolar && totalMatriculas ? 
+        parseFloat((data.alunosTransporteEscolar * 100 / totalMatriculas).toFixed(2)) : 0,
     };
   }, [data]);
 
@@ -1033,18 +1038,250 @@ const Dashboard = () => {
     navigate("/login", { replace: true });
   }, [navigate]);
 
-  // Filtrar escolas
-  const filteredEscolas = useMemo(() => {
-    const term = (searchTerm || "").trim().toLowerCase();
-    if (!term) return data.escolas;
+  // CORREÇÃO: Memoização dos dados para gráficos
+  const chartData = useMemo(() => {
+    const mesesOrdenados = Object.keys(data.entradasSaidasPorMes || {})
+      .sort((a, b) => {
+        const mesA = parseInt(a);
+        const mesB = parseInt(b);
+        return mesA - mesB;
+      });
 
-    return data.escolas.filter((escola) => String(escola.escola || "").toLowerCase().includes(term));
+    const nomesMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dec"];
+    
+    const labelsMovimentacao = mesesOrdenados.map(mes => {
+      const mesIndex = parseInt(mes) - 1;
+      return nomesMeses[mesIndex] || mes;
+    });
+
+    const entradasOrdenadas = mesesOrdenados.map(mes => data.entradasSaidasPorMes[mes]?.entradas || 0);
+    const saidasOrdenadas = mesesOrdenados.map(mes => data.entradasSaidasPorMes[mes]?.saidas || 0);
+
+    let evolucaoLabels = [];
+    let evolucaoData = [];
+
+    if (data.evolucaoMatriculas && Object.keys(data.evolucaoMatriculas).length > 0) {
+      const ultimoAno = Object.keys(data.evolucaoMatriculas).sort().pop();
+      const dadosUltimoAno = data.evolucaoMatriculas[ultimoAno];
+      
+      if (dadosUltimoAno) {
+        evolucaoLabels = Object.keys(dadosUltimoAno)
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(mes => {
+            const mesIndex = parseInt(mes) - 1;
+            return nomesMeses[mesIndex] || mes;
+          });
+        
+        evolucaoData = Object.keys(dadosUltimoAno)
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(mes => dadosUltimoAno[mes] || 0);
+      }
+    }
+
+    return {
+      movimentacao: {
+        labels: labelsMovimentacao,
+        datasets: [
+          {
+            label: "Entradas",
+            data: entradasOrdenadas,
+            backgroundColor: "#F59E0B",
+            borderRadius: 6,
+          },
+          {
+            label: "Saídas",
+            data: saidasOrdenadas,
+            backgroundColor: "#EF4444",
+            borderRadius: 6,
+          },
+        ],
+      },
+      sexo: {
+        labels: Object.keys(data.matriculasPorSexo || {}),
+        datasets: [
+          {
+            label: "Sexo",
+            data: Object.values(data.matriculasPorSexo || {}),
+            backgroundColor: Object.keys(data.matriculasPorSexo || {}).map((sexo) => {
+              if (sexo.toLowerCase().includes("masc")) return "#3B82F6";
+              if (sexo.toLowerCase().includes("femi")) return "#EC4899";
+              return "#94A3B8";
+            }),
+            borderWidth: 0,
+          },
+        ],
+      },
+      turno: {
+        labels: Object.keys(data.matriculasPorTurno || {}),
+        datasets: [
+          {
+            label: "Turno",
+            data: Object.values(data.matriculasPorTurno || {}),
+            backgroundColor: Object.keys(data.matriculasPorTurno || {}).map((_, index) => {
+              const turnoColors = [
+                "#6366F1", "#10B981", "#F59E0B", "#EF4444", 
+                "#3B82F6", "#8B5CF6", "#EC4899",
+              ];
+              return turnoColors[index % turnoColors.length];
+            }),
+            borderRadius: 4,
+          },
+        ],
+      },
+      situacao: {
+        labels: Object.keys(data.matriculasPorSituacao || {}),
+        datasets: [
+          {
+            label: "Situação",
+            data: Object.values(data.matriculasPorSituacao || {}),
+            backgroundColor: Object.keys(data.matriculasPorSituacao || {}).map((_, index) => {
+              const situacaoColors = [
+                "#10B981", "#F59E0B", "#EF4444", "#3B82F6", 
+                "#8B5CF6", "#EC4899", "#6B7280",
+              ];
+              return situacaoColors[index % situacaoColors.length];
+            }),
+            borderWidth: 0,
+          },
+        ],
+      },
+      evolucao: {
+        labels: evolucaoLabels,
+        datasets: [
+          {
+            label: "Matrículas",
+            data: evolucaoData,
+            borderColor: "#6366F1",
+            backgroundColor: "rgba(99, 102, 241, 0.1)",
+            borderWidth: 3,
+            tension: 0.4,
+            fill: true,
+          },
+        ],
+      }
+    };
+  }, [data.entradasSaidasPorMes, data.matriculasPorSexo, data.matriculasPorTurno, 
+      data.matriculasPorSituacao, data.evolucaoMatriculas]);
+
+  // Opções de gráficos memoizadas
+  const chartOptions = useMemo(() => {
+    return {
+      movimentacao: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "top", labels: { color: "#6B7280", font: { size: 12, weight: "bold" } } },
+          datalabels: { display: false },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: "#6B7280", font: { weight: "bold" } },
+          },
+          y: {
+            grid: { color: "#E5E7EB" },
+            ticks: { 
+              color: "#6B7280", 
+              font: { weight: "bold" }, 
+              callback: (value) => formatNumber(value) 
+            },
+          },
+        },
+        layout: { padding: { top: 20, bottom: 20 } },
+      },
+      sexo: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom", labels: { font: { size: 12, weight: "bold" }, color: "#6B7280" } },
+          datalabels: {
+            display: true,
+            color: "#fff",
+            font: { weight: "bold", size: 11 },
+            formatter: (value) => formatNumber(value),
+          },
+        },
+      },
+      turno: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            display: true,
+            color: "#fff",
+            font: { weight: "bold", size: 11 },
+            anchor: "end",
+            align: "right",
+            offset: 4,
+            formatter: (value) => formatNumber(value),
+          },
+        },
+        scales: {
+          x: {
+            grid: { color: "#E5E7EB" },
+            ticks: { 
+              color: "#6B7280", 
+              font: { weight: "bold" }, 
+              callback: (value) => formatNumber(value) 
+            },
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: "#6B7280", font: { weight: "bold" } },
+          },
+        },
+        layout: { padding: { left: 20, right: 20 } },
+      },
+      situacao: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom", labels: { font: { size: 11, weight: "bold" }, color: "#6B7280" } },
+          datalabels: {
+            display: true,
+            color: "#fff",
+            font: { weight: "bold", size: 10 },
+            formatter: (value) => formatNumber(value),
+          },
+        },
+      },
+      evolucao: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: "#6B7280", font: { weight: "bold" } },
+          },
+          y: {
+            grid: { color: "#E5E7EB" },
+            ticks: { 
+              color: "#6B7280", 
+              font: { weight: "bold" }, 
+              callback: (value) => formatNumber(value) 
+            },
+          },
+        },
+      }
+    };
+  }, []);
+
+  // Filtrar escolas - memoizado
+  const filteredEscolas = useMemo(() => {
+    return data.escolas.filter(escola => 
+      escola.escola.toLowerCase().includes(searchTerm.toLowerCase())
+    );
   }, [data.escolas, searchTerm]);
 
-  // Formatação da data de atualização
+  // Formatação da data de atualização - memoizada
   const formattedUpdateDate = useMemo(() => {
     if (!data.ultimaAtualizacao) return null;
-
+    
     const updatedDate = new Date(data.ultimaAtualizacao);
     updatedDate.setHours(updatedDate.getHours() + 3);
     const day = updatedDate.getDate().toString().padStart(2, "0");
@@ -1053,21 +1290,21 @@ const Dashboard = () => {
     const hours = updatedDate.getHours().toString().padStart(2, "0");
     const minutes = updatedDate.getMinutes().toString().padStart(2, "0");
     const seconds = updatedDate.getSeconds().toString().padStart(2, "0");
-
+    
     return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
   }, [data.ultimaAtualizacao]);
 
   // === RENDER ===
   return (
     <AppContext.Provider value={{}}>
-      <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 text-gray-800 relative overflow-hidden">
+      <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 text-gray-800 relative overflow-hidden dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
         <AnimatePresence>
           {showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}
           {isLoading && <GlobalLoading />}
         </AnimatePresence>
 
-        {/* HEADER */}
-        <div className="w-full bg-white/95 backdrop-blur-sm shadow-xl border-b border-gray-200/60 z-40">
+        {/* HEADER FIXO NO TOPO */}
+        <div className="w-full bg-white/95 backdrop-blur-sm shadow-xl border-b border-gray-200/60 z-40 dark:bg-slate-900/80 dark:border-slate-800">
           <div className="flex items-center justify-between px-3 py-3 md:px-6 md:py-4">
             <div className="flex items-center gap-3 flex-1">
               <button
@@ -1083,21 +1320,39 @@ const Dashboard = () => {
               <div className="flex flex-col">
                 <h1
                   className="font-bold drop-shadow-sm bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent"
-                  style={{ fontSize: "clamp(1.2rem, 2.5vw, 2rem)", lineHeight: 1.2 }}
+                  style={{
+                    fontSize: 'clamp(1.2rem, 2.5vw, 2rem)',
+                    lineHeight: 1.2,
+                  }}
                 >
                   {clientName || "SEMED - PAINEL"}
                 </h1>
-                <span className="text-[0.85rem] md:text-base text-gray-600 font-medium">Dashboard de Gestão Educacional</span>
+                <span className="text-[0.85rem] md:text-base text-gray-600 font-medium">
+                  Dashboard de Gestão Educacional
+                </span>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               {formattedUpdateDate && (
                 <div className="hidden md:flex flex-col items-end">
-                  <span className="text-xs text-gray-500 font-semibold">Última atualização</span>
-                  <span className="text-sm text-gray-700 font-bold">{formattedUpdateDate}</span>
+                  <span className="text-xs text-gray-500 font-semibold">
+                    Última atualização
+                  </span>
+                  <span className="text-sm text-gray-700 font-bold">
+                    {formattedUpdateDate}
+                  </span>
                 </div>
               )}
+
+              <button
+                onClick={toggleTheme}
+                className="bg-white/80 text-gray-700 rounded-xl shadow-lg flex items-center justify-center p-2 hover:bg-white transition-all duration-300 transform hover:scale-105 border border-gray-200/60 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
+                title={isDark ? 'Ativar tema claro' : 'Ativar tema escuro'}
+                style={{ fontSize: 22, minWidth: 44, minHeight: 44 }}
+              >
+                {isDark ? <FaSun /> : <FaMoon />}
+              </button>
 
               <button
                 onClick={sair}
@@ -1110,14 +1365,21 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {formattedUpdateDate && <div className="md:hidden p-2 text-center text-xs bg-violet-100/80 text-gray-700">Atualizado: {formattedUpdateDate}</div>}
+          {/* Data de atualização para mobile */}
+          {formattedUpdateDate && (
+            <div className="md:hidden p-2 text-center text-xs bg-violet-100/80 text-gray-700">
+              Atualizado: {formattedUpdateDate}
+            </div>
+          )}
 
-          {/* Abas */}
+          {/* Navegação por abas */}
           <div className="flex border-b border-gray-200">
             <button
               onClick={() => setActiveTab("overview")}
               className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
-                activeTab === "overview" ? "text-violet-600 border-b-2 border-violet-600 bg-violet-50" : "text-gray-600 hover:text-violet-500"
+                activeTab === "overview" 
+                  ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
+                  : 'text-gray-600 hover:text-violet-500'
               }`}
             >
               <FaHome className="text-sm" />
@@ -1126,7 +1388,9 @@ const Dashboard = () => {
             <button
               onClick={() => setActiveTab("analytics")}
               className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
-                activeTab === "analytics" ? "text-violet-600 border-b-2 border-violet-600 bg-violet-50" : "text-gray-600 hover:text-violet-500"
+                activeTab === "analytics" 
+                  ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
+                  : 'text-gray-600 hover:text-violet-500'
               }`}
             >
               <FaChartBar className="text-sm" />
@@ -1135,7 +1399,9 @@ const Dashboard = () => {
             <button
               onClick={() => setActiveTab("geographic")}
               className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
-                activeTab === "geographic" ? "text-violet-600 border-b-2 border-violet-600 bg-violet-50" : "text-gray-600 hover:text-violet-500"
+                activeTab === "geographic" 
+                  ? 'text-violet-600 border-b-2 border-violet-600 bg-violet-50' 
+                  : 'text-gray-600 hover:text-violet-500'
               }`}
             >
               <FaMapMarkerAlt className="text-sm" />
@@ -1143,8 +1409,13 @@ const Dashboard = () => {
             </button>
           </div>
 
+          {/* Badge para filtro de escola ativo */}
           {selectedSchool && (
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center py-1 bg-violet-50/80">
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center py-1 bg-violet-50/80"
+            >
               <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow">
                 🎯 Filtro ativo: {selectedSchool.escola}
               </span>
@@ -1158,27 +1429,46 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* CONTEÚDO */}
+        {/* CONTEÚDO PRINCIPAL POR ABA */}
         <div className="flex-1 overflow-auto p-2 sm:p-3">
+          
           {/* ABA: VISÃO GERAL */}
           {activeTab === "overview" && (
             <>
-              {/* Alertas */}
+              {/* Alertas Estratégicos */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 {indicadoresEstrategicos.taxaEvasao > 10 && (
-                  <AlertIndicator type="high" value={`${formatPercent(indicadoresEstrategicos.taxaEvasao)}%`} label="Taxa de Evasão Alta" />
+                  <AlertIndicator 
+                    type="high" 
+                    value={`${formatPercent(indicadoresEstrategicos.taxaEvasao)}%`} 
+                    label="Taxa de Evasão Alta" 
+                  />
                 )}
                 {indicadoresEstrategicos.taxaOcupacao > 90 && (
-                  <AlertIndicator type="medium" value={`${formatPercent(indicadoresEstrategicos.taxaOcupacao)}%`} label="Alta Ocupação" />
+                  <AlertIndicator 
+                    type="medium" 
+                    value={`${formatPercent(indicadoresEstrategicos.taxaOcupacao)}%`} 
+                    label="Alta Ocupação" 
+                  />
                 )}
-                {data.totalSaidas > data.totalEntradas && <AlertIndicator type="high" value="Crítico" label="Mais Saídas que Entradas" />}
+                {data.totalSaidas > data.totalEntradas && (
+                  <AlertIndicator 
+                    type="high" 
+                    value="Crítico" 
+                    label="Mais Saídas que Entradas" 
+                  />
+                )}
                 {data.matriculasPorZona?.["RURAL"] > data.matriculasPorZona?.["URBANA"] && (
-                  <AlertIndicator type="medium" value="Rural" label="Maioria em Área Rural" />
+                  <AlertIndicator 
+                    type="medium" 
+                    value="Rural" 
+                    label="Maioria em Área Rural" 
+                  />
                 )}
               </div>
 
-              {/* CARDS (ajuste: 6 colunas no desktop para evitar “buraco”) */}
-              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[640px]:grid-cols-4 min-[1024px]:grid-cols-6 min-[1280px]:grid-cols-6 gap-2 sm:gap-3 mb-3 sm:mb-4">
+              {/* CORREÇÃO: Grid de Cartões Responsivo para Mobile - COMPACTO */}
+              <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[640px]:grid-cols-4 min-[1024px]:grid-cols-5 min-[1280px]:grid-cols-7 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 <Card
                   label="Matrículas"
                   value={data.totalMatriculas}
@@ -1186,9 +1476,14 @@ const Dashboard = () => {
                   borderColor="border-blue-400"
                   bgColor="bg-blue-50"
                   loading={loadingCards.totalMatriculas}
-                  additionalContent={<ZonaDetails urbana={data.matriculasPorZona?.["URBANA"]} rural={data.matriculasPorZona?.["RURAL"]} />}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.matriculasPorZona?.["URBANA"]}
+                      rural={data.matriculasPorZona?.["RURAL"]}
+                    />
+                  }
                 />
-
+                
                 <Card
                   label="Escolas"
                   value={data.totalEscolas}
@@ -1196,9 +1491,14 @@ const Dashboard = () => {
                   borderColor="border-green-400"
                   bgColor="bg-green-50"
                   loading={loadingCards.totalEscolas}
-                  additionalContent={<ZonaEscolasDetails urbana={data.escolasPorZona?.["URBANA"]} rural={data.escolasPorZona?.["RURAL"]} />}
+                  additionalContent={
+                    <ZonaEscolasDetails 
+                      urbana={data.escolasPorZona?.["URBANA"]}
+                      rural={data.escolasPorZona?.["RURAL"]}
+                    />
+                  }
                 />
-
+                
                 <Card
                   label="Capacidade"
                   value={data.capacidadeTotal}
@@ -1206,9 +1506,14 @@ const Dashboard = () => {
                   borderColor="border-indigo-400"
                   bgColor="bg-indigo-50"
                   loading={loadingCards.capacidadeTotal}
-                  additionalContent={<ZonaDetails urbana={data.capacidadePorZona?.["URBANA"]?.capacidade || 0} rural={data.capacidadePorZona?.["RURAL"]?.capacidade || 0} />}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.capacidadePorZona?.["URBANA"]?.capacidade || 0}
+                      rural={data.capacidadePorZona?.["RURAL"]?.capacidade || 0}
+                    />
+                  }
                 />
-
+                
                 <Card
                   label="Vagas"
                   value={data.totalVagas}
@@ -1217,9 +1522,14 @@ const Dashboard = () => {
                   bgColor="bg-teal-50"
                   loading={loadingCards.totalVagas}
                   valueColor={data.totalVagas < 0 ? "red" : "green"}
-                  additionalContent={<ZonaDetails urbana={data.capacidadePorZona?.["URBANA"]?.vagas || 0} rural={data.capacidadePorZona?.["RURAL"]?.vagas || 0} />}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.capacidadePorZona?.["URBANA"]?.vagas || 0}
+                      rural={data.capacidadePorZona?.["RURAL"]?.vagas || 0}
+                    />
+                  }
                 />
-
+                
                 <Card
                   label="Entradas"
                   value={data.totalEntradas}
@@ -1227,9 +1537,14 @@ const Dashboard = () => {
                   borderColor="border-yellow-400"
                   bgColor="bg-yellow-50"
                   loading={loadingCards.totalEntradas}
-                  additionalContent={<ZonaDetails urbana={data.detalhesZona?.entradas?.urbana || 0} rural={data.detalhesZona?.entradas?.rural || 0} />}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.detalhesZona?.entradas?.urbana || 0}
+                      rural={data.detalhesZona?.entradas?.rural || 0}
+                    />
+                  }
                 />
-
+                
                 <Card
                   label="Saídas"
                   value={data.totalSaidas}
@@ -1237,14 +1552,36 @@ const Dashboard = () => {
                   borderColor="border-red-400"
                   bgColor="bg-red-50"
                   loading={loadingCards.totalSaidas}
-                  additionalContent={<ZonaDetails urbana={data.detalhesZona?.saidas?.urbana || 0} rural={data.detalhesZona?.saidas?.rural || 0} />}
+                  additionalContent={
+                    <ZonaDetails 
+                      urbana={data.detalhesZona?.saidas?.urbana || 0}
+                      rural={data.detalhesZona?.saidas?.rural || 0}
+                    />
+                  }
                 />
 
-                {/* ❌ Removido da HOME: Taxa Evasão (fica no Analytics) */}
+                {/* CORREÇÃO: Card de Taxa de Evasão com cálculo consistente */}
+                <Card
+                  label="Taxa Evasão"
+                  value={`${formatPercent(data.taxaEvasao)}%`}
+                  disableFormat={true}
+                  icon={<FaExclamationTriangle className="text-orange-500" />}
+                  borderColor="border-orange-400"
+                  bgColor="bg-orange-50"
+                  loading={loadingCards.taxaEvasao}
+                  valueColor={data.taxaEvasao > 10 ? "red" : data.taxaEvasao > 5 ? "orange" : "green"}
+                  additionalContent={
+                    <ZonaEvasaoDetails 
+                      urbana={data.detalhesZona?.evasao?.urbana || 0}
+                      rural={data.detalhesZona?.evasao?.rural || 0}
+                    />
+                  }
+                />
               </div>
 
-              {/* Tabela + Gráfico */}
+              {/* Área Principal - Tabela e Gráficos */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
+                {/* Tabela Detalhes por Escola */}
                 <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg overflow-hidden flex flex-col h-[400px] border-gray-200/50 border">
                   <div className="p-3 bg-gradient-to-r from-gray-50 to-gray-100/80 border-gray-200 border-b flex justify-between items-center">
                     <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -1252,31 +1589,34 @@ const Dashboard = () => {
                       Detalhes por Escola
                     </h3>
                     <div className="flex gap-2">
-                      <ExportButtons
-                        data={data}
-                        escolas={filteredEscolas}
-                        loading={loadingTable}
-                        anoLetivo={selectedFilters?.anoLetivo}
-                        clientName={clientName}
-                      />
-                      <button onClick={() => setShowSearch(!showSearch)} className="bg-violet-500 text-white p-2 rounded-lg hover:bg-violet-600 transition-colors shadow">
+                      <ExportButtons data={data} escolas={filteredEscolas} loading={loadingTable} />
+                      <button 
+                        onClick={() => setShowSearch(!showSearch)}
+                        className="bg-violet-500 text-white p-2 rounded-lg hover:bg-violet-600 transition-colors shadow"
+                      >
                         <FaSearch size={16} />
                       </button>
                     </div>
                   </div>
-
+                  
                   {showSearch && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="p-2 bg-white border-gray-200 border-b">
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="p-2 bg-white border-gray-200 border-b"
+                    >
                       <input
                         type="text"
                         placeholder="Buscar escola..."
                         value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        onChange={(e) => setSearchTerm(e.target.value.toUpperCase())}
+                        style={{ textTransform: "uppercase" }}
                         className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-gray-800 text-sm"
                       />
                     </motion.div>
                   )}
-
+                  
                   <div className="overflow-auto flex-1">
                     {loadingTable ? (
                       <div className="p-3">
@@ -1284,12 +1624,19 @@ const Dashboard = () => {
                       </div>
                     ) : (
                       <Suspense fallback={<TableSkeleton />}>
-                        <EscolasTable escolas={filteredEscolas} searchTerm={searchTerm} selectedSchool={selectedSchool} handleSchoolClick={handleSchoolClick} loading={loadingTable} />
+                        <EscolasTable 
+                          escolas={filteredEscolas}
+                          searchTerm={searchTerm}
+                          selectedSchool={selectedSchool}
+                          handleSchoolClick={handleSchoolClick}
+                          loading={loadingTable}
+                        />
                       </Suspense>
                     )}
                   </div>
                 </div>
-
+                
+                {/* Gráfico Movimentação Mensal */}
                 <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[400px] border-gray-200/50 border">
                   <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
                     <FaSync className="text-violet-500" />
@@ -1300,12 +1647,9 @@ const Dashboard = () => {
                       <ChartSkeleton />
                     ) : (
                       <Suspense fallback={<ChartSkeleton />}>
-                        <MovimentacaoChart
-                          data={{
-                            labels: [],
-                            datasets: [],
-                          }}
-                          options={{}}
+                        <MovimentacaoChart 
+                          data={chartData.movimentacao}
+                          options={chartOptions.movimentacao}
                           loading={loadingGraphMov}
                         />
                       </Suspense>
@@ -1313,18 +1657,58 @@ const Dashboard = () => {
                   </div>
                 </div>
               </div>
-
-              {/* ⚠️ Observação:
-                  Este arquivo foi ajustado para exportações e layout de cards.
-                  Se você quiser que eu coloque de volta exatamente o chartData/chartOptions COMPLETOS (como seu arquivo original),
-                  é só me mandar a continuação do seu Dashboard.js (parte final que contém chartData/chartOptions e as abas).
-              */}
+              
+              {/* Gráficos Adicionais */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
+                {/* Gráfico Matrículas por Sexo */}
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[300px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
+                    <FaUserGraduate className="text-violet-500" />
+                    Matrículas por Sexo
+                  </h3>
+                  <div className="flex-1">
+                    {loadingPieSexo ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <SexoChart 
+                          data={chartData.sexo}
+                          options={chartOptions.sexo}
+                          loading={loadingPieSexo}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Gráfico Matrículas por Turno */}
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[300px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
+                    <FaChalkboardTeacher className="text-violet-500" />
+                    Matrículas por Turno
+                  </h3>
+                  <div className="flex-1">
+                    {loadingBarTurno ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <TurnoChart 
+                          data={chartData.turno}
+                          options={chartOptions.turno}
+                          loading={loadingBarTurno}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+              </div>
             </>
           )}
 
-          {/* ABA: ANALYTICS (mantida como no seu arquivo original — aqui você já tinha o card de evasão) */}
+          {/* ABA: ANALYTICS */}
           {activeTab === "analytics" && (
             <div className="space-y-3 sm:space-y-4">
+              {/* Indicadores de Performance */}
               <div className="grid grid-cols-2 min-[480px]:grid-cols-3 min-[1024px]:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
                 <Card
                   label="Ocupação"
@@ -1354,6 +1738,7 @@ const Dashboard = () => {
                   }
                 />
 
+                {/* CORREÇÃO: Card de Taxa de Evasão com detalhes */}
                 <Card
                   label="Taxa de Evasão"
                   value={`${formatPercent(data.taxaEvasao)}%`}
@@ -1365,7 +1750,12 @@ const Dashboard = () => {
                   valueColor={data.taxaEvasao > 10 ? "red" : "green"}
                   tooltip="Percentual de evasão escolar"
                   tooltipId="taxa-evasao-analytics"
-                  additionalContent={<ZonaEvasaoDetails urbana={data.detalhesZona?.evasao?.urbana || 0} rural={data.detalhesZona?.evasao?.rural || 0} />}
+                  additionalContent={
+                    <ZonaEvasaoDetails 
+                      urbana={data.detalhesZona?.evasao?.urbana || 0}
+                      rural={data.detalhesZona?.evasao?.rural || 0}
+                    />
+                  }
                 />
 
                 <Card
@@ -1384,19 +1774,53 @@ const Dashboard = () => {
                 />
               </div>
 
-              <div className="bg-white/80 rounded-2xl p-6 text-sm text-gray-700">
-                <p>
-                  ✅ Exportação Excel/PDF ajustada para a coluna <b>Matrículas</b> não ficar zerada e para incluir <b>Ano Letivo</b> no cabeçalho.
-                </p>
-                <p className="mt-2">
-                  Se você quiser, eu volto e re-colo aqui as seções completas de <code>chartData</code> e <code>chartOptions</code> exatamente como estavam no seu arquivo (sem alterar nada),
-                  mantendo apenas as correções acima.
-                </p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+                {/* Gráfico Situação da Matrícula */}
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[400px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
+                    <FaClock className="text-violet-500" />
+                    Situação da Matrícula
+                  </h3>
+                  <div className="flex-1">
+                    {loadingSituacao ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <SituacaoMatriculaChart 
+                          data={chartData.situacao}
+                          options={chartOptions.situacao}
+                          loading={loadingSituacao}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
+
+                {/* Gráfico Evolução de Matrículas */}
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[400px] border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
+                    <FaChartLine className="text-violet-500" />
+                    Evolução de Matrículas
+                  </h3>
+                  <div className="flex-1">
+                    {loadingEvolucao ? (
+                      <ChartSkeleton />
+                    ) : (
+                      <Suspense fallback={<ChartSkeleton />}>
+                        <EvolucaoMatriculasChart 
+                          data={chartData.evolucao}
+                          options={chartOptions.evolucao}
+                          loading={loadingEvolucao}
+                        />
+                      </Suspense>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {/* ABA: GEOGRÁFICA (mantida) */}
+          {/* ABA: VISÃO GEOGRÁFICA */}
           {activeTab === "geographic" && (
             <div className="space-y-3 sm:space-y-4">
               <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 flex flex-col h-[500px] sm:h-[600px] border-gray-200/50 border">
@@ -1411,21 +1835,87 @@ const Dashboard = () => {
                     </div>
                   ) : (
                     <Suspense fallback={<ChartSkeleton />}>
-                      <MapaCalorEscolas escolas={data.escolas} loading={loadingMapa} />
+                      <MapaCalorEscolas 
+                        escolas={data.escolas}
+                        loading={loadingMapa}
+                      />
                     </Suspense>
                   )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
+                    <FaCity className="text-violet-500" />
+                    Distribuição por Zona
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-2 rounded-lg bg-blue-50">
+                      <span className="font-semibold text-blue-700 text-sm">Urbana</span>
+                      <span className="font-bold text-blue-900 text-sm">
+                        {formatNumber(data.matriculasPorZona?.["URBANA"])} 
+                        <span className="text-xs text-blue-600 ml-1">
+                          ({data.matriculasPorZona?.["URBANA"] && data.totalMatriculas ? 
+                          ((data.matriculasPorZona["URBANA"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
+                        </span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-2 rounded-lg bg-green-50">
+                      <span className="font-semibold text-green-700 text-sm">Rural</span>
+                      <span className="font-bold text-green-900 text-sm">
+                        {formatNumber(data.matriculasPorZona?.["RURAL"])}
+                        <span className="text-xs text-green-600 ml-1">
+                          ({data.matriculasPorZona?.["RURAL"] && data.totalMatriculas ? 
+                          ((data.matriculasPorZona["RURAL"] / data.totalMatriculas) * 100).toFixed(1) : 0}%)
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white/90 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg p-3 border-gray-200/50 border">
+                  <h3 className="text-base sm:text-lg font-bold mb-3 flex items-center gap-2">
+                    <FaSchool className="text-violet-500" />
+                    Densidade Escolar
+                  </h3>
+                  <div className="space-y-2">
+                    <div className="text-center">
+                      <div className="text-xl sm:text-2xl font-bold text-violet-600">
+                        {data.totalEscolas && data.totalMatriculas ? 
+                          Math.round(data.totalMatriculas / data.totalEscolas) : 0}
+                      </div>
+                      <div className="text-xs text-gray-600">Alunos por escola (média)</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-center">
+                      <div className="p-2 rounded bg-blue-50">
+                        <div className="font-bold text-blue-700 text-sm">{data.escolasPorZona?.["URBANA"] || 0}</div>
+                        <div className="text-xs text-blue-600">Escolas Urbanas</div>
+                      </div>
+                      <div className="p-2 rounded bg-green-50">
+                        <div className="font-bold text-green-700 text-sm">{data.escolasPorZona?.["RURAL"] || 0}</div>
+                        <div className="text-xs text-green-600">Escolas Rurais</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Sidebar de Filtros (mantida como no seu arquivo) */}
+        {/* Sidebar de Filtros */}
         <AnimatePresence>
           {showSidebar && (
             <>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowSidebar(false)} className="fixed inset-0 bg-black/50 z-40" />
-
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowSidebar(false)}
+                className="fixed inset-0 bg-black/50 z-40"
+              />
+              
               <motion.div
                 id="sidebar"
                 initial={{ x: -400, opacity: 0 }}
@@ -1439,24 +1929,90 @@ const Dashboard = () => {
                     <FaFilter className="text-violet-500" />
                     Filtros
                   </h2>
-                  <button onClick={() => setShowSidebar(false)} className="text-gray-500 hover:text-violet-600 transition-colors text-xl bg-gray-100 p-1 rounded-lg hover:bg-gray-200">
+                  <button 
+                    onClick={() => setShowSidebar(false)} 
+                    className="text-gray-500 hover:text-violet-600 transition-colors text-xl bg-gray-100 p-1 rounded-lg hover:bg-gray-200"
+                  >
                     ✕
                   </button>
                 </div>
-
+                
                 <div className="space-y-3">
-                  <FilterSelect label="Ano Letivo" name="anoLetivo" options={filters.ano_letivo} value={selectedFilters.anoLetivo} onChange={handleFilterChange} />
-                  <FilterSelect label="Tipo Matrícula" name="tipoMatricula" options={filters.tipo_matricula} value={selectedFilters.tipoMatricula} onChange={handleFilterChange} />
-                  <FilterSelect label="Situação Matrícula" name="situacaoMatricula" options={filters.situacao_matricula} value={selectedFilters.situacaoMatricula} onChange={handleFilterChange} />
-                  <FilterSelect label="Grupo Etapa" name="grupoEtapa" options={filters.grupo_etapa} value={selectedFilters.grupoEtapa} onChange={handleFilterChange} />
-                  <FilterSelect label="Etapa Matrícula" name="etapaMatricula" options={filters.etapa_matricula} value={selectedFilters.etapaMatricula} onChange={handleFilterChange} disabled={selectedFilters.etapaTurma !== ""} />
-                  <FilterSelect label="Etapa Turma" name="etapaTurma" options={filters.etapa_turma} value={selectedFilters.etapaTurma} onChange={handleFilterChange} disabled={selectedFilters.etapaMatricula !== ""} />
-                  <FilterSelect label="Multissérie" name="multisserie" options={filters.multisserie} value={selectedFilters.multisserie} onChange={handleFilterChange} />
-                  <FilterSelect label="Deficiência" name="deficiencia" options={filters.deficiencia} value={selectedFilters.deficiencia} onChange={handleFilterChange} />
-                  <FilterSelect label="Transporte Escolar" name="transporteEscolar" options={filters.transporte_escolar} value={selectedFilters.transporteEscolar} onChange={handleFilterChange} />
-                  <FilterSelect label="Tipo Transporte" name="tipoTransporte" options={filters.tipo_transporte} value={selectedFilters.tipoTransporte} onChange={handleFilterChange} disabled={selectedFilters.transporteEscolar !== "SIM"} />
+                  <FilterSelect
+                    label="Ano Letivo"
+                    name="anoLetivo"
+                    options={filters.ano_letivo}
+                    value={selectedFilters.anoLetivo}
+                    onChange={handleFilterChange}
+                  />
+                  <FilterSelect
+                    label="Tipo Matrícula"
+                    name="tipoMatricula"
+                    options={filters.tipo_matricula}
+                    value={selectedFilters.tipoMatricula}
+                    onChange={handleFilterChange}
+                  />
+                  <FilterSelect
+                    label="Situação Matrícula"
+                    name="situacaoMatricula"
+                    options={filters.situacao_matricula}
+                    value={selectedFilters.situacaoMatricula}
+                    onChange={handleFilterChange}
+                  />
+                  <FilterSelect
+                    label="Grupo Etapa"
+                    name="grupoEtapa"
+                    options={filters.grupo_etapa}
+                    value={selectedFilters.grupoEtapa}
+                    onChange={handleFilterChange}
+                  />
+                  <FilterSelect
+                    label="Etapa Matrícula"
+                    name="etapaMatricula"
+                    options={filters.etapa_matricula}
+                    value={selectedFilters.etapaMatricula}
+                    onChange={handleFilterChange}
+                    disabled={selectedFilters.etapaTurma !== ""}
+                  />
+                  <FilterSelect
+                    label="Etapa Turma"
+                    name="etapaTurma"
+                    options={filters.etapa_turma}
+                    value={selectedFilters.etapaTurma}
+                    onChange={handleFilterChange}
+                    disabled={selectedFilters.etapaMatricula !== ""}
+                  />
+                  <FilterSelect
+                    label="Multissérie"
+                    name="multisserie"
+                    options={filters.multisserie}
+                    value={selectedFilters.multisserie}
+                    onChange={handleFilterChange}
+                  />
+                  <FilterSelect
+                    label="Deficiência"
+                    name="deficiencia"
+                    options={filters.deficiencia}
+                    value={selectedFilters.deficiencia}
+                    onChange={handleFilterChange}
+                  />
+                  <FilterSelect
+                    label="Transporte Escolar"
+                    name="transporteEscolar"
+                    options={filters.transporte_escolar}
+                    value={selectedFilters.transporteEscolar}
+                    onChange={handleFilterChange}
+                  />
+                  <FilterSelect
+                    label="Tipo Transporte"
+                    name="tipoTransporte"
+                    options={filters.tipo_transporte}
+                    value={selectedFilters.tipoTransporte}
+                    onChange={handleFilterChange}
+                    disabled={selectedFilters.transporteEscolar !== "SIM"}
+                  />
                 </div>
-
+                
                 <div className="mt-6 pt-4 border-gray-200 border-t flex justify-center">
                   <button
                     onClick={() => {
@@ -1485,12 +2041,15 @@ const Dashboard = () => {
                   </button>
                 </div>
 
+                {/* Informações de Cache */}
                 <div className="mt-4 p-3 rounded-lg bg-gray-100/80 text-xs">
                   <div className="flex items-center gap-2 mb-1">
                     <FaDatabase className="text-violet-500" />
                     <span className="font-semibold">Sistema de Cache</span>
                   </div>
-                  <p className="text-gray-600">Seus filtros e preferências são salvos automaticamente.</p>
+                  <p className="text-gray-600">
+                    Seus filtros e preferências são salvos automaticamente.
+                  </p>
                 </div>
               </motion.div>
             </>

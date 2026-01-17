@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './components/App';
+import { AppProvider } from './context/AppContext';
 import reportWebVitals from './reportWebVitals';
 
 // Desregistra service workers antigos e limpa caches para evitar cache desatualizado
@@ -23,7 +24,9 @@ const container = document.getElementById('root');
 const root = createRoot(container);
 root.render(
   <React.StrictMode>
-    <App />
+    <AppProvider>
+      <App />
+    </AppProvider>
   </React.StrictMode>
 );
 

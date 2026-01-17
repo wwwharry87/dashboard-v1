@@ -1,147 +1,108 @@
 /**
- * Utilitários de formatação (pt-BR) para reutilizar no dashboard.
+ * @fileoverview Funcoes de formatacao padronizadas do projeto.
  *
- * - Robusto: retorna fallback em dados inválidos.
- * - Centraliza formatNumber/formatPercent para evitar duplicação.
+ * Objetivo:
+ * - Evitar duplicacao de formatadores (performance + consistencia)
+ * - Centralizar regras de formatacao (pt-BR)
+ *
+ * Observacao:
+ * - As funcoes sao tolerantes a entradas invalidas (null/undefined/NaN/string)
+ * - Nao lancam erro; retornam strings seguras para UI.
  */
 
 /**
- * Converte valores comuns (number/string pt-BR) em número finito.
+ * Converte qualquer entrada em um numero finito.
  *
- * Aceita strings como:
- * - "1234" / "1234.56"
- * - "1.234,56" (pt-BR)
- * - "R$ 1.234,56"
- *
- * @param {unknown} value
- * @returns {number|null}
+ * @param {unknown} value Valor de entrada (numero, string, null, etc.).
+ * @param {number} [fallback=0] Valor padrao quando nao for possivel converter.
+ * @returns {number} Numero finito.
  */
-function toFiniteNumber(value) {
-  if (value === null || value === undefined) return null;
+function toFiniteNumber(value, fallback = 0) {
+  try {
+    if (value === null || value === undefined) return fallback;
 
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (typeof value === 'bigint') {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  if (typeof value === 'string') {
-    let s = value.trim();
-    if (!s) return null;
-
-    // Normaliza espaços e remove símbolo monetário comum
-    s = s.replace(/\u00A0/g, ' ');
-    s = s.replace(/R\$/g, '');
-    s = s.replace(/\s/g, '');
-
-    // Se vier no padrão pt-BR ("1.234,56") converte para "1234.56"
-    if (s.includes(',') && s.includes('.')) {
-      s = s.replace(/\./g, '').replace(/,/g, '.');
-    } else if (s.includes(',') && !s.includes('.')) {
-      // Ex.: "12,5" => "12.5"
-      s = s.replace(/,/g, '.');
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : fallback;
     }
 
-    // Mantém só caracteres relevantes para Number()
-    s = s.replace(/[^0-9.-]/g, '');
+    if (typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
 
-    const n = Number(s);
-    return Number.isFinite(n) ? n : null;
-  }
+    if (typeof value === 'string') {
+      const raw = value.trim();
+      if (!raw) return fallback;
 
-  return null;
-}
+      // Tenta lidar com formatos comuns: "1.234" (pt) e "1,23".
+      // Regra simples: remove pontos de milhar e troca virgula por ponto.
+      const normalized = raw.replace(/\./g, '').replace(',', '.');
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : fallback;
+    }
 
-const formatterCache = new Map();
-
-/**
- * Retorna (e memoiza) um Intl.NumberFormat.
- * @param {number|undefined} minFD
- * @param {number|undefined} maxFD
- */
-function getFormatter(minFD, maxFD) {
-  const key = `${minFD ?? ''}|${maxFD ?? ''}`;
-  if (formatterCache.has(key)) return formatterCache.get(key);
-
-  let fmt;
-  try {
-    fmt = new Intl.NumberFormat('pt-BR', {
-      minimumFractionDigits: minFD,
-      maximumFractionDigits: maxFD,
-    });
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
   } catch {
-    fmt = new Intl.NumberFormat('pt-BR');
+    return fallback;
   }
-
-  formatterCache.set(key, fmt);
-  return fmt;
 }
 
+// Intl.NumberFormat e relativamente pesado para recriar. Mantemos uma instancia memoizada.
+const numberFormatterPtBR = new Intl.NumberFormat('pt-BR');
+
 /**
- * Formata número para pt-BR.
- *
- * @example
- * formatNumber(1234) // "1.234"
- * formatNumber(1234.5, { maximumFractionDigits: 2 }) // "1.234,5"
+ * Formata numeros para pt-BR.
  *
  * @param {unknown} num
- * @param {{ minimumFractionDigits?: number, maximumFractionDigits?: number, fallback?: string }} [options]
- * @returns {string}
+ * @returns {string} Ex.: "1.234" (pt-BR)
  */
-export function formatNumber(num, options = {}) {
-  const n = toFiniteNumber(num);
-  if (n === null) return options.fallback ?? '—';
-
-  const fmt = getFormatter(options.minimumFractionDigits, options.maximumFractionDigits);
+export function formatNumber(num) {
+  const n = toFiniteNumber(num, 0);
   try {
-    return fmt.format(n);
+    return numberFormatterPtBR.format(n);
   } catch {
-    return String(n);
+    return '0';
   }
 }
 
 /**
- * Formata percentual com 2 casas decimais.
- *
- * Heurística de entrada:
- * - Se |value| <= 1, considera "razão" (0.45 => 45%).
- * - Se |value| > 1, considera valor já em porcentagem (45 => 45%).
- *
- * @example
- * formatPercent(0.1234) // "12,34%"
- * formatPercent(12.3456) // "12,35%"
+ * Formata um valor percentual com 2 casas decimais (pt-BR).
  *
  * @param {unknown} value
- * @param {{ fallback?: string }} [options]
- * @returns {string}
+ * @returns {string} Ex.: "12,34" (sem o simbolo %)
  */
-export function formatPercent(value, options = {}) {
-  const n = toFiniteNumber(value);
-  if (n === null) return options.fallback ?? '—';
-
-  const pct = Math.abs(n) <= 1 ? n * 100 : n;
-  const fmt = getFormatter(2, 2);
-  return `${fmt.format(pct)}%`;
+export function formatPercent(value) {
+  const n = toFiniteNumber(value, 0);
+  try {
+    // Mantem duas casas decimais e troca ponto por virgula.
+    return n.toFixed(2).replace('.', ',');
+  } catch {
+    return '0,00';
+  }
 }
 
 /**
- * Formata CPF (###.###.###-##).
- *
- * @example
- * formatCPF('12345678901') // "123.456.789-01"
+ * Formata CPF. Aceita string com ou sem pontuacao.
  *
  * @param {unknown} cpf
- * @param {{ fallback?: string }} [options]
- * @returns {string}
+ * @returns {string} Ex.: "123.456.789-09". Se invalido, retorna somente digitos (ou "").
  */
-export function formatCPF(cpf, options = {}) {
-  const digits = cpf === null || cpf === undefined ? '' : String(cpf).replace(/\D/g, '');
-  if (digits.length !== 11) return options.fallback ?? (digits || '—');
+export function formatCPF(cpf) {
+  try {
+    const digits = String(cpf ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 11);
 
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+    if (digits.length !== 11) return digits;
+
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  } catch {
+    return '';
+  }
 }
 
-export default { formatNumber, formatPercent, formatCPF };
+export default {
+  formatNumber,
+  formatPercent,
+  formatCPF,
+};

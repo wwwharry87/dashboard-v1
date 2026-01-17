@@ -1,22 +1,20 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 
 /**
- * Debounce de valores (útil para filtros/pesquisas).
+ * Hook para "debounce" de valores (ex.: campo de busca).
  *
  * @template T
- * @param {T} value
- * @param {number} delayMs
- * @returns {T}
+ * @param {T} value Valor de entrada.
+ * @param {number} [delayMs=300] Atraso em milissegundos.
+ * @returns {T} Valor debounced.
  */
 export function useDebounce(value, delayMs = 300) {
-  const [debounced, setDebounced] = React.useState(value);
+  const [debounced, setDebounced] = useState(value);
 
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(t);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(t);
   }, [value, delayMs]);
 
   return debounced;
 }
-
-export default useDebounce;

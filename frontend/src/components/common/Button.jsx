@@ -1,82 +1,72 @@
 import React from 'react';
 
-/**
- * Junta classes Tailwind evitando valores falsy.
- * @param  {...(string|undefined|null|false)} classes
- */
-function cn(...classes) {
-  return classes.filter(Boolean).join(' ');
-}
+const base =
+  'inline-flex items-center justify-center gap-2 rounded-md font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
-const VARIANT_CLASSES = {
+const variants = {
   primary:
-    'bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 dark:bg-primary-500 dark:hover:bg-primary-400 dark:active:bg-primary-600',
+    'bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-600 dark:focus:ring-primary-500',
   secondary:
-    'bg-secondary-600 text-white hover:bg-secondary-700 active:bg-secondary-800 dark:bg-secondary-500 dark:hover:bg-secondary-400 dark:active:bg-secondary-600',
+    'bg-secondary-600 text-white hover:bg-secondary-700 focus:ring-secondary-600 dark:focus:ring-secondary-500',
   danger:
-    'bg-danger-600 text-white hover:bg-danger-700 active:bg-danger-800 dark:bg-danger-500 dark:hover:bg-danger-400 dark:active:bg-danger-600',
+    'bg-danger-600 text-white hover:bg-danger-700 focus:ring-danger-600 dark:focus:ring-danger-500',
   outline:
-    'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800',
+    'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 focus:ring-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800',
 };
 
-const SIZE_CLASSES = {
-  sm: 'h-8 px-3 text-sm',
+const sizes = {
+  sm: 'h-8 px-3 text-xs',
   md: 'h-10 px-4 text-sm',
-  lg: 'h-12 px-6 text-base',
+  lg: 'h-12 px-5 text-base',
 };
 
 /**
- * Button reutilizável.
+ * Button reutilizavel.
  *
- * @example
- * <Button variant="primary" size="md" onClick={...}>Salvar</Button>
- * <Button variant="outline" size="sm">Cancelar</Button>
+ * @param {{
+ *  variant?: 'primary'|'secondary'|'danger'|'outline',
+ *  size?: 'sm'|'md'|'lg',
+ *  loading?: boolean,
+ *  leftIcon?: React.ReactNode,
+ *  rightIcon?: React.ReactNode,
+ * } & React.ButtonHTMLAttributes<HTMLButtonElement>} props
  */
-const Button = React.memo(
-  React.forwardRef(function Button(
-    {
-      variant = 'primary',
-      size = 'md',
-      loading = false,
-      disabled,
-      className,
-      leftIcon,
-      rightIcon,
-      children,
-      type = 'button',
-      ...rest
-    },
-    ref
-  ) {
-    const isDisabled = Boolean(disabled || loading);
+const Button = React.forwardRef(function Button(
+  {
+    className = '',
+    variant = 'primary',
+    size = 'md',
+    loading = false,
+    leftIcon,
+    rightIcon,
+    children,
+    disabled,
+    ...rest
+  },
+  ref
+) {
+  const v = variants[variant] || variants.primary;
+  const s = sizes[size] || sizes.md;
 
-    return (
-      <button
-        ref={ref}
-        type={type}
-        disabled={isDisabled}
-        className={cn(
-          'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition',
-          'focus:outline-none focus:ring-2 focus:ring-primary-300 focus:ring-offset-2 dark:focus:ring-primary-800 dark:focus:ring-offset-slate-900',
-          'disabled:opacity-60 disabled:cursor-not-allowed',
-          SIZE_CLASSES[size] || SIZE_CLASSES.md,
-          VARIANT_CLASSES[variant] || VARIANT_CLASSES.primary,
-          className
-        )}
-        {...rest}
-      >
-        {leftIcon ? <span className="shrink-0">{leftIcon}</span> : null}
-        <span className={cn(loading ? 'opacity-80' : '')}>{children}</span>
-        {loading ? (
-          <span
-            className="ml-1 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
-            aria-label="Carregando"
-          />
-        ) : null}
-        {rightIcon ? <span className="shrink-0">{rightIcon}</span> : null}
-      </button>
-    );
-  })
-);
+  return (
+    <button
+      ref={ref}
+      className={`${base} ${v} ${s} ${className}`}
+      disabled={disabled || loading}
+      {...rest}
+    >
+      {loading ? (
+        <span
+          className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+          aria-hidden="true"
+        />
+      ) : (
+        leftIcon || null
+      )}
+      <span className="truncate">{children}</span>
+      {rightIcon || null}
+    </button>
+  );
+});
 
 export default Button;

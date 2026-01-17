@@ -1,25 +1,6 @@
 import React from 'react';
 import { FaArrowUp, FaArrowDown, FaBalanceScale } from 'react-icons/fa';
-
-// CORREÇÃO DEFINITIVA: Função para formatar números
-const formatNumber = (num) => {
-  if (num === null || num === undefined || num === "Erro" || isNaN(num)) {
-    return "0";
-  }
-  
-  const number = parseFloat(num) || 0;
-  return new Intl.NumberFormat('pt-BR').format(number);
-};
-
-// CORREÇÃO: Função para formatar percentuais
-const formatPercent = (value) => {
-  if (value == null || value === "" || value === "Erro" || isNaN(value)) {
-    return "0,00";
-  }
-  
-  const number = parseFloat(value) || 0;
-  return number.toFixed(2).replace('.', ',');
-};
+import { formatNumber } from '../utils/formatters';
 
 const Card = ({ 
   label, 

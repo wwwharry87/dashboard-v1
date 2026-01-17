@@ -1,63 +1,74 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
-function cn(...classes) {
-  return classes.filter(Boolean).join(' ');
-}
-
-const TYPE_STYLES = {
-  success:
-    'border-success-200 bg-success-50 text-success-900 dark:border-success-900 dark:bg-success-950 dark:text-success-100',
-  error:
-    'border-danger-200 bg-danger-50 text-danger-900 dark:border-danger-900 dark:bg-danger-950 dark:text-danger-100',
-  info:
-    'border-primary-200 bg-primary-50 text-primary-900 dark:border-primary-900 dark:bg-primary-950 dark:text-primary-100',
-};
-
 /**
- * @typedef {'success'|'error'|'info'} ToastType
- * @typedef {{ id: string, type: ToastType, title?: string, message: string, duration?: number }} ToastItem
- */
-
-/**
- * Toast container (viewport).
+ * Toast container.
  *
- * @param {{ toasts: ToastItem[], onDismiss: (id:string) => void }} props
+ * @param {{
+ *  toasts: Array<{ id: string, type: 'success'|'error'|'info', title?: string, message: string, durationMs?: number }>,
+ *  removeToast: (id: string) => void,
+ *  position?: 'top-right'|'top-left'|'bottom-right'|'bottom-left',
+ * }} props
  */
-export default function Toast({ toasts, onDismiss }) {
+export default function Toast({ toasts, removeToast, position = 'top-right' }) {
+  const posClass = {
+    'top-right': 'top-4 right-4',
+    'top-left': 'top-4 left-4',
+    'bottom-right': 'bottom-4 right-4',
+    'bottom-left': 'bottom-4 left-4',
+  }[position] || 'top-4 right-4';
+
   return (
-    <div className="fixed right-4 top-4 z-[60] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-2">
+    <div className={`pointer-events-none fixed z-[60] ${posClass} w-[min(92vw,360px)] space-y-2`}>
       <AnimatePresence initial={false}>
         {toasts.map((t) => (
-          <motion.div
-            key={t.id}
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-            className={cn(
-              'rounded-xl border p-3 shadow-soft',
-              TYPE_STYLES[t.type] || TYPE_STYLES.info
-            )}
-            role="status"
-            aria-live="polite"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                {t.title ? <div className="truncate text-sm font-semibold">{t.title}</div> : null}
-                <div className="break-words text-sm opacity-90">{t.message}</div>
-              </div>
-              <button
-                onClick={() => onDismiss(t.id)}
-                className="rounded-md px-2 py-1 text-sm opacity-70 hover:opacity-100"
-                aria-label="Fechar notificação"
-              >
-                ×
-              </button>
-            </div>
-          </motion.div>
+          <ToastItem key={t.id} toast={t} onClose={() => removeToast(t.id)} />
         ))}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ToastItem({ toast, onClose }) {
+  const { type, title, message, durationMs = 3500 } = toast;
+
+  useEffect(() => {
+    const t = window.setTimeout(onClose, durationMs);
+    return () => window.clearTimeout(t);
+  }, [onClose, durationMs]);
+
+  const styles = {
+    success: 'border-success-500 bg-success-50 text-success-900 dark:border-success-500/60 dark:bg-success-500/10 dark:text-success-100',
+    error: 'border-danger-500 bg-danger-50 text-danger-900 dark:border-danger-500/60 dark:bg-danger-500/10 dark:text-danger-100',
+    info: 'border-primary-500 bg-primary-50 text-primary-900 dark:border-primary-500/60 dark:bg-primary-500/10 dark:text-primary-100',
+  }[type] || 'border-gray-300 bg-white text-gray-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
+
+  return (
+    <motion.div
+      className={`pointer-events-auto rounded-xl border p-3 shadow-lg ${styles}`}
+      initial={{ opacity: 0, x: 24, scale: 0.98 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 24, scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {title ? (
+            <div className="text-sm font-bold leading-tight">{title}</div>
+          ) : null}
+          <div className="text-sm leading-snug opacity-90">{message}</div>
+        </div>
+        <button
+          type="button"
+          className="rounded-md px-2 py-1 text-xs font-bold opacity-70 hover:opacity-100"
+          onClick={onClose}
+          aria-label="Fechar notificação"
+        >
+          ✕
+        </button>
+      </div>
+    </motion.div>
   );
 }

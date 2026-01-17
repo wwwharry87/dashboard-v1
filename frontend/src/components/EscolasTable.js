@@ -1,15 +1,7 @@
 // components/EscolasTable.js - VERSÃO SEM SCROLL HORIZONTAL
 import React from "react";
 import { FaSchool, FaUsers, FaDoorOpen, FaExclamationTriangle, FaCheckCircle } from "react-icons/fa";
-
-// Função de formatação corrigida
-const formatNumber = (num) => {
-  if (num === null || num === undefined || num === "Erro" || isNaN(num)) {
-    return "0";
-  }
-  const number = parseInt(num) || 0;
-  return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-};
+import { formatNumber } from '../utils/formatters';
 
 const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, loading }) => {
   if (loading) {

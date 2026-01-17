@@ -1,108 +1,106 @@
 import React from 'react';
 
-function cn(...classes) {
-  return classes.filter(Boolean).join(' ');
-}
+const base =
+  'w-full rounded-md border bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 shadow-sm outline-none transition focus:ring-2 focus:ring-primary-500/60 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:ring-primary-400/60';
+
+const states = {
+  default: 'border-gray-300 dark:border-slate-700',
+  error:
+    'border-danger-500 focus:ring-danger-500/50 dark:border-danger-400 dark:focus:ring-danger-400/50',
+  success:
+    'border-success-500 focus:ring-success-500/50 dark:border-success-400 dark:focus:ring-success-400/50',
+};
 
 /**
- * Input reutilizável com acessibilidade e estados de validação.
+ * Input reutilizavel com label, hint e validacao visual.
  *
- * Props principais:
- * - label: string
- * - error: string | boolean (exibe vermelho)
- * - success: string | boolean (exibe verde)
- * - helperText: string (texto auxiliar)
- *
- * @example
- * <Input label="CPF" value={cpf} onChange={e => setCpf(e.target.value)} error={...} />
+ * @param {{
+ *  id?: string,
+ *  label?: string,
+ *  hint?: string,
+ *  error?: string,
+ *  success?: string,
+ *  leftIcon?: React.ReactNode,
+ *  rightIcon?: React.ReactNode,
+ * } & React.InputHTMLAttributes<HTMLInputElement>} props
  */
-const Input = React.memo(
-  React.forwardRef(function Input(
-    {
-      id,
-      label,
-      helperText,
-      error,
-      success,
-      className,
-      inputClassName,
-      required,
-      leftAddon,
-      rightAddon,
-      ...rest
-    },
-    ref
-  ) {
-    const autoId = React.useId();
-    const inputId = id || `input-${autoId}`;
-    const describedById = `${inputId}-desc`;
+const Input = React.forwardRef(function Input(
+  {
+    id,
+    label,
+    hint,
+    error,
+    success,
+    leftIcon,
+    rightIcon,
+    className = '',
+    ...rest
+  },
+  ref
+) {
+  const state = error ? 'error' : success ? 'success' : 'default';
+  const describedById = useAutoId(id, 'input');
+  const hintId = hint ? `${describedById}__hint` : undefined;
+  const errorId = error ? `${describedById}__error` : undefined;
+  const successId = success ? `${describedById}__success` : undefined;
 
-    const hasError = Boolean(error);
-    const hasSuccess = Boolean(success) && !hasError;
+  const ariaDescribedBy = [hintId, errorId, successId].filter(Boolean).join(' ') || undefined;
 
-    return (
-      <div className={cn('w-full', className)}>
-        {label ? (
-          <label
-            htmlFor={inputId}
-            className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200"
-          >
-            {label}
-            {required ? <span className="text-danger-600"> *</span> : null}
-          </label>
+  return (
+    <div className="w-full">
+      {label ? (
+        <label htmlFor={describedById} className="mb-1 block text-xs font-semibold text-gray-700 dark:text-slate-200">
+          {label}
+        </label>
+      ) : null}
+
+      <div className="relative">
+        {leftIcon ? (
+          <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400 dark:text-slate-400">
+            {leftIcon}
+          </span>
         ) : null}
 
-        <div
-          className={cn(
-            'flex items-center gap-2 rounded-lg border bg-white px-3 py-2 transition',
-            'dark:bg-slate-900',
-            hasError
-              ? 'border-danger-400 focus-within:ring-2 focus-within:ring-danger-200 dark:border-danger-600 dark:focus-within:ring-danger-900'
-              : hasSuccess
-                ? 'border-success-400 focus-within:ring-2 focus-within:ring-success-200 dark:border-success-600 dark:focus-within:ring-success-900'
-                : 'border-slate-300 focus-within:ring-2 focus-within:ring-primary-200 dark:border-slate-700 dark:focus-within:ring-primary-900'
-          )
-        >
-          {leftAddon ? <div className="text-slate-500 dark:text-slate-400">{leftAddon}</div> : null}
+        <input
+          ref={ref}
+          id={describedById}
+          aria-invalid={Boolean(error) || undefined}
+          aria-describedby={ariaDescribedBy}
+          className={`${base} ${states[state]} ${leftIcon ? 'pl-10' : ''} ${rightIcon ? 'pr-10' : ''} ${className}`}
+          {...rest}
+        />
 
-          <input
-            ref={ref}
-            id={inputId}
-            aria-invalid={hasError ? 'true' : 'false'}
-            aria-describedby={helperText || error || success ? describedById : undefined}
-            className={cn(
-              'w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400',
-              'dark:text-slate-100 dark:placeholder:text-slate-500',
-              inputClassName
-            )}
-            {...rest}
-          />
-
-          {rightAddon ? <div className="text-slate-500 dark:text-slate-400">{rightAddon}</div> : null}
-        </div>
-
-        {helperText || error || success ? (
-          <p
-            id={describedById}
-            className={cn(
-              'mt-1 text-xs',
-              hasError
-                ? 'text-danger-600 dark:text-danger-400'
-                : hasSuccess
-                  ? 'text-success-700 dark:text-success-400'
-                  : 'text-slate-500 dark:text-slate-400'
-            )}
-          >
-            {typeof error === 'string'
-              ? error
-              : typeof success === 'string'
-                ? success
-                : helperText}
-          </p>
+        {rightIcon ? (
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400 dark:text-slate-400">
+            {rightIcon}
+          </span>
         ) : null}
       </div>
-    );
-  })
-);
+
+      {hint ? (
+        <p id={hintId} className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+          {hint}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p id={errorId} className="mt-1 text-xs font-semibold text-danger-600 dark:text-danger-400">
+          {error}
+        </p>
+      ) : null}
+
+      {!error && success ? (
+        <p id={successId} className="mt-1 text-xs font-semibold text-success-600 dark:text-success-400">
+          {success}
+        </p>
+      ) : null}
+    </div>
+  );
+});
+
+function useAutoId(providedId, prefix) {
+  const reactId = React.useId();
+  return providedId || `${prefix}-${reactId}`;
+}
 
 export default Input;

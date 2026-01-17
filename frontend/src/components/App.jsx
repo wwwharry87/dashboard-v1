@@ -4,8 +4,12 @@ import Dashboard from '../Dashboard';
 import Login from './Login';
 import ResetPasswordManual from './ResetPasswordManual';
 import PrivateRoute from './PrivateRoute';
+import Toast from './common/Toast';
+import { useApp } from '../context/AppContext';
 
 const App = () => {
+  const { toasts, removeToast } = useApp();
+
   return (
     <Router>
       <Routes>
@@ -24,6 +28,9 @@ const App = () => {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+
+      {/* Notificacoes globais */}
+      <Toast toasts={toasts} removeToast={removeToast} />
     </Router>
   );
 };

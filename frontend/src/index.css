@@ -3,50 +3,31 @@
 @tailwind utilities;
 
 /*
-  Design tokens + componentes utilitários.
-  Obs: Tailwind darkMode é 'class', então basta adicionar/remover a classe 'dark' no <html>.
+  Design system leve:
+  - Tokens base (cores/typografia) via classes Tailwind
+  - Componentes utilitarios via @layer components
 */
 
 @layer base {
-  :root {
-    --surface: 255 255 255;
-    --surface-2: 248 250 252;
-    --text: 15 23 42;
-  }
-
-  .dark {
-    --surface: 2 6 23;
-    --surface-2: 15 23 42;
-    --text: 226 232 240;
-  }
-
-  html, body, #root {
-    height: 100%;
+  html {
+    @apply text-gray-900;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+    @apply bg-gray-50 text-gray-900 antialiased dark:bg-slate-950 dark:text-slate-100;
   }
 }
 
 @layer components {
-  /*
-    Superfícies:
-    Use em cards, páginas, containers.
-  */
-  .surface {
-    @apply rounded-xl border border-slate-200 bg-white shadow-soft dark:border-slate-800 dark:bg-slate-950;
+  .card-surface {
+    @apply rounded-xl border border-gray-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900;
   }
 
-  .surface-muted {
-    @apply rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900;
+  .section-title {
+    @apply text-sm font-bold text-gray-900 dark:text-slate-100;
   }
 
-  .text-muted {
-    @apply text-slate-500 dark:text-slate-400;
-  }
-
-  .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-primary-300 focus:ring-offset-2 dark:focus:ring-primary-900 dark:focus:ring-offset-slate-950;
+  .section-subtitle {
+    @apply text-xs text-gray-500 dark:text-slate-400;
   }
 }

@@ -1,44 +1,53 @@
-import React from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-const STORAGE_KEY = 'theme';
+const STORAGE_KEY = 'ui:theme';
 
 /**
- * Hook para dark mode (Tailwind darkMode: 'class').
+ * Hook de dark mode com persistencia em localStorage.
+ * - Usa tailwind darkMode: 'class'
+ * - Aplica a classe 'dark' no <html>
  *
- * - Persiste em localStorage
- * - Se não houver escolha, segue prefers-color-scheme
- *
- * @returns {{ isDark: boolean, setDark: (v:boolean)=>void, toggle: ()=>void }}
+ * @returns {{isDark: boolean, theme: 'dark'|'light', setTheme: (t: 'dark'|'light') => void, toggle: () => void}}
  */
 export function useDarkMode() {
-  const [isDark, setIsDark] = React.useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'dark') return true;
-    if (saved === 'light') return false;
-
-    // fallback: sistema
-    return typeof window !== 'undefined' &&
-      window.matchMedia &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? true
-      : false;
-  });
-
-  React.useEffect(() => {
-    const root = document.documentElement;
-    if (isDark) {
-      root.classList.add('dark');
-      localStorage.setItem(STORAGE_KEY, 'dark');
-    } else {
-      root.classList.remove('dark');
-      localStorage.setItem(STORAGE_KEY, 'light');
+  const getInitial = () => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored === 'dark' || stored === 'light') return stored;
+    } catch {
+      // ignore
     }
-  }, [isDark]);
 
-  const setDark = React.useCallback((v) => setIsDark(Boolean(v)), []);
-  const toggle = React.useCallback(() => setIsDark((v) => !v), []);
+    // Preferencia do SO
+    try {
+      const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)')?.matches;
+      return prefersDark ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  };
 
-  return { isDark, setDark, toggle };
+  const [theme, setThemeState] = useState(getInitial);
+
+  const setTheme = (t) => {
+    setThemeState(t);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, t);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
+  }, [theme]);
+
+  const toggle = () => setTheme(theme === 'dark' ? 'light' : 'dark');
+
+  return useMemo(
+    () => ({ isDark: theme === 'dark', theme, setTheme, toggle }),
+    [theme]
+  );
 }
-
-export default useDarkMode;

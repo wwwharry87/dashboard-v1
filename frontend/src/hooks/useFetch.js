@@ -1,124 +1,122 @@
-import React from 'react';
-
-// Cache em memória (por aba). Para persistência, use IndexedDB/localStorage se necessário.
-const CACHE = new Map();
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * @typedef {{
- *  ttlMs?: number,
- *  enabled?: boolean,
- *  cacheKey?: string,
- *  headers?: Record<string,string>,
- *  method?: string,
- *  body?: any,
- *  parseJson?: boolean,
- *  fetcher?: (url:string, init:RequestInit)=>Promise<any>
- * }} UseFetchOptions
+ * Cache simples em memoria (por sessao).
+ * key -> { ts, data }
  */
+const cache = new Map();
 
 /**
- * Hook de requisição com cache integrado.
- *
+ * Gera uma chave de cache estavel.
  * @param {string} url
- * @param {UseFetchOptions} [options]
- * @returns {{ data:any, error:any, loading:boolean, refetch: ()=>Promise<void>, clearCache: ()=>void }}
+ * @param {RequestInit | undefined} options
  */
-export function useFetch(url, options = {}) {
+function cacheKey(url, options) {
+  const method = (options?.method || 'GET').toUpperCase();
+  // Nao colocamos headers no cacheKey para evitar vazamento e chaves enormes.
+  const body = typeof options?.body === 'string' ? options.body : '';
+  return `${method}::${url}::${body}`;
+}
+
+/**
+ * Hook de fetch com:
+ * - loading/error/data
+ * - cache em memoria (staleTime)
+ * - cancelamento via AbortController
+ *
+ * @template T
+ * @param {string | null} url
+ * @param {{
+ *   options?: RequestInit,
+ *   enabled?: boolean,
+ *   staleTimeMs?: number,
+ *   initialData?: T | null,
+ *   transform?: (raw: any) => T
+ * }} [config]
+ */
+export function useFetch(url, config = {}) {
   const {
-    ttlMs = 30_000,
+    options,
     enabled = true,
-    cacheKey,
-    headers,
-    method = 'GET',
-    body,
-    parseJson = true,
-    fetcher,
-  } = options;
+    staleTimeMs = 30_000,
+    initialData = null,
+    transform,
+  } = config;
 
-  const key = React.useMemo(() => {
-    if (cacheKey) return cacheKey;
-    // Uma assinatura simples (funciona bem para GETs). Para POST, prefira setar cacheKey manual.
-    const bodySig = body ? JSON.stringify(body) : '';
-    return `${method}::${url}::${bodySig}`;
-  }, [cacheKey, method, url, body]);
+  const [data, setData] = useState(initialData);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(Boolean(url && enabled));
 
-  const [state, setState] = React.useState(() => {
-    const hit = CACHE.get(key);
-    if (hit && Date.now() - hit.ts < ttlMs) {
-      return { data: hit.data, error: null, loading: false };
-    }
-    return { data: null, error: null, loading: Boolean(enabled) };
-  });
+  const abortRef = useRef(null);
 
-  const clearCache = React.useCallback(() => {
-    CACHE.delete(key);
-  }, [key]);
+  const key = useMemo(() => (url ? cacheKey(url, options) : null), [url, options]);
 
-  const doFetch = React.useCallback(async () => {
-    if (!enabled || !url) return;
+  const fetchNow = useCallback(async () => {
+    if (!url || !enabled) return;
 
-    // verifica cache
-    const hit = CACHE.get(key);
-    if (hit && Date.now() - hit.ts < ttlMs) {
-      setState({ data: hit.data, error: null, loading: false });
-      return;
+    // Cache hit
+    if (key && cache.has(key)) {
+      const hit = cache.get(key);
+      if (hit && Date.now() - hit.ts < staleTimeMs) {
+        setData(hit.data);
+        setError(null);
+        setLoading(false);
+        return;
+      }
     }
 
-    setState((s) => ({ ...s, loading: true, error: null }));
+    // Cancela request anterior
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
 
     const controller = new AbortController();
-    const init = {
-      method,
-      headers: {
-        ...(parseJson ? { 'Content-Type': 'application/json' } : {}),
-        ...(headers || {}),
-      },
-      signal: controller.signal,
-      body: body && method !== 'GET' ? (parseJson ? JSON.stringify(body) : body) : undefined,
-    };
+    abortRef.current = controller;
+
+    setLoading(true);
+    setError(null);
 
     try {
-      const data = fetcher
-        ? await fetcher(url, init)
-        : await defaultFetcher(url, init, parseJson);
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${res.statusText}${text ? ` - ${text}` : ''}`);
+      }
 
-      CACHE.set(key, { ts: Date.now(), data });
-      setState({ data, error: null, loading: false });
-    } catch (error) {
-      // ignora abort
-      if (error?.name === 'AbortError') return;
-      setState({ data: null, error, loading: false });
+      const raw = await res.json().catch(() => null);
+      const finalData = transform ? transform(raw) : raw;
+
+      setData(finalData);
+      if (key) cache.set(key, { ts: Date.now(), data: finalData });
+    } catch (e) {
+      if (e?.name === 'AbortError') return;
+      setError(e);
+    } finally {
+      setLoading(false);
     }
+  }, [url, enabled, key, options, staleTimeMs, transform]);
 
-    return () => controller.abort();
-  }, [enabled, url, key, ttlMs, method, headers, body, parseJson, fetcher]);
+  useEffect(() => {
+    fetchNow();
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, [fetchNow]);
 
-  React.useEffect(() => {
-    doFetch();
-  }, [doFetch]);
+  const refetch = useCallback(() => {
+    if (key) cache.delete(key);
+    return fetchNow();
+  }, [fetchNow, key]);
 
   return {
-    data: state.data,
-    error: state.error,
-    loading: state.loading,
-    refetch: async () => {
-      CACHE.delete(key);
-      await doFetch();
-    },
-    clearCache,
+    data,
+    error,
+    loading,
+    refetch,
+    hasData: data !== null && data !== undefined,
   };
 }
 
-async function defaultFetcher(url, init, parseJson) {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const err = new Error(`HTTP ${res.status}: ${text || res.statusText}`);
-    err.status = res.status;
-    err.body = text;
-    throw err;
-  }
-  return parseJson ? await res.json() : await res.text();
+export function clearFetchCache() {
+  cache.clear();
 }
-
-export default useFetch;
