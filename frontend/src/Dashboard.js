@@ -891,7 +891,12 @@ const Dashboard = () => {
     }
   };
 
-  const carregarDados = async (filtros, signal) => {
+  // NOTE:
+  // `carregarDados` é usado em arrays de dependências de hooks (useEffect/useCallback)
+  // que aparecem ANTES da sua declaração no arquivo. Quando declarado com `const`, isso
+  // causa erro em runtime (TDZ): "Cannot access 'X' before initialization".
+  // Por isso, usamos function declaration (hoisted) aqui.
+  async function carregarDados(filtros, signal) {
     setGlobalLoading(true);
 
     setLoadingCards({
@@ -1041,7 +1046,7 @@ const Dashboard = () => {
       setLoadingMapa(false);
       setGlobalLoading(false);
     }
-  };
+  }
 
   const handleFilterChange = useCallback((e) => {
     const { name, value } = e.target;

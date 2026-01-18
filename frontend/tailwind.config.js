@@ -4,8 +4,8 @@ module.exports = {
   darkMode: 'class',
   theme: {
     extend: {
-      // ✅ Breakpoint extra (usado no Dashboard: "xs:inline")
-      // Sem isso, classes como "hidden xs:inline" viram apenas "hidden" e o texto das abas some.
+      // Breakpoint extra para suportar classes como `xs:inline` usadas no Dashboard
+      // (sem isso, o Tailwind não gera a classe e o texto das abas fica sempre hidden)
       screens: {
         xs: '480px',
       },
