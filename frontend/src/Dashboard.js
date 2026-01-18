@@ -744,7 +744,7 @@ const Dashboard = () => {
     }
 
     return dados.taxaEvasao || 0;
-  }, [carregarDados]);
+  }, []);
 
   // Verificar se há algum loading ativo
   const isLoading = useMemo(() => {
@@ -818,7 +818,7 @@ const Dashboard = () => {
       }
     };
     fetchUser();
-  }, [carregarDados]);
+  }, []);
 
   // Protege o acesso
   useEffect(() => {
@@ -839,7 +839,7 @@ const Dashboard = () => {
       }
     };
     fetchClientName();
-  }, [carregarDados]);
+  }, []);
 
   // Filtros iniciais
   useEffect(() => {
@@ -863,7 +863,7 @@ const Dashboard = () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carregarDados]);
+  }, []);
 
   const handleClickOutside = useCallback((event) => {
     if (!event.target.closest("#sidebar") && !event.target.closest("#filterButton")) {
