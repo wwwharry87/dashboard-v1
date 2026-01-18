@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const dashboardController = require('../controllers/dashboardController');
 const analyticsController = require('../controllers/analyticsController');
+const aiController = require('../controllers/aiController');
 const authMiddleware = require('../middlewares/authMiddleware');
 
 // Aplica o middleware a todas as rotas
@@ -16,6 +17,12 @@ router.post('/breakdowns', dashboardController.buscarBreakdowns);
 // Novas rotas de analytics
 router.post('/analytics', analyticsController.buscarAnalytics);
 router.post('/alertas', analyticsController.buscarAlertas);
+
+// ✅ NOVO: Assistente IA (DeepSeek) — consultas agregadas seguras
+router.post('/ai/query', aiController.query);
+
+// ✅ IA (DeepSeek) - consultas agregadas seguras
+router.post('/ai/query', aiController.query);
 
 // Rota para limpar cache (útil para desenvolvimento)
 router.delete('/cache', dashboardController.limparCache);

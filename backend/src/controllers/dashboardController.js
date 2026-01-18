@@ -44,6 +44,11 @@ const buildWhereClause = (filters, user) => {
     whereClauses.push(`ano_letivo = $${params.length}::integer`);
   }
 
+  // ✅ NOVO: filtros para interação tipo Power BI (clique no gráfico)
+  // (colunas existem no dataset: `sexo` e `turno`)
+  addFilter(filters.sexo, "sexo");
+  addFilter(filters.turno, "turno");
+
   addFilter(filters.deficiencia, "deficiencia");
   addFilter(filters.grupoEtapa, "grupo_etapa");
   addFilter(filters.etapaMatricula, "etapa_matricula");
@@ -106,6 +111,8 @@ const buscarFiltros = async (req, res) => {
       )
       SELECT 
         (SELECT array_agg(DISTINCT ano_letivo ORDER BY ano_letivo DESC) FROM base_filtrada WHERE ano_letivo IS NOT NULL) AS ano_letivo,
+        (SELECT array_agg(DISTINCT sexo) FROM base_filtrada WHERE sexo IS NOT NULL) AS sexo,
+        (SELECT array_agg(DISTINCT turno) FROM base_filtrada WHERE turno IS NOT NULL) AS turno,
         (SELECT array_agg(DISTINCT deficiencia) FROM base_filtrada WHERE deficiencia IS NOT NULL) AS deficiencia,
         (SELECT array_agg(DISTINCT grupo_etapa) FROM base_filtrada WHERE grupo_etapa IS NOT NULL) AS grupo_etapa,
         (SELECT array_agg(DISTINCT etapa_matricula) FROM base_filtrada WHERE etapa_matricula IS NOT NULL) AS etapa_matricula,
@@ -122,6 +129,8 @@ const buscarFiltros = async (req, res) => {
 
     const response = {
       ano_letivo: row.ano_letivo || [],
+      sexo: row.sexo || [],
+      turno: row.turno || [],
       deficiencia: row.deficiencia || [],
       grupo_etapa: row.grupo_etapa || [],
       etapa_matricula: row.etapa_matricula || [],
@@ -148,6 +157,9 @@ const buscarTotais = async (req, res) => {
   try {
     const filters = {
       anoLetivo: req.body.anoLetivo,
+      // ✅ NOVO: filtros via clique em gráficos
+      sexo: req.body.sexo,
+      turno: req.body.turno,
       deficiencia: req.body.deficiencia,
       grupoEtapa: req.body.grupoEtapa,
       etapaMatricula: req.body.etapaMatricula,
@@ -703,6 +715,9 @@ const buscarBreakdowns = async (req, res) => {
   try {
     const filters = {
       anoLetivo: req.body.anoLetivo,
+      // ✅ NOVO: filtros via clique em gráficos
+      sexo: req.body.sexo,
+      turno: req.body.turno,
       deficiencia: req.body.deficiencia,
       grupoEtapa: req.body.grupoEtapa,
       etapaMatricula: req.body.etapaMatricula,
