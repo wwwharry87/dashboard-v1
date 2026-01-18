@@ -1,8 +1,10 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './Dashboard';
-import Login from './Login';
-import ResetPasswordManual from './ResetPasswordManual';
+import Login from './components/Login';
+
+import ResetPasswordManual from './components/ResetPasswordManual';
+
 
 const App = () => {
   const token = localStorage.getItem('token');

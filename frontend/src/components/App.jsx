@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from '../Dashboard';
-import Login from './Login';
+import Login from './Login.jsx';
 import ResetPasswordManual from './ResetPasswordManual';
 import PrivateRoute from './PrivateRoute';
 import Toast from './common/Toast';
