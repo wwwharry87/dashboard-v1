@@ -18,6 +18,7 @@ export default function AiAssistant({ filters }) {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [shownUnsupportedHint, setShownUnsupportedHint] = useState(false);
 
   const examples = useMemo(
     () => [
@@ -48,11 +49,28 @@ export default function AiAssistant({ filters }) {
       const payload = resp?.data;
 
       if (!payload?.ok) {
+        const reason = payload?.spec?.reason;
+        let msg = payload?.answer || 'Não consegui responder essa consulta.';
+
+        // Evita repetir a mesma mensagem longa toda hora.
+        if (typeof msg === 'string' && msg.includes('consultas agregadas')) {
+          if (shownUnsupportedHint) {
+            msg = 'Não entendi essa pergunta. Tente um dos exemplos na lista ao lado (ou digite: "Matrículas por sexo").';
+          } else {
+            setShownUnsupportedHint(true);
+            msg = 'Ainda não entendi essa pergunta. Eu consigo responder consultas agregadas (totais e quebras por sexo/turno/zona/situação etc.). Exemplos: "Total de matrículas ativas", "Matrículas por sexo", "Desistentes por turno".';
+          }
+        }
+
+        if (reason && typeof msg === 'string' && !msg.includes('Detalhe:')) {
+          msg = `${msg}\n\nDetalhe: ${reason}`;
+        }
+
         setMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: payload?.answer || 'Não consegui responder essa consulta.'
+            content: msg,
           },
         ]);
         return;
@@ -90,6 +108,7 @@ export default function AiAssistant({ filters }) {
           'Histórico limpo. Manda a próxima pergunta 🙂',
       },
     ]);
+    setShownUnsupportedHint(false);
   };
 
   return (

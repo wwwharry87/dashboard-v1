@@ -23,6 +23,94 @@ function sanitizeQuestion(q) {
   return String(q || '').trim().slice(0, 800);
 }
 
+function normalizeText(input) {
+  // remove accents + normalize spaces for heuristic parsing
+  return String(input || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tryExtractJson(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+
+  // remove ```json fences if present
+  const unfenced = t
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+
+  // First, try direct JSON
+  try {
+    return JSON.parse(unfenced);
+  } catch (_) {}
+
+  // Then, try to extract the first {...} block
+  const start = unfenced.indexOf('{');
+  const end = unfenced.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const candidate = unfenced.slice(start, end + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch (_) {
+    return null;
+  }
+}
+
+function heuristicSpec(question) {
+  const q = normalizeText(question);
+  if (!q) return null;
+
+  // Only attempt heuristic parsing if the question looks like an aggregate query
+  const wantsMatriculas = /matricul|matricula|evasao|evasa|desistente|desist/.test(q);
+  if (!wantsMatriculas) return null;
+
+  let metric = 'total_matriculas';
+  if (q.includes('taxa de evasao') || q.includes('evasao') || q.includes('evasao')) {
+    metric = 'taxa_evasao';
+  } else if (q.includes('desistente') || q.includes('desistentes') || q.includes('desistencia') || q.includes('desist')) {
+    metric = 'desistentes';
+  } else if (q.includes('ativa') || q.includes('ativas')) {
+    metric = 'matriculas_ativas';
+  }
+
+  const candidates = [
+    { re: /\bpor\s+sexo\b|\bpor\s+genero\b|\bpor\s+g[eê]nero\b/, dim: 'sexo' },
+    { re: /\bpor\s+turno\b/, dim: 'turno' },
+    { re: /\bpor\s+zona\b.*\bescola\b|\bzona_escola\b/, dim: 'zona_escola' },
+    { re: /\bpor\s+zona\b.*\baluno\b|\bzona_aluno\b/, dim: 'zona_aluno' },
+    { re: /\bpor\s+situacao\b|\bpor\s+situa[cç][aã]o\b|\bsituacao_matricula\b/, dim: 'situacao_matricula' },
+    { re: /\bpor\s+escola\b/, dim: 'escola' },
+    { re: /\bpor\s+ano\b|\bano_letivo\b/, dim: 'ano_letivo' },
+    { re: /\bpor\s+etapa\b|\betapa_matricula\b/, dim: 'etapa_matricula' },
+    { re: /\bpor\s+grupo\b.*\betapa\b|\bgrupo_etapa\b/, dim: 'grupo_etapa' },
+  ];
+
+  let groupBy = null;
+  for (const c of candidates) {
+    if (c.re.test(q)) {
+      groupBy = c.dim;
+      break;
+    }
+  }
+
+  // If the user writes "matriculas por X" without "por" captured above, try a simple extraction
+  if (!groupBy) {
+    const m = q.match(/matricul\w*\s+por\s+(\w+)/);
+    const w = m?.[1];
+    if (w && ALLOWED_DIMENSIONS[w]) groupBy = w;
+  }
+
+  if (groupBy) {
+    return { type: 'breakdown', metric, groupBy, where: {}, limit: 20 };
+  }
+
+  return { type: 'single', metric, groupBy: null, where: {}, limit: 20 };
+}
+
 const ALLOWED_DIMENSIONS = {
   ano_letivo: { col: 'ano_letivo', type: 'int' },
   escola: { col: 'escola', type: 'text' },
@@ -118,13 +206,23 @@ Notas:
     }),
   });
 
-  const json = await resp.json();
+  // If DeepSeek fails (quota, auth, etc), do not crash the dashboard.
+  let json;
+  try {
+    json = await resp.json();
+  } catch (_) {
+    json = null;
+  }
   const content = json?.choices?.[0]?.message?.content;
 
-  let spec;
-  try {
-    spec = JSON.parse(content);
-  } catch (e) {
+  let spec = tryExtractJson(content);
+  if (!resp.ok) {
+    // Provide a helpful reason for debugging, while still returning "unsupported"
+    const statusMsg = json?.error?.message || json?.message || `HTTP ${resp.status}`;
+    spec = { type: 'unsupported', reason: `DeepSeek error: ${statusMsg}` };
+  }
+
+  if (!spec) {
     spec = { type: 'unsupported', reason: 'A IA não retornou JSON válido.' };
   }
 
@@ -220,7 +318,10 @@ const query = async (req, res) => {
       return res.status(400).json({ error: 'Informe uma pergunta.' });
     }
 
-    const spec = await deepseekToSpec(question, contextFilters);
+    // 1) Heurística local (não depende da IA) para as perguntas mais comuns.
+    // Isso evita o usuário ficar preso na mensagem de "não suportado" se o LLM
+    // estiver instável ou devolver texto fora de JSON.
+    const spec = heuristicSpec(question) || await deepseekToSpec(question, contextFilters);
 
     if (spec?.type === 'error') {
       return res.status(500).json({ error: spec.message });
@@ -229,7 +330,7 @@ const query = async (req, res) => {
     if (!spec || spec.type === 'unsupported') {
       return res.json({
         ok: false,
-        answer: 'Consigo responder consultas agregadas (totais e quebras por sexo/turno/zona/situação etc.). Tente: "Total de matrículas ativas" ou "Matrículas por sexo".',
+        answer: 'Ainda não consegui entender essa pergunta. Eu consigo responder consultas agregadas (totais e quebras por sexo/turno/zona/situação etc.). Exemplos: "Total de matrículas ativas", "Matrículas por sexo", "Desistentes por turno".',
         spec,
       });
     }
