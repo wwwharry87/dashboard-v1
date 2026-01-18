@@ -4,6 +4,11 @@ module.exports = {
   darkMode: 'class',
   theme: {
     extend: {
+      // ✅ Breakpoint extra (usado no Dashboard: "xs:inline")
+      // Sem isso, classes como "hidden xs:inline" viram apenas "hidden" e o texto das abas some.
+      screens: {
+        xs: '480px',
+      },
       colors: {
         primary: {
           50: '#eef2ff',

@@ -21,9 +21,6 @@ router.post('/alertas', analyticsController.buscarAlertas);
 // ✅ NOVO: Assistente IA (DeepSeek) — consultas agregadas seguras
 router.post('/ai/query', aiController.query);
 
-// ✅ IA (DeepSeek) - consultas agregadas seguras
-router.post('/ai/query', aiController.query);
-
 // Rota para limpar cache (útil para desenvolvimento)
 router.delete('/cache', dashboardController.limparCache);
 
