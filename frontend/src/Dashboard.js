@@ -48,6 +48,7 @@ import {
   FaFilePdf,
   FaDatabase,
   FaHome,
+  FaRobot,
 } from "react-icons/fa";
 import { Tooltip as ReactTooltip } from "react-tooltip";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,6 +56,7 @@ import { motion, AnimatePresence } from "framer-motion";
 // Importação dos componentes otimizados
 import FilterSelect from "./components/FilterSelect";
 import Card from "./components/Card";
+import AiAssistant from "./components/AiAssistant";
 
 // Lazy loading de componentes
 const EscolasTable = lazy(() => import("./components/EscolasTable"));
@@ -623,6 +625,9 @@ const Dashboard = () => {
   const [filters, setFilters] = useState({});
   const [selectedFilters, setSelectedFilters] = useLocalStorage("selectedFilters", {
     anoLetivo: "",
+    // ✅ filtros de interação por clique nos gráficos
+    sexo: "",
+    turno: "",
     deficiencia: "",
     grupoEtapa: "",
     etapaMatricula: "",
@@ -739,7 +744,7 @@ const Dashboard = () => {
     }
 
     return dados.taxaEvasao || 0;
-  }, []);
+  }, [carregarDados]);
 
   // Verificar se há algum loading ativo
   const isLoading = useMemo(() => {
@@ -813,7 +818,7 @@ const Dashboard = () => {
       }
     };
     fetchUser();
-  }, []);
+  }, [carregarDados]);
 
   // Protege o acesso
   useEffect(() => {
@@ -834,7 +839,7 @@ const Dashboard = () => {
       }
     };
     fetchClientName();
-  }, []);
+  }, [carregarDados]);
 
   // Filtros iniciais
   useEffect(() => {
@@ -858,7 +863,7 @@ const Dashboard = () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [carregarDados]);
 
   const handleClickOutside = useCallback((event) => {
     if (!event.target.closest("#sidebar") && !event.target.closest("#filterButton")) {
@@ -1082,6 +1087,42 @@ const Dashboard = () => {
     [selectedSchool]
   );
 
+  // ✅ Interação estilo Power BI: clique em gráfico aplica filtro e atualiza TODAS as visualizações
+  const handleSexoSelect = useCallback((label) => {
+    setSelectedFilters((prev) => {
+      const next = { ...prev, sexo: prev.sexo === label ? "" : label };
+      carregarDados(next);
+      return next;
+    });
+  }, []);
+
+  const handleTurnoSelect = useCallback((label) => {
+    setSelectedFilters((prev) => {
+      const next = { ...prev, turno: prev.turno === label ? "" : label };
+      carregarDados(next);
+      return next;
+    });
+  }, []);
+
+  const handleSituacaoSelect = useCallback((label) => {
+    setSelectedFilters((prev) => {
+      const next = {
+        ...prev,
+        situacaoMatricula: prev.situacaoMatricula === label ? "" : label,
+      };
+      carregarDados(next);
+      return next;
+    });
+  }, []);
+
+  const limparSelecoesGraficos = useCallback(() => {
+    setSelectedFilters((prev) => {
+      const next = { ...prev, sexo: "", turno: "", situacaoMatricula: "" };
+      carregarDados(next);
+      return next;
+    });
+  }, []);
+
   const indicadoresEstrategicos = useMemo(() => {
     const totalMatriculas = data.totalMatriculas || 1;
 
@@ -1166,9 +1207,13 @@ const Dashboard = () => {
             label: "Sexo",
             data: Object.values(data.matriculasPorSexo || {}),
             backgroundColor: Object.keys(data.matriculasPorSexo || {}).map((sexo) => {
-              if (String(sexo).toLowerCase().includes("masc")) return "#3B82F6";
-              if (String(sexo).toLowerCase().includes("femi")) return "#EC4899";
-              return "#94A3B8";
+              const selected = selectedFilters?.sexo;
+              let base = "#94A3B8";
+              if (String(sexo).toLowerCase().includes("masc")) base = "#3B82F6";
+              if (String(sexo).toLowerCase().includes("femi")) base = "#EC4899";
+              // Se há filtro via clique, esmaece as fatias não selecionadas
+              if (selected && String(selected) !== String(sexo)) return "#E5E7EB";
+              return base;
             }),
             borderWidth: 0,
           },
@@ -1182,7 +1227,11 @@ const Dashboard = () => {
             data: Object.values(data.matriculasPorTurno || {}),
             backgroundColor: Object.keys(data.matriculasPorTurno || {}).map((_, index) => {
               const turnoColors = ["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899"];
-              return turnoColors[index % turnoColors.length];
+              const label = Object.keys(data.matriculasPorTurno || {})[index];
+              const selected = selectedFilters?.turno;
+              const base = turnoColors[index % turnoColors.length];
+              if (selected && String(selected) !== String(label)) return "#E5E7EB";
+              return base;
             }),
             borderRadius: 4,
           },
@@ -1196,7 +1245,11 @@ const Dashboard = () => {
             data: Object.values(data.matriculasPorSituacao || {}),
             backgroundColor: Object.keys(data.matriculasPorSituacao || {}).map((_, index) => {
               const situacaoColors = ["#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6", "#EC4899", "#6B7280"];
-              return situacaoColors[index % situacaoColors.length];
+              const label = Object.keys(data.matriculasPorSituacao || {})[index];
+              const selected = selectedFilters?.situacaoMatricula;
+              const base = situacaoColors[index % situacaoColors.length];
+              if (selected && String(selected) !== String(label)) return "#E5E7EB";
+              return base;
             }),
             borderWidth: 0,
           },
@@ -1223,6 +1276,9 @@ const Dashboard = () => {
     data.matriculasPorTurno,
     data.matriculasPorSituacao,
     data.evolucaoMatriculas,
+    selectedFilters.sexo,
+    selectedFilters.turno,
+    selectedFilters.situacaoMatricula,
   ]);
 
   const chartOptions = useMemo(() => {
@@ -1246,13 +1302,33 @@ const Dashboard = () => {
       sexo: {
         responsive: true,
         maintainAspectRatio: false,
+        cutout: "62%",
         plugins: {
           legend: { position: "bottom", labels: { font: { size: 12, weight: "bold" }, color: "#6B7280" } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const value = Number(ctx.parsed) || 0;
+                const dataArr = ctx.chart?.data?.datasets?.[0]?.data || [];
+                const sum = dataArr.reduce((a, b) => a + (Number(b) || 0), 0);
+                const pct = sum ? (value * 100) / sum : 0;
+                return `${ctx.label}: ${formatNumber(value)} (${pct.toFixed(1).replace('.', ',')}%)`;
+              },
+            },
+          },
           datalabels: {
             display: true,
             color: "#fff",
             font: { weight: "bold", size: 11 },
-            formatter: (value) => formatNumber(value),
+            formatter: (value, ctx) => {
+              const v = Number(value) || 0;
+              const dataArr = ctx.chart?.data?.datasets?.[0]?.data || [];
+              const sum = dataArr.reduce((a, b) => a + (Number(b) || 0), 0);
+              const pct = sum ? (v * 100) / sum : 0;
+              // evita poluir visual quando a fatia é muito pequena
+              if (pct < 4) return "";
+              return `${pct.toFixed(1).replace('.', ',')}%`;
+            },
           },
         },
       },
@@ -1264,10 +1340,10 @@ const Dashboard = () => {
           legend: { display: false },
           datalabels: {
             display: true,
-            color: "#fff",
+            color: "#111827",
             font: { weight: "bold", size: 11 },
             anchor: "end",
-            align: "right",
+            align: "end",
             offset: 4,
             formatter: (value) => formatNumber(value),
           },
@@ -1284,9 +1360,33 @@ const Dashboard = () => {
       situacao: {
         responsive: true,
         maintainAspectRatio: false,
+        cutout: "62%",
         plugins: {
           legend: { position: "bottom", labels: { font: { size: 11, weight: "bold" }, color: "#6B7280" } },
-          datalabels: { display: true, color: "#fff", font: { weight: "bold", size: 10 }, formatter: (value) => formatNumber(value) },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const value = Number(ctx.parsed) || 0;
+                const dataArr = ctx.chart?.data?.datasets?.[0]?.data || [];
+                const sum = dataArr.reduce((a, b) => a + (Number(b) || 0), 0);
+                const pct = sum ? (value * 100) / sum : 0;
+                return `${ctx.label}: ${formatNumber(value)} (${pct.toFixed(1).replace('.', ',')}%)`;
+              },
+            },
+          },
+          datalabels: {
+            display: true,
+            color: "#fff",
+            font: { weight: "bold", size: 10 },
+            formatter: (value, ctx) => {
+              const v = Number(value) || 0;
+              const dataArr = ctx.chart?.data?.datasets?.[0]?.data || [];
+              const sum = dataArr.reduce((a, b) => a + (Number(b) || 0), 0);
+              const pct = sum ? (v * 100) / sum : 0;
+              if (pct < 4) return "";
+              return `${pct.toFixed(1).replace('.', ',')}%`;
+            },
+          },
         },
       },
       evolucao: {
@@ -1419,6 +1519,18 @@ const Dashboard = () => {
               <FaMapMarkerAlt className="text-sm" />
               <span className="hidden xs:inline">Geográfica</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab("assistant")}
+              className={`flex items-center gap-1 px-3 sm:px-4 py-2 text-sm font-semibold transition-all ${
+                activeTab === "assistant"
+                  ? "text-violet-600 border-b-2 border-violet-600 bg-violet-50"
+                  : "text-gray-600 hover:text-violet-500"
+              }`}
+            >
+              <FaRobot className="text-sm" />
+              <span className="hidden xs:inline">Assistente IA</span>
+            </button>
           </div>
 
           {selectedSchool && (
@@ -1433,6 +1545,47 @@ const Dashboard = () => {
                 Remover
               </button>
             </motion.div>
+          )}
+
+          {/* Chips de seleção por clique nos gráficos (Power BI style) */}
+          {(selectedFilters.sexo || selectedFilters.turno || selectedFilters.situacaoMatricula) && (
+            <div className="px-3 md:px-6 py-2 bg-white/80 border-t border-gray-200 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-gray-600">Seleções:</span>
+
+              {selectedFilters.sexo && (
+                <button
+                  onClick={() => handleSexoSelect(selectedFilters.sexo)}
+                  className="text-xs px-3 py-1 rounded-full bg-violet-100 text-violet-800 border border-violet-200 hover:bg-violet-200"
+                >
+                  Sexo: <b>{selectedFilters.sexo}</b> ✕
+                </button>
+              )}
+
+              {selectedFilters.turno && (
+                <button
+                  onClick={() => handleTurnoSelect(selectedFilters.turno)}
+                  className="text-xs px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200"
+                >
+                  Turno: <b>{selectedFilters.turno}</b> ✕
+                </button>
+              )}
+
+              {selectedFilters.situacaoMatricula && (
+                <button
+                  onClick={() => handleSituacaoSelect(selectedFilters.situacaoMatricula)}
+                  className="text-xs px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200"
+                >
+                  Situação: <b>{selectedFilters.situacaoMatricula}</b> ✕
+                </button>
+              )}
+
+              <button
+                onClick={limparSelecoesGraficos}
+                className="ml-auto text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200"
+              >
+                Limpar seleções
+              </button>
+            </div>
           )}
         </div>
 
@@ -1615,7 +1768,13 @@ const Dashboard = () => {
                       <ChartSkeleton />
                     ) : (
                       <Suspense fallback={<ChartSkeleton />}>
-                        <SexoChart data={chartData.sexo} options={chartOptions.sexo} loading={loadingPieSexo} />
+                        <SexoChart
+                          data={chartData.sexo}
+                          options={chartOptions.sexo}
+                          loading={loadingPieSexo}
+                          onSelect={handleSexoSelect}
+                          selected={selectedFilters.sexo}
+                        />
                       </Suspense>
                     )}
                   </div>
@@ -1631,7 +1790,13 @@ const Dashboard = () => {
                       <ChartSkeleton />
                     ) : (
                       <Suspense fallback={<ChartSkeleton />}>
-                        <TurnoChart data={chartData.turno} options={chartOptions.turno} loading={loadingBarTurno} />
+                        <TurnoChart
+                          data={chartData.turno}
+                          options={chartOptions.turno}
+                          loading={loadingBarTurno}
+                          onSelect={handleTurnoSelect}
+                          selected={selectedFilters.turno}
+                        />
                       </Suspense>
                     )}
                   </div>
@@ -1716,7 +1881,13 @@ const Dashboard = () => {
                       <ChartSkeleton />
                     ) : (
                       <Suspense fallback={<ChartSkeleton />}>
-                        <SituacaoMatriculaChart data={chartData.situacao} options={chartOptions.situacao} loading={loadingSituacao} />
+                        <SituacaoMatriculaChart
+                          data={chartData.situacao}
+                          options={chartOptions.situacao}
+                          loading={loadingSituacao}
+                          onSelect={handleSituacaoSelect}
+                          selected={selectedFilters.situacaoMatricula}
+                        />
                       </Suspense>
                     )}
                   </div>
@@ -1823,6 +1994,13 @@ const Dashboard = () => {
               </div>
             </div>
           )}
+
+          {/* ABA: ASSISTENTE IA */}
+          {activeTab === "assistant" && (
+            <div className="space-y-3 sm:space-y-4">
+              <AiAssistant filters={selectedFilters} />
+            </div>
+          )}
         </div>
 
         {/* Sidebar de Filtros */}
@@ -1851,6 +2029,8 @@ const Dashboard = () => {
 
                 <div className="space-y-3">
                   <FilterSelect label="Ano Letivo" name="anoLetivo" options={filters.ano_letivo} value={selectedFilters.anoLetivo} onChange={handleFilterChange} />
+                  <FilterSelect label="Sexo" name="sexo" options={filters.sexo} value={selectedFilters.sexo} onChange={handleFilterChange} />
+                  <FilterSelect label="Turno" name="turno" options={filters.turno} value={selectedFilters.turno} onChange={handleFilterChange} />
                   <FilterSelect label="Tipo Matrícula" name="tipoMatricula" options={filters.tipo_matricula} value={selectedFilters.tipoMatricula} onChange={handleFilterChange} />
                   <FilterSelect label="Situação Matrícula" name="situacaoMatricula" options={filters.situacao_matricula} value={selectedFilters.situacaoMatricula} onChange={handleFilterChange} />
                   <FilterSelect label="Grupo Etapa" name="grupoEtapa" options={filters.grupo_etapa} value={selectedFilters.grupoEtapa} onChange={handleFilterChange} />
@@ -1868,6 +2048,8 @@ const Dashboard = () => {
                       const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
                       const resetFilters = {
                         anoLetivo: ultimoAnoLetivo,
+                        sexo: "",
+                        turno: "",
                         deficiencia: "",
                         grupoEtapa: "",
                         etapaMatricula: "",
