@@ -923,6 +923,15 @@ const Dashboard = () => {
       const totaisResponse = await api.post("/totais", filtros, { signal });
       const totaisData = totaisResponse.data;
 
+      // --- Mapa (escolas_geo + agregados de matrículas ativas) ---
+      let mapaPoints = [];
+      try {
+        const mapResp = await api.post("/map/escolas-ativos", { filters: filtros, onlyWithGeo: true }, { signal });
+        mapaPoints = mapResp.data?.points || [];
+      } catch (e) {
+        console.warn("[Dashboard] Falha ao carregar pontos do mapa:", e?.message || e);
+      }
+
       const taxaEvasaoConsistente = calcularTaxaEvasaoConsistente(totaisData);
 
       const safeData = {
@@ -945,7 +954,7 @@ const Dashboard = () => {
         matriculasPorTurno: totaisData.matriculasPorTurno || {},
         matriculasPorSituacao: totaisData.matriculasPorSituacao || {},
         evolucaoMatriculas: totaisData.evolucaoMatriculas || {},
-        escolas: totaisData.escolas || [],
+        escolas: mapaPoints.length ? mapaPoints : (totaisData.escolas || []),
         detalhesZona:
           totaisData.detalhesZona || {
             entradas: { urbana: 0, rural: 0 },

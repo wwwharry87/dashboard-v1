@@ -1,32 +1,32 @@
 // src/index.js
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import './index.css';
-import App from './components/App';
-import { AppProvider } from './context/AppContext';
-import reportWebVitals from './reportWebVitals';
+import React from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
 
-// Desregistra service workers antigos e limpa caches para evitar cache desatualizado
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    registrations.forEach((registration) => {
-      registration.unregister().then(() => {
-        console.log('Service Worker desregistrado');
-        caches.keys().then(cacheNames => {
-          cacheNames.forEach(cacheName => caches.delete(cacheName));
-        });
-      });
-    });
-  });
-}
+// Leaflet (mapa gratuito com OpenStreetMap)
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
-const container = document.getElementById('root');
+import App from "./App";
+import reportWebVitals from "./reportWebVitals";
+
+// Corrige ícones padrão no bundler (CRA/Webpack)
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+});
+
+const container = document.getElementById("root");
 const root = createRoot(container);
+
 root.render(
   <React.StrictMode>
-    <AppProvider>
-      <App />
-    </AppProvider>
+    <App />
   </React.StrictMode>
 );
 

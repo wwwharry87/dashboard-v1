@@ -29,8 +29,13 @@ const TurnoChart = ({ data, options, loading, onSelect, selected }) => {
       indexAxis: base.indexAxis ?? 'y',
       layout: {
         ...(base.layout || {}),
-        // espaço extra à direita para os rótulos de valores (evita "passar" da borda)
-        padding: { ...(base.layout?.padding || {}), right: 48 },
+        padding: {
+          ...(base.layout?.padding || {}),
+          left: 8,
+          right: 44,
+          top: 6,
+          bottom: 6,
+        },
       },
       scales: {
         ...(base.scales || {}),
@@ -50,11 +55,6 @@ const TurnoChart = ({ data, options, loading, onSelect, selected }) => {
       plugins: {
         ...(base.plugins || {}),
         legend: { display: false, ...(base.plugins?.legend || {}) },
-        // evita duplicação de valores caso alguém tenha habilitado chartjs-plugin-datalabels no projeto
-        datalabels: {
-          display: false,
-          ...(base.plugins?.datalabels || {}),
-        },
         tooltip: {
           ...(base.plugins?.tooltip || {}),
           callbacks: {
@@ -64,6 +64,12 @@ const TurnoChart = ({ data, options, loading, onSelect, selected }) => {
               return `${v.toLocaleString('pt-BR')} matrículas`;
             },
           },
+        },
+        // IMPORTANTE: se o projeto registrou ChartDataLabels globalmente,
+        // isso evita duplicar os valores (já desenhamos manualmente no plugin abaixo).
+        datalabels: {
+          ...(base.plugins?.datalabels || {}),
+          display: false,
         },
       },
     };
@@ -76,29 +82,30 @@ const TurnoChart = ({ data, options, loading, onSelect, selected }) => {
         const { ctx, chartArea } = chart;
         const meta = chart.getDatasetMeta(0);
         if (!meta?.data?.length) return;
+
         ctx.save();
-
-        // clip no chartArea para o texto nunca "vazar" para fora do card
-        if (chartArea) {
-          ctx.beginPath();
-          ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
-          ctx.clip();
-        }
-
         ctx.font = '600 12px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial';
         ctx.fillStyle = '#111827';
         ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+
+        // recorta a area desenhável para evitar o texto invadir a borda
+        ctx.beginPath();
+        ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+        ctx.clip();
 
         meta.data.forEach((bar, i) => {
           const raw = chart.data?.datasets?.[0]?.data?.[i];
           const v = Number(raw) || 0;
           const text = v.toLocaleString('pt-BR');
-          const textWidth = ctx.measureText(text).width;
 
-          // coloca o texto à direita da barra, mas limita dentro do chartArea
-          const maxX = (chartArea?.right ?? bar.x) - textWidth - 6;
-          const x = Math.min(bar.x + 8, maxX);
+          const pad = 8;
+          const desiredX = bar.x + 10;
+          const textW = ctx.measureText(text).width;
+          const maxX = chartArea.right - pad - textW;
+          const x = Math.min(desiredX, maxX);
           const y = bar.y;
+
           ctx.fillText(text, x, y);
         });
 
@@ -112,6 +119,7 @@ const TurnoChart = ({ data, options, loading, onSelect, selected }) => {
     if (selected) return `Filtro: ${selected} (clique para remover)`;
     return 'Clique em uma barra para filtrar';
   }, [onSelect, selected]);
+
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -140,7 +148,13 @@ const TurnoChart = ({ data, options, loading, onSelect, selected }) => {
         </div>
       )}
       <div className="h-[220px] sm:h-[230px]">
-        <Bar ref={chartRef} data={mergedData} options={mergedOptions} plugins={[valueLabelsPlugin]} onClick={handleClick} />
+        <Bar
+          ref={chartRef}
+          data={mergedData}
+          options={mergedOptions}
+          plugins={[valueLabelsPlugin]}
+          onClick={handleClick}
+        />
       </div>
     </div>
   );
