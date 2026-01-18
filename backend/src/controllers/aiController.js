@@ -23,94 +23,6 @@ function sanitizeQuestion(q) {
   return String(q || '').trim().slice(0, 800);
 }
 
-function normalizeText(input) {
-  // remove accents + normalize spaces for heuristic parsing
-  return String(input || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function tryExtractJson(text) {
-  const t = String(text || '').trim();
-  if (!t) return null;
-
-  // remove ```json fences if present
-  const unfenced = t
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
-
-  // First, try direct JSON
-  try {
-    return JSON.parse(unfenced);
-  } catch (_) {}
-
-  // Then, try to extract the first {...} block
-  const start = unfenced.indexOf('{');
-  const end = unfenced.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  const candidate = unfenced.slice(start, end + 1);
-  try {
-    return JSON.parse(candidate);
-  } catch (_) {
-    return null;
-  }
-}
-
-function heuristicSpec(question) {
-  const q = normalizeText(question);
-  if (!q) return null;
-
-  // Only attempt heuristic parsing if the question looks like an aggregate query
-  const wantsMatriculas = /matricul|matricula|evasao|evasa|desistente|desist/.test(q);
-  if (!wantsMatriculas) return null;
-
-  let metric = 'total_matriculas';
-  if (q.includes('taxa de evasao') || q.includes('evasao') || q.includes('evasao')) {
-    metric = 'taxa_evasao';
-  } else if (q.includes('desistente') || q.includes('desistentes') || q.includes('desistencia') || q.includes('desist')) {
-    metric = 'desistentes';
-  } else if (q.includes('ativa') || q.includes('ativas')) {
-    metric = 'matriculas_ativas';
-  }
-
-  const candidates = [
-    { re: /\bpor\s+sexo\b|\bpor\s+genero\b|\bpor\s+g[eê]nero\b/, dim: 'sexo' },
-    { re: /\bpor\s+turno\b/, dim: 'turno' },
-    { re: /\bpor\s+zona\b.*\bescola\b|\bzona_escola\b/, dim: 'zona_escola' },
-    { re: /\bpor\s+zona\b.*\baluno\b|\bzona_aluno\b/, dim: 'zona_aluno' },
-    { re: /\bpor\s+situacao\b|\bpor\s+situa[cç][aã]o\b|\bsituacao_matricula\b/, dim: 'situacao_matricula' },
-    { re: /\bpor\s+escola\b/, dim: 'escola' },
-    { re: /\bpor\s+ano\b|\bano_letivo\b/, dim: 'ano_letivo' },
-    { re: /\bpor\s+etapa\b|\betapa_matricula\b/, dim: 'etapa_matricula' },
-    { re: /\bpor\s+grupo\b.*\betapa\b|\bgrupo_etapa\b/, dim: 'grupo_etapa' },
-  ];
-
-  let groupBy = null;
-  for (const c of candidates) {
-    if (c.re.test(q)) {
-      groupBy = c.dim;
-      break;
-    }
-  }
-
-  // If the user writes "matriculas por X" without "por" captured above, try a simple extraction
-  if (!groupBy) {
-    const m = q.match(/matricul\w*\s+por\s+(\w+)/);
-    const w = m?.[1];
-    if (w && ALLOWED_DIMENSIONS[w]) groupBy = w;
-  }
-
-  if (groupBy) {
-    return { type: 'breakdown', metric, groupBy, where: {}, limit: 20 };
-  }
-
-  return { type: 'single', metric, groupBy: null, where: {}, limit: 20 };
-}
-
 const ALLOWED_DIMENSIONS = {
   ano_letivo: { col: 'ano_letivo', type: 'int' },
   escola: { col: 'escola', type: 'text' },
@@ -152,6 +64,106 @@ const ALLOWED_METRICS = {
   },
 };
 
+// --- Helpers para comparativos (ano x ano) ---
+// Para manter segurança, NUNCA aceitamos SQL livre do usuário.
+// O LLM só escolhe métrica/dimensão/anos; o servidor monta SQL parametrizado.
+
+function metricSqlForYear(metricKey, yearParamRef) {
+  // yearParamRef deve ser algo como '$3' (parametro do ano)
+  const y = yearParamRef;
+
+  if (metricKey === 'total_matriculas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} THEN idmatricula END)`;
+  }
+
+  if (metricKey === 'matriculas_ativas') {
+    return `COUNT(DISTINCT CASE 
+      WHEN ano_letivo = ${y} AND (
+        UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA') OR COALESCE(idsituacao,0)=0
+      ) THEN idmatricula END)`;
+  }
+
+  if (metricKey === 'desistentes') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND COALESCE(idsituacao,0)=2 THEN idmatricula END)`;
+  }
+
+  if (metricKey === 'taxa_evasao') {
+    const denom = `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} THEN idmatricula END)`;
+    const num = `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND COALESCE(idsituacao,0)=2 THEN idmatricula END)`;
+    return `CASE WHEN ${denom} > 0 THEN ROUND((${num} * 100.0) / ${denom}, 2) ELSE 0 END`;
+  }
+
+  return null;
+}
+
+function extractJsonMaybe(content) {
+  const raw = String(content || '').trim();
+  if (!raw) return null;
+  // tenta JSON puro
+  try {
+    return JSON.parse(raw);
+  } catch (_) {}
+
+  // tenta extrair de ```json ... ```
+  const m = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (m?.[1]) {
+    try {
+      return JSON.parse(m[1]);
+    } catch (_) {}
+  }
+
+  // tenta encontrar primeiro bloco { ... }
+  const s = raw.indexOf('{');
+  const e = raw.lastIndexOf('}');
+  if (s >= 0 && e > s) {
+    const candidate = raw.slice(s, e + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch (_) {}
+  }
+
+  return null;
+}
+
+function heuristicSpec(question) {
+  const q = String(question || '').toLowerCase();
+  const years = [...q.matchAll(/\b(20\d{2})\b/g)].map((m) => Number(m[1]));
+  const uniqYears = Array.from(new Set(years)).slice(0, 3);
+
+  const wantsCompare = /(compar|comparativo|comparar|diferen[cç]a|redu[cç][aã]o|aument|queda)/.test(q);
+  if (wantsCompare && uniqYears.length >= 2) {
+    const [yearA, yearB] = uniqYears;
+    const direction = /(redu[cç][aã]o|queda|diminui)/.test(q) ? 'decrease' : (/(aument|cresceu|subiu)/.test(q) ? 'increase' : 'all');
+    // "onde" geralmente implica quebrar por escola para achar quem reduziu.
+    const groupBy = /(por\s+escola|escolas|onde)/.test(q) ? 'escola' : null;
+
+    // decide métrica
+    let metric = 'total_matriculas';
+    if (/ativa/.test(q)) metric = 'matriculas_ativas';
+    if (/desistent/.test(q)) metric = 'desistentes';
+    if (/evas[aã]o/.test(q)) metric = 'taxa_evasao';
+
+    return {
+      type: 'compare',
+      metric,
+      groupBy,
+      years: { a: yearA, b: yearB },
+      direction,
+      where: {},
+      limit: 20,
+    };
+  }
+
+  // breakdown heurístico
+  if (/\bpor\s+sexo\b/.test(q)) return { type: 'breakdown', metric: 'total_matriculas', groupBy: 'sexo', where: {}, limit: 20 };
+  if (/\bpor\s+turno\b/.test(q)) return { type: 'breakdown', metric: 'total_matriculas', groupBy: 'turno', where: {}, limit: 20 };
+  if (/taxa\s+de\s+evas[aã]o/.test(q) || /evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: {}, limit: 20 };
+  if (/matr[ií]culas\s+ativas|ativas/.test(q)) return { type: 'single', metric: 'matriculas_ativas', groupBy: null, where: {}, limit: 20 };
+  if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: {}, limit: 20 };
+
+  return null;
+}
+
 async function deepseekToSpec(question, context) {
   // Cache pequeno por (pergunta+context) para economizar tokens
   const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, context })).toString('base64').slice(0, 120)}`;
@@ -175,16 +187,19 @@ Regras:
 
 Formato:
 {
-  "type": "single" | "breakdown" | "unsupported",
+  "type": "single" | "breakdown" | "compare" | "unsupported",
   "metric": "total_matriculas" | "matriculas_ativas" | "desistentes" | "taxa_evasao",
   "groupBy": "<dimension>" | null,
   "where": { "<dimension>": "<value>", ... },
-  "limit": 20
+  "limit": 20,
+  "compare": { "baseYear": 2025, "compareYear": 2026, "direction": "decrease" | "increase" | "all" }
 }
 
 Notas:
 - Se a pergunta pedir "por" alguma dimensão (ex.: por sexo/turno), use type="breakdown" e groupBy.
 - Se pedir apenas um número, use type="single" e groupBy=null.
+- Se pedir comparativo entre anos (ex.: "2026 vs 2025"), use type="compare" e preencha compare.baseYear e compare.compareYear.
+- Em comparativos, groupBy pode ser null (comparativo geral) OU uma dimensão (ex.: por escola) para encontrar onde aumentou/reduziu.
 - where deve incluir apenas filtros adicionais; o contexto já traz filtros selecionados.`;
 
   const user = `Pergunta: ${question}
@@ -206,28 +221,58 @@ Notas:
     }),
   });
 
-  // If DeepSeek fails (quota, auth, etc), do not crash the dashboard.
-  let json;
-  try {
-    json = await resp.json();
-  } catch (_) {
-    json = null;
-  }
+  const json = await resp.json();
   const content = json?.choices?.[0]?.message?.content;
 
-  let spec = tryExtractJson(content);
-  if (!resp.ok) {
-    // Provide a helpful reason for debugging, while still returning "unsupported"
-    const statusMsg = json?.error?.message || json?.message || `HTTP ${resp.status}`;
-    spec = { type: 'unsupported', reason: `DeepSeek error: ${statusMsg}` };
-  }
-
-  if (!spec) {
-    spec = { type: 'unsupported', reason: 'A IA não retornou JSON válido.' };
-  }
+  let spec = extractJsonMaybe(content);
+  if (!spec) spec = { type: 'unsupported', reason: 'A IA não retornou JSON válido.' };
 
   cache.set(cacheKey, spec);
   return spec;
+}
+
+function heuristicSpec(questionRaw) {
+  const q = String(questionRaw || '').toLowerCase();
+  const years = (q.match(/(19|20)\d{2}/g) || []).map((s) => Number(s)).filter(Boolean);
+
+  const isCompare = /(compar|diferen|delta|varia|cres|aument|redu|queda|dimin)/.test(q) && years.length >= 1;
+  if (!isCompare) return null;
+
+  const metric =
+    q.includes('evas') ? 'taxa_evasao' :
+    q.includes('ativa') ? 'matriculas_ativas' :
+    q.includes('desist') ? 'desistentes' :
+    'total_matriculas';
+
+  // se tiver 2+ anos, pega o menor como base e o maior como comparação (padrão "ano mais recente vs anterior")
+  let baseYear = years.length >= 2 ? Math.min(years[0], years[1]) : years[0];
+  let compareYear = years.length >= 2 ? Math.max(years[0], years[1]) : null;
+
+  // tenta inferir groupBy
+  let groupBy = null;
+  if (/por\s+escola|por\s+unidade|quais\s+escolas|onde\s+tiv/.test(q)) groupBy = 'escola';
+  else if (/por\s+turno/.test(q)) groupBy = 'turno';
+  else if (/por\s+sexo/.test(q)) groupBy = 'sexo';
+  else if (/por\s+zona/.test(q) && q.includes('escola')) groupBy = 'zona_escola';
+  else if (/por\s+zona/.test(q) && q.includes('aluno')) groupBy = 'zona_aluno';
+
+  const direction =
+    /(redu|queda|dimin)/.test(q) ? 'decrease' :
+    /(aument|cres)/.test(q) ? 'increase' :
+    'all';
+
+  return {
+    type: 'compare',
+    metric,
+    groupBy,
+    where: {},
+    limit: 20,
+    compare: {
+      baseYear,
+      compareYear,
+      direction,
+    },
+  };
 }
 
 function mergeFilters(contextFilters, whereFromLLM) {
@@ -258,7 +303,14 @@ async function runQuery(spec, contextFilters, user) {
     situacaoMatricula: mergedFilters.situacaoMatricula ?? mergedFilters.situacao_matricula,
   };
 
-  const { clause, params } = buildWhereClause(normalizedFilters, user);
+  // Em comparativos por ano, a gente NÃO prende o WHERE a um único ano_letivo.
+  const normalizedForWhere = { ...normalizedFilters };
+  if (spec.type === 'compare') {
+    delete normalizedForWhere.anoLetivo;
+    delete normalizedForWhere.ano_letivo;
+  }
+
+  const { clause, params } = buildWhereClause(normalizedForWhere, user);
 
   const base = `WITH base AS (
     SELECT * FROM dados_matriculas WHERE ${clause}
@@ -294,6 +346,89 @@ async function runQuery(spec, contextFilters, user) {
     return { ok: true, kind: 'breakdown', rows: result.rows || [], groupBy: spec.groupBy };
   }
 
+  if (spec.type === 'compare') {
+    const baseYear = Number(spec?.compare?.baseYear);
+    const compareYear = Number(spec?.compare?.compareYear);
+    const direction = String(spec?.compare?.direction || 'all');
+
+    if (!Number.isFinite(baseYear) || !Number.isFinite(compareYear)) {
+      return { ok: false, message: 'Para comparar, preciso de dois anos (ex.: 2025 e 2026).' };
+    }
+
+    const limit = Math.min(Math.max(Number(spec.limit || 20), 1), 50);
+    const pBase = `$${params.length + 1}`;
+    const pComp = `$${params.length + 2}`;
+    const newParams = [...params, baseYear, compareYear];
+
+    const sqlBase = metricSqlForYear(spec.metric, pBase);
+    const sqlComp = metricSqlForYear(spec.metric, pComp);
+    if (!sqlBase || !sqlComp) {
+      return { ok: false, message: 'Métrica não suportada para comparativo.' };
+    }
+
+    const deltaExpr = `(${sqlComp}) - (${sqlBase})`;
+    const pctExpr = `CASE WHEN (${sqlBase}) > 0 THEN ROUND((${deltaExpr}) * 100.0 / NULLIF((${sqlBase}),0), 2) ELSE NULL END`;
+
+    const orderBy =
+      direction === 'decrease' ? 'delta ASC' :
+      direction === 'increase' ? 'delta DESC' :
+      'ABS(delta) DESC';
+
+    if (!spec.groupBy) {
+      const sql = `${base}
+        SELECT
+          (${sqlBase}) AS base_value,
+          (${sqlComp}) AS compare_value,
+          (${deltaExpr}) AS delta,
+          (${pctExpr}) AS pct_change
+        FROM base_sem_especiais;`;
+
+      const result = await pool.query(sql, newParams);
+      const row = result.rows?.[0] || {};
+      return {
+        ok: true,
+        kind: 'compare',
+        compare: { baseYear, compareYear, direction },
+        rows: [
+          {
+            label: 'Geral',
+            base_value: Number(row.base_value) || 0,
+            compare_value: Number(row.compare_value) || 0,
+            delta: Number(row.delta) || 0,
+            pct_change: row.pct_change === null ? null : Number(row.pct_change),
+          },
+        ],
+      };
+    }
+
+    const dim = ALLOWED_DIMENSIONS[spec.groupBy];
+    if (!dim) return { ok: false, message: 'Dimensão de agrupamento não suportada.' };
+
+    const labelExpr = `COALESCE(${dim.col}::text, 'Sem informação')`;
+    const sql = `${base}
+      SELECT
+        ${labelExpr} AS label,
+        (${sqlBase}) AS base_value,
+        (${sqlComp}) AS compare_value,
+        (${deltaExpr}) AS delta,
+        (${pctExpr}) AS pct_change
+      FROM base_sem_especiais
+      GROUP BY ${labelExpr}
+      ORDER BY ${orderBy}
+      LIMIT ${limit};`;
+
+    const result = await pool.query(sql, newParams);
+    const rows = (result.rows || []).map((r) => ({
+      label: r.label,
+      base_value: Number(r.base_value) || 0,
+      compare_value: Number(r.compare_value) || 0,
+      delta: Number(r.delta) || 0,
+      pct_change: r.pct_change === null ? null : Number(r.pct_change),
+    }));
+
+    return { ok: true, kind: 'compare', compare: { baseYear, compareYear, direction }, groupBy: spec.groupBy, rows };
+  }
+
   return { ok: false, message: 'Consulta não suportada.' };
 }
 
@@ -318,10 +453,21 @@ const query = async (req, res) => {
       return res.status(400).json({ error: 'Informe uma pergunta.' });
     }
 
-    // 1) Heurística local (não depende da IA) para as perguntas mais comuns.
-    // Isso evita o usuário ficar preso na mensagem de "não suportado" se o LLM
-    // estiver instável ou devolver texto fora de JSON.
-    const spec = heuristicSpec(question) || await deepseekToSpec(question, contextFilters);
+    // 1) heurística para comparativos (evita frustração e diminui dependência do LLM)
+    const heur = heuristicSpec(question);
+    if (heur?.type === 'compare' && (!heur.compare?.compareYear || !heur.compare?.baseYear)) {
+      return res.json({
+        ok: false,
+        kind: 'clarify',
+        answer: 'Para comparar, me diga os dois anos. Ex.: "Comparar matrículas 2026 e 2025".',
+        suggestions: [
+          'Comparar matrículas 2026 e 2025',
+          'Comparar matrículas ativas 2026 e 2025 por escola',
+        ],
+      });
+    }
+
+    const spec = heur || (await deepseekToSpec(question, contextFilters));
 
     if (spec?.type === 'error') {
       return res.status(500).json({ error: spec.message });
@@ -330,7 +476,15 @@ const query = async (req, res) => {
     if (!spec || spec.type === 'unsupported') {
       return res.json({
         ok: false,
-        answer: 'Ainda não consegui entender essa pergunta. Eu consigo responder consultas agregadas (totais e quebras por sexo/turno/zona/situação etc.). Exemplos: "Total de matrículas ativas", "Matrículas por sexo", "Desistentes por turno".',
+        kind: 'clarify',
+        answer:
+          'Ainda não entendi totalmente. Eu consigo responder consultas agregadas e comparativos por ano (sem dados pessoais).\n\nDiga a métrica + como quer quebrar. Ex.:\n- "Total de matrículas ativas"\n- "Matrículas por turno"\n- "Comparar matrículas 2026 e 2025 por escola"',
+        suggestions: [
+          'Total de matrículas ativas',
+          'Matrículas por turno',
+          'Comparar matrículas 2026 e 2025 por escola',
+          'Comparar desistentes 2026 e 2025 por zona_escola',
+        ],
         spec,
       });
     }
@@ -341,6 +495,23 @@ const query = async (req, res) => {
     }
     if (spec.type === 'breakdown' && !ALLOWED_DIMENSIONS[spec.groupBy]) {
       return res.json({ ok: false, answer: 'Dimensão de agrupamento não suportada nessa versão.' });
+    }
+    if (spec.type === 'compare') {
+      const by = spec.groupBy;
+      if (by && !ALLOWED_DIMENSIONS[by]) {
+        return res.json({ ok: false, answer: 'Dimensão de agrupamento não suportada nessa versão.' });
+      }
+      if (!spec?.compare?.baseYear || !spec?.compare?.compareYear) {
+        return res.json({
+          ok: false,
+          kind: 'clarify',
+          answer: 'Para um comparativo, preciso dos dois anos. Ex.: "Comparar matrículas 2026 e 2025".',
+          suggestions: [
+            'Comparar matrículas 2026 e 2025',
+            'Comparar matrículas 2026 e 2025 por escola',
+          ],
+        });
+      }
     }
 
     const result = await runQuery(spec, contextFilters, req.user);
@@ -374,6 +545,28 @@ const query = async (req, res) => {
         ok: true,
         answer: `${metricLabel} por ${result.groupBy.replace('_', ' ')}`,
         data: { rows, groupBy: result.groupBy, metric: spec.metric },
+        spec,
+      });
+    }
+
+    if (result.kind === 'compare') {
+      const baseYear = result.compare?.baseYear;
+      const compareYear = result.compare?.compareYear;
+      const metricLabel = ALLOWED_METRICS[spec.metric].label;
+      const groupLabel = spec.groupBy ? ` por ${spec.groupBy.replace('_', ' ')}` : '';
+      const dir = String(result.compare?.direction || 'all');
+      const dirTxt = dir === 'decrease' ? 'redução' : dir === 'increase' ? 'aumento' : 'variação';
+
+      return res.json({
+        ok: true,
+        kind: 'compare',
+        answer: `${metricLabel}${groupLabel} — comparativo ${compareYear} vs ${baseYear} (${dirTxt})`,
+        data: {
+          rows: result.rows,
+          groupBy: spec.groupBy || null,
+          metric: spec.metric,
+          compare: result.compare,
+        },
         spec,
       });
     }

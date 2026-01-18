@@ -1,35 +1,115 @@
+// src/components/SexoChart.js
 import React, { useMemo, useRef } from 'react';
 import { Doughnut, getElementAtEvent } from 'react-chartjs-2';
 
 const SexoChart = ({ data, options, loading, onSelect, selected }) => {
   const chartRef = useRef(null);
 
-  // ✅ Hooks sempre no topo (NUNCA depois de return)
+  const total = useMemo(() => {
+    const arr = data?.datasets?.[0]?.data;
+    if (!Array.isArray(arr)) return 0;
+    return arr.reduce((acc, v) => acc + (Number(v) || 0), 0);
+  }, [data]);
+
   const clickHint = useMemo(() => {
     if (!onSelect) return null;
-    if (selected) return `Filtro: ${selected} (clique novamente para remover)`;
+    if (selected) return `Filtro: ${selected} (clique para remover)`;
     return 'Clique em um setor para filtrar';
   }, [onSelect, selected]);
 
-  const mergedOptions = useMemo(() => {
+  const mergedData = useMemo(() => {
+    if (!data) return data;
+    const ds0 = data?.datasets?.[0] || {};
     return {
-      responsive: true,
-      maintainAspectRatio: false, // ✅ permite controlar altura pelo container
-      ...options,
+      ...data,
+      datasets: [
+        {
+          ...ds0,
+          // deixa o donut mais "PowerBI-like"
+          borderWidth: ds0.borderWidth ?? 0,
+          hoverOffset: ds0.hoverOffset ?? 6,
+        },
+      ],
+    };
+  }, [data]);
+
+  const mergedOptions = useMemo(() => {
+    const base = options || {};
+    return {
+      ...base,
+      maintainAspectRatio: false,
+      cutout: base.cutout ?? '70%',
       plugins: {
-        ...(options?.plugins || {}),
+        ...(base.plugins || {}),
         legend: {
-          position: 'bottom',
-          ...(options?.plugins?.legend || {}),
+          ...(base.plugins?.legend || {}),
+          position: base.plugins?.legend?.position ?? 'bottom',
+          labels: {
+            ...(base.plugins?.legend?.labels || {}),
+            boxWidth: 14,
+            boxHeight: 10,
+          },
         },
         tooltip: {
-          ...(options?.plugins?.tooltip || {}),
+          ...(base.plugins?.tooltip || {}),
+          callbacks: {
+            ...(base.plugins?.tooltip?.callbacks || {}),
+            label: (ctx) => {
+              const val = Number(ctx.parsed) || 0;
+              const pct = total > 0 ? (val * 100.0) / total : 0;
+              const label = ctx.label ? `${ctx.label}: ` : '';
+              return `${label}${val.toLocaleString('pt-BR')} (${pct.toFixed(1).replace('.', ',')}%)`;
+            },
+          },
         },
       },
     };
-  }, [options]);
+  }, [options, total]);
 
-  const canRender = !loading && !!data && Array.isArray(data?.labels) && data.labels.length > 0;
+  const centerTextPlugin = useMemo(() => {
+    return {
+      id: 'centerText',
+      afterDraw(chart) {
+        const { ctx, chartArea } = chart;
+        if (!chartArea) return;
+        const cx = (chartArea.left + chartArea.right) / 2;
+        const cy = (chartArea.top + chartArea.bottom) / 2;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // título pequeno
+        ctx.font = '600 12px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+        ctx.fillStyle = '#6B7280'; // gray-500
+        ctx.fillText('Total', cx, cy - 10);
+
+        // valor
+        ctx.font = '700 18px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+        ctx.fillStyle = '#111827'; // gray-900
+        ctx.fillText(total.toLocaleString('pt-BR'), cx, cy + 10);
+
+        // filtro
+        if (selected) {
+          ctx.font = '600 11px Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+          ctx.fillStyle = '#7C3AED'; // violet-600
+          ctx.fillText(String(selected), cx, cy + 30);
+        }
+
+        ctx.restore();
+      },
+    };
+  }, [total, selected]);
+
+  if (loading || !data) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Carregando gráfico...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleClick = (event) => {
     if (!onSelect || !chartRef.current) return;
@@ -40,38 +120,19 @@ const SexoChart = ({ data, options, loading, onSelect, selected }) => {
     if (label) onSelect(String(label));
   };
 
-  // ✅ return condicional só depois dos hooks
-  if (!canRender) {
-    return (
-      <div className="flex items-center justify-center w-full" style={{ height: 280 }}>
-        <div className="text-center">
-          {loading ? (
-            <>
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500 mx-auto" />
-              <p className="mt-2 text-gray-600">Carregando gráfico...</p>
-            </>
-          ) : (
-            <p className="text-gray-500">Sem dados para exibir</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full">
+    <div className="h-full w-full">
       {clickHint && (
         <div className="mb-2 text-xs text-gray-500 flex items-center justify-between">
           <span>{clickHint}</span>
         </div>
       )}
-
-      {/* ✅ altura fixa do gráfico (evita “gigante”) */}
-      <div style={{ height: 280 }}>
+      <div className="h-[220px] sm:h-[230px]">
         <Doughnut
           ref={chartRef}
-          data={data}
+          data={mergedData}
           options={mergedOptions}
+          plugins={[centerTextPlugin]}
           onClick={handleClick}
         />
       </div>

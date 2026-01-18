@@ -18,7 +18,6 @@ export default function AiAssistant({ filters }) {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [shownUnsupportedHint, setShownUnsupportedHint] = useState(false);
 
   const examples = useMemo(
     () => [
@@ -49,28 +48,12 @@ export default function AiAssistant({ filters }) {
       const payload = resp?.data;
 
       if (!payload?.ok) {
-        const reason = payload?.spec?.reason;
-        let msg = payload?.answer || 'Não consegui responder essa consulta.';
-
-        // Evita repetir a mesma mensagem longa toda hora.
-        if (typeof msg === 'string' && msg.includes('consultas agregadas')) {
-          if (shownUnsupportedHint) {
-            msg = 'Não entendi essa pergunta. Tente um dos exemplos na lista ao lado (ou digite: "Matrículas por sexo").';
-          } else {
-            setShownUnsupportedHint(true);
-            msg = 'Ainda não entendi essa pergunta. Eu consigo responder consultas agregadas (totais e quebras por sexo/turno/zona/situação etc.). Exemplos: "Total de matrículas ativas", "Matrículas por sexo", "Desistentes por turno".';
-          }
-        }
-
-        if (reason && typeof msg === 'string' && !msg.includes('Detalhe:')) {
-          msg = `${msg}\n\nDetalhe: ${reason}`;
-        }
-
         setMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: msg,
+            content: payload?.answer || 'Não consegui responder essa consulta.',
+            suggestions: Array.isArray(payload?.suggestions) ? payload.suggestions : null,
           },
         ]);
         return;
@@ -93,6 +76,7 @@ export default function AiAssistant({ filters }) {
           role: 'assistant',
           content:
             'Erro ao consultar a IA. Verifique se o backend está com DEEPSEEK_API_KEY configurada e se a rota /ai/query está acessível.',
+          suggestions: ['Total de matrículas ativas', 'Matrículas por turno'],
         },
       ]);
     } finally {
@@ -108,7 +92,6 @@ export default function AiAssistant({ filters }) {
           'Histórico limpo. Manda a próxima pergunta 🙂',
       },
     ]);
-    setShownUnsupportedHint(false);
   };
 
   return (
@@ -155,7 +138,7 @@ export default function AiAssistant({ filters }) {
                 <div className="text-sm leading-relaxed">{m.content}</div>
 
                 {/* Resultado em tabela quando vier breakdown */}
-                {m?.data?.rows?.length ? (
+                {m?.data?.rows?.length && !m?.data?.compare ? (
                   <div className="mt-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="px-3 py-2 text-xs font-bold text-gray-600 bg-gray-50">
                       Top resultados
@@ -180,6 +163,61 @@ export default function AiAssistant({ filters }) {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                ) : null}
+
+                {/* Comparativo ano x ano */}
+                {m?.data?.rows?.length && m?.data?.compare ? (
+                  <div className="mt-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="px-3 py-2 text-xs font-bold text-gray-600 bg-gray-50">
+                      Comparativo {m.data.compare.compareYear} vs {m.data.compare.baseYear}
+                      {m.data.groupBy ? ` (por ${String(m.data.groupBy).replace('_', ' ')})` : ''}
+                    </div>
+                    <div className="max-h-64 overflow-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-gray-500">
+                            <th className="px-3 py-2">Label</th>
+                            <th className="px-3 py-2">{m.data.compare.baseYear}</th>
+                            <th className="px-3 py-2">{m.data.compare.compareYear}</th>
+                            <th className="px-3 py-2">Δ</th>
+                            <th className="px-3 py-2">%</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {m.data.rows.map((r, i) => (
+                            <tr key={i} className="border-t">
+                              <td className="px-3 py-2">{r.label}</td>
+                              <td className="px-3 py-2 font-semibold">{formatNumber(r.base_value)}</td>
+                              <td className="px-3 py-2 font-semibold">{formatNumber(r.compare_value)}</td>
+                              <td className={`px-3 py-2 font-bold ${Number(r.delta) < 0 ? 'text-red-600' : Number(r.delta) > 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
+                                {formatNumber(r.delta)}
+                              </td>
+                              <td className="px-3 py-2">
+                                {r.pct_change === null || r.pct_change === undefined
+                                  ? '—'
+                                  : `${Number(r.pct_change).toFixed(2).replace('.', ',')}%`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Sugestões de continuação (quando a IA pedir clarificação) */}
+                {Array.isArray(m?.suggestions) && m.suggestions.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {m.suggestions.slice(0, 6).map((sug) => (
+                      <button
+                        key={sug}
+                        onClick={() => send(sug)}
+                        className="px-3 py-1.5 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 text-xs font-semibold"
+                      >
+                        {sug}
+                      </button>
+                    ))}
                   </div>
                 ) : null}
               </div>
