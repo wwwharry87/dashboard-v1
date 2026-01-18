@@ -1,8 +1,15 @@
 // src/components/SituacaoMatriculaChart.js
-import React from 'react';
-import { Doughnut } from 'react-chartjs-2';
+import React, { useMemo, useRef } from 'react';
+import { Doughnut, getElementAtEvent } from 'react-chartjs-2';
 
-const SituacaoMatriculaChart = ({ data, options, loading }) => {
+const SituacaoMatriculaChart = ({ data, options, loading, onSelect, selected }) => {
+  const chartRef = useRef(null);
+
+  const clickHint = useMemo(() => {
+    if (!onSelect) return null;
+    if (selected) return `Filtro: ${selected} (clique para remover)`;
+    return 'Clique em uma situação para filtrar';
+  }, [onSelect, selected]);
   if (loading || !data) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -14,7 +21,25 @@ const SituacaoMatriculaChart = ({ data, options, loading }) => {
     );
   }
 
-  return <Doughnut data={data} options={options} />;
+  const handleClick = (event) => {
+    if (!onSelect || !chartRef.current) return;
+    const elements = getElementAtEvent(chartRef.current, event);
+    if (!elements?.length) return;
+    const idx = elements[0].index;
+    const label = data?.labels?.[idx];
+    if (label) onSelect(String(label));
+  };
+
+  return (
+    <div className="h-full w-full">
+      {clickHint && (
+        <div className="mb-2 text-xs text-gray-500 flex items-center justify-between">
+          <span>{clickHint}</span>
+        </div>
+      )}
+      <Doughnut ref={chartRef} data={data} options={options} onClick={handleClick} />
+    </div>
+  );
 };
 
 export default SituacaoMatriculaChart;
