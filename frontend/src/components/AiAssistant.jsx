@@ -1,23 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from './api';
 
-// Gráficos (instalar no frontend): npm i recharts
+// Recharts
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid,
+  Legend,
 } from 'recharts';
 
 /**
- * AiAssistant.jsx (Premium Agent UI)
- * - ConversationId (continuidade + histórico curto)
- * - Envia contexto rico: history + dashboardContext.availableFilters
- * - Renderiza breakdown com gráfico (recharts) com fallback para tabela
- * - Renderiza desambiguação com opções clicáveis
+ * AiAssistant.jsx (TOP)
+ *
+ * Premium UX:
+ * - Envia contexto rico (history + availableFilters)
+ * - Mantém conversationId para continuidade
+ * - Quando kind === 'breakdown', renderiza gráfico (recharts) com fallback para tabela
+ * - Quando kind === 'disambiguation', oferece botões de escolha + "somar"/"separar"
  */
 
 function formatPtBRNumber(x) {
@@ -35,24 +38,10 @@ function formatPercentMaybe(metric, value) {
   return formatPtBRNumber(value);
 }
 
-function safeLocalUserName() {
-  // Não é usado para segurança; apenas UX (personalização). O backend ainda valida tudo via token.
-  try {
-    const raw =
-      localStorage.getItem('user') ||
-      localStorage.getItem('usuario') ||
-      localStorage.getItem('currentUser') ||
-      '';
-    if (raw) {
-      const obj = JSON.parse(raw);
-      const nome = obj?.nome || obj?.name || obj?.usuario?.nome || obj?.user?.nome;
-      if (nome && String(nome).trim()) return String(nome).trim();
-    }
-  } catch (_) {}
-
-  const direct = localStorage.getItem('nome') || localStorage.getItem('userName');
-  if (direct && String(direct).trim()) return String(direct).trim();
-  return null;
+function clampText(s, max = 28) {
+  const t = String(s ?? '');
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
 }
 
 function Badge({ children }) {
@@ -65,7 +54,7 @@ function Badge({ children }) {
 
 function Table({ columns, rows }) {
   return (
-    <div className="mt-3 overflow-auto rounded-lg border border-gray-200">
+    <div className="mt-3 overflow-auto rounded-lg border border-gray-200 bg-white">
       <table className="min-w-full text-sm">
         <thead className="bg-gray-50">
           <tr>
@@ -92,39 +81,70 @@ function Table({ columns, rows }) {
   );
 }
 
-function ChartBreakdown({ rows, metric }) {
-  // Fallback rápido
-  if (!rows || !Array.isArray(rows) || rows.length === 0) return null;
+class ChartErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch() {
+    // no-op
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
 
-  // Evita labels gigantes explodirem a UI
-  const safeRows = rows
-    .map((r) => ({
-      label: String(r.label ?? '').slice(0, 48),
-      value: Number(r.value) || 0,
-    }))
-    .slice(0, 20);
+function BreakdownChart({ rows, metric }) {
+  const data = (rows || []).map((r) => ({
+    name: String(r.label ?? ''),
+    value: Number(r.value) || 0,
+  }));
 
-  // Layout "vertical" (barras horizontais) costuma ficar mais bonito no chat.
+  if (!data.length) return null;
+
+  // Limita para não ficar feio no chat
+  const sliced = data.slice(0, 18);
+
+  const tooltipFormatter = (val) => formatPercentMaybe(metric, val);
+
   return (
     <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
-      <div className="text-xs text-gray-500 mb-2">Visualização (Top {safeRows.length})</div>
-      <div className="h-[280px]">
+      <div className="text-xs text-gray-500 mb-2">Visualização</div>
+      <div className="h-[280px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={safeRows} layout="vertical" margin={{ left: 24, right: 16, top: 8, bottom: 8 }}>
+          <BarChart data={sliced} layout="vertical" margin={{ top: 8, right: 18, left: 8, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" tick={{ fontSize: 12 }} />
-            <YAxis type="category" dataKey="label" width={140} tick={{ fontSize: 12 }} />
-            <Tooltip
-              formatter={(v) => formatPercentMaybe(metric, v)}
-              labelStyle={{ fontSize: 12 }}
-              contentStyle={{ fontSize: 12 }}
+            <XAxis type="number" tickFormatter={(v) => (metric === 'taxa_evasao' ? `${Number(v).toFixed(0)}%` : formatPtBRNumber(v))} />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={150}
+              tickFormatter={(v) => clampText(v, 26)}
             />
-            <Bar dataKey="value" />
+            <Tooltip formatter={tooltipFormatter} labelFormatter={(l) => String(l)} />
+            <Legend />
+            <Bar dataKey="value" name="Valor" radius={[8, 8, 8, 8]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
+      {data.length > sliced.length && (
+        <div className="mt-2 text-[11px] text-gray-500">
+          Mostrando {sliced.length} de {data.length} itens (use filtros ou peça “top 10”).
+        </div>
+      )}
     </div>
   );
+}
+
+function buildHistoryString(messages, maxPairs = 4) {
+  const last = Array.isArray(messages) ? messages.slice(-maxPairs * 2) : [];
+  return last
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').trim()}`)
+    .join('\n');
 }
 
 export default function AiAssistant({ filters, totals, filtersCatalog }) {
@@ -134,33 +154,27 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       kind: 'intro',
       content:
         'Oi! Eu sou sua IA do Dashboard. Me pergunte coisas como:\n' +
-        '• "Qual escola tem mais alunos ativos?"\n' +
+        '• "Comparar matrículas 2026 vs 2025"\n' +
         '• "Top 10 escolas com mais matrículas"\n' +
         '• "Quantas turmas do 1º ano?"\n' +
-        '• "Matrículas por turno"\n' +
-        '• "Comparar matrículas 2026 e 2025 por escola"\n\n' +
-        'Eu respondo só com números agregados (sem dados pessoais).',
+        '• "Matrículas por turno"\n\n' +
+        'Eu respondo com números agregados (sem dados pessoais de alunos).',
       suggestions: [
-        'Qual escola tem mais alunos ativos?',
+        'Comparar matrículas 2026 vs 2025',
         'Top 10 escolas com mais matrículas',
         'Quantas turmas do 1º ano?',
         'Matrículas por turno',
-        'Comparar matrículas 2026 e 2025 por escola',
+        'Matrículas por sexo',
       ],
     },
   ]));
 
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
 
-  // mantém conversa viva (UX premium)
-  const [conversationId, setConversationId] = useState(() => {
-    try {
-      return localStorage.getItem('aiConversationId') || '';
-    } catch (_) {
-      return '';
-    }
-  });
+  // quando o backend pedir desambiguação, guardamos a última pergunta para reenviar com selection
+  const [pendingDisambiguation, setPendingDisambiguation] = useState(null);
 
   const bottomRef = useRef(null);
 
@@ -168,67 +182,56 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  useEffect(() => {
-    try {
-      if (conversationId) localStorage.setItem('aiConversationId', conversationId);
-    } catch (_) {}
-  }, [conversationId]);
-
   const canSend = useMemo(() => !!question.trim() && !loading, [question, loading]);
 
-  function buildHistoryString(prevMessages) {
-    // últimas 4 (user/assistant), ignora intro
-    const last = (prevMessages || [])
-      .filter((m) => m?.role === 'user' || m?.role === 'assistant')
-      .filter((m) => m?.kind !== 'intro')
-      .slice(-4);
-
-    return last
-      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 400)}`)
-      .join('\n');
-  }
-
-  async function send(q, extra = {}) {
+  async function send(q, opts = {}) {
     const trimmed = String(q || '').trim();
     if (!trimmed || loading) return;
 
-    // adiciona mensagem do usuário
-    setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
+    const selection = opts.selection || null;
+
+    // Se estamos respondendo uma desambiguação, não duplicar o texto do user (fica feio)
+    const shouldAppendUser = !opts.silentUser;
+
+    if (shouldAppendUser) {
+      setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
+    }
+
     setQuestion('');
     setLoading(true);
 
     try {
-      // monta history com o estado ANTES da resposta do backend
-      const history = buildHistoryString([
-        ...messages,
-        { role: 'user', content: trimmed },
-      ]);
-
-      const clientUserName = safeLocalUserName();
+      const history = buildHistoryString(messages, 4);
 
       const { data: json } = await api.post('/ai/query', {
         question: trimmed,
         filters: filters || {},
-        conversationId: conversationId || undefined,
         history,
-        clientUserName: clientUserName || undefined,
-        ...extra,
+        conversationId: conversationId || null,
+        selection,
         dashboardContext: {
-          // valores possíveis (domínio) — sem PII
           availableFilters: filtersCatalog || null,
-          // totais/agrupamentos já carregados pelo dashboard — sem PII
           totals: totals || null,
-          // filtros ativos no momento
           activeFilters: filters || {},
         },
       });
 
-      if (json?.conversationId) {
-        setConversationId(String(json.conversationId));
+      if (json?.conversationId) setConversationId(json.conversationId);
+
+      // se o backend pediu desambiguação, guarda a pergunta que gerou isso
+      if (json?.kind === 'disambiguation') {
+        setPendingDisambiguation({
+          question: trimmed,
+          clarify: json?.clarify || null,
+          options: json?.options || [],
+        });
+      } else {
+        setPendingDisambiguation(null);
       }
 
       setMessages((prev) => {
         const lastAssistant = [...prev].reverse().find((m) => m.role === 'assistant');
+
         const next = {
           role: 'assistant',
           content: json?.answer || json?.error || 'Não consegui processar agora.',
@@ -236,14 +239,14 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
           data: json?.data,
           spec: json?.spec,
           suggestions: json?.suggestions || [],
-          options: json?.options || null,
+          options: json?.options || [],
           clarify: json?.clarify || null,
         };
 
-        // evita loop de clarificação repetida
+        // evita loop de clarify idêntico
         if (lastAssistant && lastAssistant.content === next.content && next.kind === 'clarify') {
-          const merged = Array.from(new Set([...(lastAssistant.suggestions || []), ...(next.suggestions || [])])).slice(0, 10);
-          const updatedLast = { ...lastAssistant, suggestions: merged, options: next.options || lastAssistant.options };
+          const merged = Array.from(new Set([...(lastAssistant.suggestions || []), ...(next.suggestions || [])])).slice(0, 8);
+          const updatedLast = { ...lastAssistant, suggestions: merged };
           const out = prev.slice();
           const idx = out.lastIndexOf(lastAssistant);
           if (idx >= 0) out[idx] = updatedLast;
@@ -261,79 +264,33 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     }
   }
 
-  function renderSuggestionChips(suggestions) {
-    if (!suggestions || suggestions.length === 0) return null;
-    return (
-      <div className="mt-3 flex flex-wrap gap-2">
-        {suggestions.map((s, i) => (
-          <button
-            key={i}
-            onClick={() => send(s)}
-            className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-    );
+  function sendSuggestion(text) {
+    send(text);
   }
 
-  function renderDisambiguation(m) {
-    const options = m?.options;
-    if (!options || !Array.isArray(options) || options.length === 0) return null;
+  function sendDisambiguationChoice(choice) {
+    const pending = pendingDisambiguation;
+    const dim = pending?.clarify?.dimension;
+    if (!pending?.question || !dim) return;
 
-    // backend pode mandar metadata em m.clarify
-    const clarify = m?.clarify;
+    // reenviar a pergunta original com selection
+    send(pending.question, {
+      silentUser: true,
+      selection: { dimension: dim, value: choice },
+    });
+  }
 
-    return (
-      <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3">
-        <div className="text-xs text-gray-500 mb-2">Escolha uma opção</div>
-        <div className="flex flex-wrap gap-2">
-          {options.map((opt, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                // Envia seleção estruturada (mais robusto que texto)
-                send(opt, {
-                  selection: {
-                    dimension: clarify?.dimension,
-                    value: opt,
-                    mode: 'exact',
-                  },
-                });
-              }}
-              className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-gray-50 hover:bg-gray-100"
-              title={opt}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
+  function sendDisambiguationMode(mode) {
+    const pending = pendingDisambiguation;
+    const dim = pending?.clarify?.dimension;
+    const matches = pending?.clarify?.matches || pending?.options || [];
 
-        {clarify?.actions?.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {clarify.actions.map((a, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  // "sum" ou "separate" com baseToken (ex.: 1º ANO)
-                  send(a.label, {
-                    selection: {
-                      dimension: clarify?.dimension,
-                      baseToken: clarify?.baseToken,
-                      mode: a.mode,
-                    },
-                  });
-                }}
-                className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
-              >
-                {a.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+    if (!pending?.question || !dim || !Array.isArray(matches) || !matches.length) return;
+
+    send(pending.question, {
+      silentUser: true,
+      selection: { mode, dimension: dim, matches },
+    });
   }
 
   function renderAssistantExtras(m) {
@@ -341,17 +298,42 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     const spec = m?.spec;
     const suggestions = (m?.suggestions || []).filter(Boolean);
 
-    // desambiguação primeiro
-    if (m.kind === 'disambiguation') {
+    // Desambiguação
+    if (m.kind === 'disambiguation' && Array.isArray(m.options) && m.options.length) {
       return (
-        <>
-          {renderDisambiguation(m)}
-          {renderSuggestionChips(suggestions)}
-        </>
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => sendDisambiguationMode('sum')}
+              className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+            >
+              Somar todas
+            </button>
+            <button
+              onClick={() => sendDisambiguationMode('separate')}
+              className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+            >
+              Separar por opção
+            </button>
+          </div>
+
+          <div className="text-xs text-gray-500">Ou escolha uma opção:</div>
+          <div className="flex flex-wrap gap-2">
+            {m.options.map((opt, i) => (
+              <button
+                key={i}
+                onClick={() => sendDisambiguationChoice(opt)}
+                className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
       );
     }
 
-    // compare
+    // Compare
     if (data?.rows && Array.isArray(data.rows) && data.rows.length && m.kind === 'compare') {
       const cols = [
         { key: 'label', label: spec?.groupBy ? `Grupo (${spec.groupBy})` : 'Grupo' },
@@ -360,6 +342,7 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         { key: 'delta', label: 'Δ' },
         { key: 'pct', label: '% Δ' },
       ];
+
       const rows = data.rows.map((r) => ({
         label: r.label,
         base: formatPercentMaybe(data.metric, r.base_value),
@@ -371,15 +354,28 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       return (
         <>
           <Table columns={cols} rows={rows} />
-          {renderSuggestionChips(suggestions)}
+          {suggestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendSuggestion(s)}
+                  className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
         </>
       );
     }
 
-    // breakdown
-    if (data?.rows && Array.isArray(data.rows) && data.rows.length) {
+    // Breakdown (gráfico + fallback tabela)
+    if (data?.rows && Array.isArray(data.rows) && data.rows.length && (m.kind === 'breakdown' || m.kind === 'ok')) {
       const metric = data.metric || spec?.metric;
       const groupBy = data.groupBy || spec?.groupBy;
+
       const cols = [
         { key: 'label', label: groupBy ? `Grupo (${groupBy})` : 'Grupo' },
         { key: 'value', label: 'Valor' },
@@ -389,29 +385,52 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         value: formatPercentMaybe(metric, r.value),
       }));
 
-      // tenta gráfico quando kind === breakdown
-      let chart = null;
-      try {
-        if (m.kind === 'breakdown') {
-          chart = <ChartBreakdown rows={data.rows} metric={metric} />;
-        }
-      } catch (_) {
-        chart = null;
-      }
+      const chart = (
+        <BreakdownChart rows={data.rows} metric={metric} />
+      );
+
+      const fallback = <Table columns={cols} rows={rows} />;
 
       return (
         <>
-          {chart}
-          {/* fallback/apoio em tabela */}
-          <Table columns={cols} rows={rows} />
-          {renderSuggestionChips(suggestions)}
+          {m.kind === 'breakdown' ? (
+            <ChartErrorBoundary fallback={fallback}>{chart}</ChartErrorBoundary>
+          ) : (
+            fallback
+          )}
+
+          {suggestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendSuggestion(s)}
+                  className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
         </>
       );
     }
 
-    // clarify chips even sem data
-    if ((m.kind === 'clarify' || m.kind === 'unsupported') && suggestions.length > 0) {
-      return renderSuggestionChips(suggestions);
+    // Clarify chips
+    if (m.kind === 'clarify' && suggestions.length > 0) {
+      return (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => sendSuggestion(s)}
+              className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      );
     }
 
     return null;
@@ -426,12 +445,10 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
           </div>
           <div>
             <div className="font-semibold text-gray-900">Assistente do Dashboard</div>
-            <div className="text-xs text-gray-500">Pergunte, compare e descubra — sem dados pessoais</div>
+            <div className="text-xs text-gray-500">Agente de dados (Text-to-SQL) • Premium</div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {conversationId ? <Badge>Conectado</Badge> : <Badge>Beta</Badge>}
-        </div>
+        <Badge>{conversationId ? 'Conectado' : 'Novo chat'}</Badge>
       </div>
 
       <div className="px-4 py-3 h-[420px] overflow-auto">
@@ -441,8 +458,8 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
               <div
                 className={
                   m.role === 'user'
-                    ? 'max-w-[88%] rounded-2xl rounded-br-sm bg-violet-600 text-white px-3 py-2 text-sm'
-                    : 'max-w-[88%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100'
+                    ? 'max-w-[90%] rounded-2xl rounded-br-sm bg-violet-600 text-white px-3 py-2 text-sm'
+                    : 'max-w-[90%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100'
                 }
               >
                 <div className="whitespace-pre-line leading-relaxed">{m.content}</div>
@@ -453,8 +470,11 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="max-w-[88%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100">
-                <div className="text-gray-500">Processando…</div>
+              <div className="max-w-[90%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
+                  <span className="text-gray-600">Pensando...</span>
+                </div>
               </div>
             </div>
           )}
@@ -469,29 +489,29 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
             e.preventDefault();
             send(question);
           }}
-          className="flex gap-2"
+          className="flex items-center gap-2"
         >
           <input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Pergunte algo… (ex.: Quantas turmas do 1º ano?)"
-            className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-violet-200"
-            disabled={loading}
+            placeholder='Ex.: "Top 10 escolas com mais matrículas"'
+            className="flex-1 h-11 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-violet-200"
           />
           <button
             type="submit"
             disabled={!canSend}
             className={
               canSend
-                ? 'rounded-xl bg-violet-600 text-white px-4 py-2 text-sm font-semibold hover:bg-violet-700'
-                : 'rounded-xl bg-gray-200 text-gray-500 px-4 py-2 text-sm font-semibold'
+                ? 'h-11 px-4 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700'
+                : 'h-11 px-4 rounded-xl bg-gray-200 text-gray-500 font-semibold cursor-not-allowed'
             }
           >
             Enviar
           </button>
         </form>
+
         <div className="mt-2 text-[11px] text-gray-500">
-          Dica: se aparecer opções (ex.: 1º ANO URBANO/RURAL), clique para escolher ou peça “separar tudo”.
+          Dica: use os filtros do dashboard (ano, etapa, turno, etc.) e depois pergunte aqui.
         </div>
       </div>
     </div>

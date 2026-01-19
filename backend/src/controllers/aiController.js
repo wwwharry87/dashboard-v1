@@ -1,17 +1,17 @@
 'use strict';
 
 /**
- * aiController.js (Premium Agent)
+ * aiController.js (Premium Agent - TOP)
  *
- * Mantém segurança:
+ * Segurança mantida:
  * - ALLOWED_DIMENSIONS + ALLOWED_METRICS (allow-lists)
- * - runQuery executa SQL parametrizado, sem SQL livre do usuário
+ * - SQL parametrizado; nenhum SQL livre do usuário
  *
- * Melhora o agente:
- * - Injeta domínio (valores reais dos filtros) no system prompt
- * - Envia histórico curto (últimas N mensagens) para perguntas de continuação
- * - Desambiguação inteligente de etapa (1º ano urbano/rural/indígena...)
- * - Persistência de conversas no PostgreSQL (reuso + continuidade)
+ * Premium:
+ * - Conversa persistida (PostgreSQL)
+ * - Diagnóstico conversacional para perguntas "por que"
+ * - Entende comparação (2026 vs 2025) e lista de escolas
+ * - Desambiguação de etapa (1º ANO urbano/rural/indígena...)
  */
 
 const pool = require('../config/db');
@@ -88,86 +88,44 @@ const ALLOWED_METRICS = {
 
 let _aiTablesReady = false;
 
-let _aiMessageIdMode = null; // 'auto' | 'explicit' | 'unknown'
-
-async function detectAiMessageIdMode() {
-  if (_aiMessageIdMode) return _aiMessageIdMode;
-  try {
-    const r = await pool.query(
-      `SELECT data_type, udt_name, column_default
-       FROM information_schema.columns
-       WHERE table_schema='public' AND table_name='ai_message' AND column_name='id'`
-    );
-    if (r.rowCount === 0) {
-      _aiMessageIdMode = 'auto';
-      return _aiMessageIdMode;
-    }
-    const row = r.rows[0] || {};
-    const dataType = String(row.data_type || '').toLowerCase();
-    const udtName = String(row.udt_name || '').toLowerCase();
-    const hasDefault = !!row.column_default;
-
-    const isUuid = dataType === 'uuid' || udtName === 'uuid';
-    const isText = dataType === 'text' || udtName === 'text' || dataType === 'character varying' || dataType === 'varchar';
-    const isNumeric = dataType.includes('int') || udtName.startsWith('int') || dataType === 'bigint' || udtName === 'int8' || udtName === 'int4';
-
-    if (hasDefault) {
-      _aiMessageIdMode = 'auto';
-      return _aiMessageIdMode;
-    }
-
-    // Sem default:
-    // - UUID/TEXT: inserir id explicitamente (não depende de extensão no Postgres)
-    if (isUuid || isText) {
-      _aiMessageIdMode = 'explicit';
-      return _aiMessageIdMode;
-    }
-
-    // - Numérico: vamos configurar DEFAULT via sequence e manter modo auto
-    if (isNumeric) {
-      _aiMessageIdMode = 'auto';
-      return _aiMessageIdMode;
-    }
-
-    _aiMessageIdMode = 'unknown';
-    return _aiMessageIdMode;
-  } catch (e) {
-    _aiMessageIdMode = 'unknown';
-    return _aiMessageIdMode;
-  }
-}
-
-async function ensureAiMessageIdDefaultIfNeeded() {
-  // Corrige bancos onde ai_message já existia com id NOT NULL sem DEFAULT
-  const r = await pool.query(
-    `SELECT data_type, udt_name, column_default
-     FROM information_schema.columns
-     WHERE table_schema='public' AND table_name='ai_message' AND column_name='id'`
+async function ensureAiMessageIdDefault() {
+  // Garante que ai_message.id tem DEFAULT (evita erro null no Render com schema antigo)
+  const col = await pool.query(
+    `
+    SELECT data_type, udt_name, column_default
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='ai_message' AND column_name='id'
+    `
   );
-  if (r.rowCount === 0) return;
 
-  const row = r.rows[0] || {};
+  if (col.rowCount === 0) return;
+  const row = col.rows[0] || {};
   const dataType = String(row.data_type || '').toLowerCase();
   const udtName = String(row.udt_name || '').toLowerCase();
   const hasDefault = !!row.column_default;
 
   if (hasDefault) return;
 
-  const isNumeric = dataType.includes('int') || udtName.startsWith('int') || dataType === 'bigint' || udtName === 'int8' || udtName === 'int4';
+  const isUuid = dataType === 'uuid' || udtName === 'uuid';
+  if (isUuid) {
+    await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+    await pool.query(`ALTER TABLE ai_message ALTER COLUMN id SET DEFAULT gen_random_uuid();`);
+    return;
+  }
 
-  // Para UUID/TEXT: não é obrigatório mexer no schema, pois vamos inserir id explicitamente.
-  // Para NUMÉRICO: precisamos criar um DEFAULT (sequence), senão quebra com NULL.
+  const isNumeric = ['integer', 'bigint', 'smallint'].includes(dataType) || ['int2', 'int4', 'int8'].includes(udtName);
   if (isNumeric) {
     await pool.query(`CREATE SEQUENCE IF NOT EXISTS ai_message_id_seq;`);
     await pool.query(`ALTER TABLE ai_message ALTER COLUMN id SET DEFAULT nextval('ai_message_id_seq');`);
+    return;
   }
+
+  // Se for text, não dá pra default numérico; melhor deixar sem tocar.
 }
 
 async function ensureAiTables() {
   if (_aiTablesReady) return;
-  // Tabelas simples, multi-tenant (idcliente).
-  // Obs.: não armazena PII sensível; apenas conteúdo de chat (que pode conter texto livre do usuário)
-  //       e specs geradas (JSON).
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ai_conversation (
       id UUID PRIMARY KEY,
@@ -192,11 +150,7 @@ async function ensureAiTables() {
       ON ai_message(conversation_id, created_at DESC);
   `);
 
-  // ✅ Migração: se a tabela já existia com schema diferente (ex.: id NOT NULL sem DEFAULT),
-  // corrigimos automaticamente para não quebrar no Render.
-  await ensureAiMessageIdDefaultIfNeeded();
-  _aiMessageIdMode = null;
-  await detectAiMessageIdMode();
+  await ensureAiMessageIdDefault();
 
   _aiTablesReady = true;
 }
@@ -206,20 +160,19 @@ function isUuid(v) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 }
 
-function safeTrim(v, max = 60) {
+function safeTrim(v, max = 80) {
   return String(v || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, max);
 }
 
 function getIdentity(req) {
-  // Pelo seu authMiddleware, req.user tem id/clientId/allowedClients. fileciteturn4file0L14-L19
-  // O nome pode vir do frontend (apenas para personalização, nunca para segurança).
   const headerName = req.header('X-User-Name') || req.header('x-user-name');
   const bodyName = req.body?.clientUserName || req.body?.userName || req.body?.clientUser?.name || req.body?.clientUser?.nome;
 
-  const userName = safeTrim(bodyName || headerName || req.user?.nome || req.user?.name || '', 80);
+  const userName = safeTrim(req.user?.nome || req.user?.name || bodyName || headerName || '', 80);
+
   return {
     idcliente: Number(req.user?.clientId || req.user?.idcliente || 0) || 0,
-    userId: safeTrim(req.user?.id || '', 80) || null,
+    userId: req.user?.id !== undefined && req.user?.id !== null ? safeTrim(req.user.id, 80) : null,
     userName: userName || null,
   };
 }
@@ -237,13 +190,11 @@ async function getOrCreateConversation(conversationId, identity) {
     return { id, created: true };
   }
 
-  // Confere se a conversa pertence ao mesmo cliente (isolamento multi-tenant)
   const r = await pool.query(
     `SELECT id FROM ai_conversation WHERE id=$1 AND idcliente=$2`,
     [id, identity.idcliente]
   );
   if (r.rowCount === 0) {
-    // Se tentar usar conversa de outro cliente, cria uma nova (silencioso e seguro)
     const newId = randomUUID();
     await pool.query(
       `INSERT INTO ai_conversation (id, idcliente, user_id, user_name)
@@ -253,7 +204,6 @@ async function getOrCreateConversation(conversationId, identity) {
     return { id: newId, created: true };
   }
 
-  // Atualiza nome se chegou agora
   if (identity.userName) {
     await pool.query(
       `UPDATE ai_conversation
@@ -272,54 +222,11 @@ async function getOrCreateConversation(conversationId, identity) {
 }
 
 async function saveMessage(conversationId, role, content, kind = null, spec = null) {
-  const payload = [conversationId, role, String(content || ''), kind, spec ? JSON.stringify(spec) : null];
-
-  // Preferir omitir id quando o banco tem DEFAULT. Se não tiver (uuid/text), inserir id explícito.
-  const mode = await detectAiMessageIdMode();
-
-  try {
-    if (mode === 'explicit') {
-      const id = randomUUID();
-      await pool.query(
-        `INSERT INTO ai_message (id, conversation_id, role, content, kind, spec_json)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [id, ...payload]
-      );
-      return;
-    }
-
-    await pool.query(
-      `INSERT INTO ai_message (conversation_id, role, content, kind, spec_json)
-       VALUES ($1,$2,$3,$4,$5)`,
-      payload
-    );
-  } catch (e) {
-    // Fallback automático para bancos antigos que exigem id
-    if (e && e.code === '23502' && String(e.message || '').includes('ai_message') && String(e.message || '').includes('id')) {
-      // 1) tenta novamente inserindo UUID (funciona se o tipo do id for uuid/text)
-      const id = randomUUID();
-      try {
-        await pool.query(
-          `INSERT INTO ai_message (id, conversation_id, role, content, kind, spec_json)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [id, ...payload]
-        );
-        _aiMessageIdMode = 'explicit';
-        return;
-      } catch (_) {
-        // 2) se falhar, tenta configurar default numérico e re-inserir sem id
-        await ensureAiMessageIdDefaultIfNeeded();
-        await pool.query(
-          `INSERT INTO ai_message (conversation_id, role, content, kind, spec_json)
-           VALUES ($1,$2,$3,$4,$5)`,
-          payload
-        );
-        _aiMessageIdMode = 'auto';
-        return;
-      }
-    }
-    throw e;
-  }
+  await pool.query(
+    `INSERT INTO ai_message (conversation_id, role, content, kind, spec_json)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [conversationId, role, String(content || ''), kind, spec ? JSON.stringify(spec) : null]
+  );
 }
 
 async function loadRecentMessages(conversationId, limit = 8) {
@@ -388,6 +295,10 @@ function inferEtapaAnoFromQuestion(q) {
 
 function inferMetricFromQuestion(q) {
   const s = String(q || '').toLowerCase();
+
+  // "alunos" = contagem agregada de matrículas (sem PII)
+  if (/\balunos?\b/.test(s) || /n[uú]mero\s+de\s+alunos?/.test(s)) return 'total_matriculas';
+
   if (/\bturmas?\b/.test(s)) return 'total_turmas';
   if (/\bquantas?\s+escolas?\b/.test(s) || /\btotal\s+de\s+escolas?\b/.test(s)) return 'total_escolas';
   if (/evas[aã]o/.test(s)) return 'taxa_evasao';
@@ -448,14 +359,9 @@ function extractJsonMaybe(content) {
 }
 
 function chooseEtapaDimension(metricKey, question) {
-  // Regra de negócio que você descreveu:
-  // - Quando falar de TURMAS -> etapa_turma
-  // - Quando falar de MATRÍCULAS -> etapa_matricula
   const q = String(question || '').toLowerCase();
   if (/\bturmas?\b/.test(q) || metricKey === 'total_turmas') return 'etapa_turma';
-  if (/matr[ií]cul/.test(q) || metricKey === 'total_matriculas' || metricKey === 'matriculas_ativas' || metricKey === 'desistentes') {
-    return 'etapa_matricula';
-  }
+  if (/matr[ií]cul/.test(q) || ['total_matriculas', 'matriculas_ativas', 'desistentes'].includes(metricKey)) return 'etapa_matricula';
   return metricKey === 'total_turmas' ? 'etapa_turma' : 'etapa_matricula';
 }
 
@@ -472,7 +378,7 @@ function findMatchingOptions(options, baseToken) {
 function buildDisambiguationResponse({ identity, metricLabel, etapaBase, dimension, matches }) {
   const namePrefix = identity?.userName ? `${identity.userName}, ` : '';
   const dimHuman = dimension === 'etapa_turma' ? 'etapa da turma (etapa_turma)' : 'etapa da matrícula (etapa_matricula)';
-  const shown = matches.slice(0, 10);
+  const shown = matches.slice(0, 12);
   const more = matches.length > shown.length ? `\n(+${matches.length - shown.length} opções)` : '';
 
   const optionsText = shown.map((x, i) => `${i + 1}) ${x}`).join('\n');
@@ -487,7 +393,7 @@ function buildDisambiguationResponse({ identity, metricLabel, etapaBase, dimensi
     kind: 'disambiguation',
     answer:
       `${namePrefix}encontrei mais de uma opção para **${etapaBase}** em **${dimHuman}**.\n\n` +
-      `Qual delas você quer usar?\n\n${optionsText}${more}`,
+      `O que você quer?\n\n${optionsText}${more}`,
     suggestions,
     options: shown,
     clarify: {
@@ -497,6 +403,27 @@ function buildDisambiguationResponse({ identity, metricLabel, etapaBase, dimensi
       matches: shown,
     },
   };
+}
+
+function extractYears(question) {
+  const q = String(question || '');
+  const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)].map((m) => Number(m[1])).filter(Boolean);
+  return Array.from(new Set(years)).slice(0, 3);
+}
+
+function isCompareIntent(question) {
+  const q = String(question || '').toLowerCase();
+  return /(compar|comparativo|versus|\bvs\b|em\s+rela[cç][aã]o|rela[cç][aã]o\s+a|diferen[cç]a)/.test(q);
+}
+
+function isWhyQuestion(question) {
+  const q = String(question || '').toLowerCase();
+  return /\bpor\s+que\b|\bporque\b|\bmotivo\b|\braz[aã]o\b|\bcausa\b/.test(q);
+}
+
+function isListSchoolsQuestion(question) {
+  const q = String(question || '').toLowerCase();
+  return /quais\s+escolas|nome\s+das\s+escolas|lista\s+de\s+escolas|me\s+passe\s+o\s+nome\s+delas|nome\s+delas/.test(q);
 }
 
 // =========================
@@ -509,7 +436,7 @@ function heuristicSpec(question) {
     .map((m) => Number(m[1]))
     .filter(Boolean);
   const uniqYears = Array.from(new Set(years)).slice(0, 3);
-  const wantsCompare = /(compar|comparativo|comparar|diferen[cç]a|varia[cç][aã]o|delta|evolu|cres|aument|redu[cç][aã]o|queda|diminui)/.test(q);
+  const wantsCompare = isCompareIntent(question);
   const yearWhere = (!wantsCompare && uniqYears.length === 1) ? { ano_letivo: uniqYears[0] } : {};
 
   // TURMAS
@@ -527,9 +454,8 @@ function heuristicSpec(question) {
     }
 
     const etapaBase = inferEtapaAnoFromQuestion(q);
-    const where = {};
-    if (!wantsCompare && uniqYears.length === 1) where.ano_letivo = uniqYears[0];
-    if (etapaBase) where.etapa_turma = etapaBase; // base (pode precisar desambiguar depois)
+    const where = { ...yearWhere };
+    if (etapaBase) where.etapa_turma = etapaBase;
 
     if (/por\s+etapa|por\s+ano|por\s+s[eé]rie/.test(q)) {
       return { type: 'breakdown', metric, groupBy: 'etapa_turma', where, limit, order };
@@ -582,7 +508,7 @@ function heuristicSpec(question) {
   // SINGLE
   if (/taxa\s+de\s+evas[aã]o|evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: yearWhere, limit: 20 };
   if (/matr[ií]culas\s+ativas|ativas/.test(q)) return { type: 'single', metric: 'matriculas_ativas', groupBy: null, where: yearWhere, limit: 20 };
-  if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas|quantas\s+matr[ií]culas/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: yearWhere, limit: 20 };
+  if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas|quantas\s+matr[ií]culas|\balunos?\b/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: yearWhere, limit: 20 };
 
   return null;
 }
@@ -600,21 +526,22 @@ async function deepseekToSpec(question, contextFilters, historyString, domainOpt
     return { type: 'error', message: 'DEEPSEEK_API_KEY não configurada no backend.' };
   }
 
-  const userNameLine = identity?.userName ? `O usuário se chama: ${identity.userName}. Seja humano e cordial.` : 'Seja humano e cordial.';
+  const userNameLine = identity?.userName ? `O usuário se chama: ${identity.userName}. Responda como um analista humano, cordial e direto.` : 'Responda como um analista humano, cordial e direto.';
 
   const system = `Você é um tradutor de perguntas em linguagem natural para uma CONSULTA ESTRUTURADA (JSON) sobre dados do dashboard escolar.
 ${userNameLine}
 
 Regras obrigatórias:
 - Responda SOMENTE com JSON válido (sem texto fora do JSON).
-- Nunca peça/retorne dados pessoais (nome de aluno, CPF, etc.).
+- Nunca peça/retorne dados pessoais de ALUNOS (nome do aluno, CPF, identificadores individuais, etc.).
+- Você PODE retornar nomes de ESCOLAS (instituições) e agregados por escola, desde que não identifique alunos.
 - Use apenas estas métricas: ${Object.keys(ALLOWED_METRICS).join(', ')}.
 - Use apenas estas dimensões: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
 - Se não puder atender com segurança, retorne {"type":"unsupported","reason":"..."}.
 
 Mapeamentos de negócio (muito importante):
 - Quando a pergunta for sobre "turmas": use metric=total_turmas e, para filtrar por série/ano, use a coluna etapa_turma.
-- Quando a pergunta for sobre "matrículas": use metric total_matriculas/matriculas_ativas/desistentes e, para filtrar por série/ano, use a coluna etapa_matricula.
+- Quando a pergunta for sobre "matrículas" (ou "alunos" como total): use metric total_matriculas/matriculas_ativas/desistentes e, para filtrar por série/ano, use a coluna etapa_matricula.
 - Multisseriado pode fazer etapa_matricula diferente de etapa_turma; siga a regra acima conforme o tipo de pergunta.
 
 Domínio (valores existentes no banco) — Use APENAS estes valores para filtros no WHERE:
@@ -921,7 +848,6 @@ function answerFromDashboardContext(question, dashboardContext) {
 
   if (!totals) return null;
 
-  // catálogo
   if (available && /(quais|lista|mostrar).*(anos?|ano\s+letivo)/.test(q)) {
     const anos = Array.isArray(available?.ano_letivo) ? available.ano_letivo : [];
     if (anos.length) {
@@ -945,7 +871,7 @@ function answerFromDashboardContext(question, dashboardContext) {
     if (v !== undefined && v !== null) return { ok: true, answer: `Total de escolas: ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'total_escolas' } };
   }
 
-  if (/matr[ií]cul/.test(q) && !/por\s+/.test(q) && !/rank|top|lista/.test(q)) {
+  if (/matr[ií]cul|\balunos?\b/.test(q) && !/por\s+/.test(q) && !/rank|top|lista/.test(q)) {
     const wantsAtivas = /ativas|ativos|ativo|ativa/.test(q);
     const v = wantsAtivas ? (totals.totalMatriculasAtivas ?? totals.matriculasAtivas ?? totals.totalMatriculas) : (totals.totalMatriculas ?? totals.total_matriculas);
     if (v !== undefined && v !== null) {
@@ -984,7 +910,8 @@ function answerFromDashboardContext(question, dashboardContext) {
     }
   }
 
-  if ((/qual\s+escola|quais\s+escolas|top\s*\d+\s+escolas|escolas\s+com\s+mais/.test(q)) && Array.isArray(totals.escolas)) {
+  // Top escolas já vem pronto no totals.escolas (snapshot)
+  if ((/qual\s+escola|quais\s+escolas|top\s*\d+\s+escolas|escolas\s+com\s+mais|nome\s+delas/.test(q)) && Array.isArray(totals.escolas)) {
     const wantsAtivos = /ativas|ativos|ativo|ativa/.test(q);
     const field = wantsAtivos ? 'ativos' : 'total';
     const limit = parseLimitFromQuestion(question) || 10;
@@ -1007,6 +934,70 @@ function answerFromDashboardContext(question, dashboardContext) {
 }
 
 // =========================
+// Seleção de desambiguação (sum/separate) com SQL seguro
+// =========================
+
+async function runEtapaSelectionMode({ mode, dimension, matches, metric, contextFilters, user }) {
+  if (!mode || !dimension || !Array.isArray(matches) || matches.length === 0) {
+    return { ok: false, message: 'Seleção inválida.' };
+  }
+
+  if (!ALLOWED_DIMENSIONS[dimension]) {
+    return { ok: false, message: 'Dimensão inválida.' };
+  }
+
+  const metricDef = ALLOWED_METRICS[metric];
+  if (!metricDef) {
+    return { ok: false, message: 'Métrica inválida.' };
+  }
+
+  const dimCol = ALLOWED_DIMENSIONS[dimension].col;
+
+  // base clause (filtros do dashboard + segurança multi-tenant via buildWhereClause)
+  const mergedFilters = mergeFilters(contextFilters, {});
+  const normalizedFilters = {
+    ...mergedFilters,
+    anoLetivo: mergedFilters.anoLetivo ?? mergedFilters.ano_letivo,
+    situacaoMatricula: mergedFilters.situacaoMatricula ?? mergedFilters.situacao_matricula,
+  };
+
+  const { clause, params } = buildWhereClause(normalizedFilters, user);
+  const pArr = `$${params.length + 1}`;
+  const newParams = [...params, matches.map(String)];
+
+  const base = `WITH base AS (
+    SELECT * FROM dados_matriculas WHERE ${clause}
+  ), base_sem_especiais AS (
+    SELECT * FROM base WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
+  )`;
+
+  if (mode === 'sum') {
+    const sql = `${base}
+      SELECT ${metricDef.sql} AS value
+      FROM base_sem_especiais
+      WHERE ${dimCol}::text = ANY(${pArr}::text[]);`;
+    const result = await pool.query(sql, newParams);
+    const value = result.rows?.[0]?.value ?? 0;
+    return { ok: true, kind: 'single', value };
+  }
+
+  if (mode === 'separate') {
+    const labelExpr = `COALESCE(${dimCol}::text, 'Sem informação')`;
+    const sql = `${base}
+      SELECT ${labelExpr} AS label, ${metricDef.sql} AS value
+      FROM base_sem_especiais
+      WHERE ${dimCol}::text = ANY(${pArr}::text[])
+      GROUP BY ${labelExpr}
+      ORDER BY value DESC
+      LIMIT ${Math.min(matches.length, 50)};`;
+    const result = await pool.query(sql, newParams);
+    return { ok: true, kind: 'breakdown', rows: result.rows || [], groupBy: dimension };
+  }
+
+  return { ok: false, message: 'Modo inválido.' };
+}
+
+// =========================
 // Handler
 // =========================
 
@@ -1019,33 +1010,117 @@ const query = async (req, res) => {
     const contextFilters = req.body?.filters || {};
     const dashboardContext = req.body?.dashboardContext || null;
     const availableFilters = dashboardContext?.availableFilters || null;
+    const selection = req.body?.selection || null;
 
     if (!question) return res.status(400).json({ error: 'Informe uma pergunta.' });
 
-    // Conversa persistida
     const { id: conversationId, created } = await getOrCreateConversation(req.body?.conversationId, identity);
 
-    // Carrega histórico (últimas mensagens)
     const recent = await loadRecentMessages(conversationId, 8);
     const historyString = buildHistoryString(recent, 4);
 
-    // Salva msg do usuário
     await saveMessage(conversationId, 'user', question);
 
-    // =====================
-    // 1) Desambiguação de etapa (UX premium)
-    // =====================
+    // 0) Pergunta "por que" => modo diagnóstico (conversacional)
+    if (isWhyQuestion(question)) {
+      const namePrefix = identity.userName ? `${identity.userName}, ` : '';
+      const resp = {
+        ok: true,
+        kind: 'analysis',
+        answer:
+          `${namePrefix}eu consigo te ajudar a descobrir o motivo, mas preciso investigar pelos dados. ` +
+          `Geralmente “número baixo” em um ano acontece por: (1) ano ainda não consolidado, ` +
+          `(2) muitos registros fora de ATIVO, (3) filtros aplicados, ` +
+          `(4) entradas/saídas no período, ou (5) divergência por etapa/turno/zona.\n\n` +
+          `Quer que eu verifique agora por onde está “faltando” matrícula?` ,
+        suggestions: [
+          'Comparar matrículas 2026 e 2025 por escola',
+          'Comparar matrículas 2026 e 2025 por etapa',
+          'Matrículas por situação',
+          'Matrículas por turno',
+        ],
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, { type: 'diagnostic' });
+      return res.json(resp);
+    }
+
+    // 1) Comparativo explícito (antes do snapshot)
+    const years = extractYears(question);
+    if (isCompareIntent(question) && years.length >= 2) {
+      const baseYear = Math.min(years[0], years[1]);
+      const compareYear = Math.max(years[0], years[1]);
+      const metric = inferMetricFromQuestion(question);
+      const groupBy = inferGroupByFromQuestion(question) || null;
+      const spec = {
+        type: 'compare',
+        metric,
+        groupBy,
+        where: {},
+        limit: Math.min(Math.max(parseLimitFromQuestion(question) || 20, 1), 50),
+        compare: { baseYear, compareYear, direction: 'all' },
+      };
+
+      const result = await runQuery(spec, contextFilters, req.user);
+      if (result.ok) {
+        const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
+        const metricLabel = ALLOWED_METRICS[metric].label;
+        const groupLabel = groupBy ? ` por ${groupBy.replace('_', ' ')}` : '';
+        const answer = `${namePrefix}${metricLabel}${groupLabel} — comparativo ${compareYear} vs ${baseYear}`;
+
+        const payload = {
+          ok: true,
+          kind: 'compare',
+          answer,
+          data: { rows: result.rows, groupBy, metric, compare: result.compare },
+          spec,
+          conversationId,
+        };
+        await saveMessage(conversationId, 'assistant', payload.answer, 'compare', spec);
+        return res.json(payload);
+      }
+    }
+
+    // 2) Listar escolas (antes do snapshot)
+    if (isListSchoolsQuestion(question)) {
+      const metric = inferMetricFromQuestion(question);
+      const spec = {
+        type: 'breakdown',
+        metric,
+        groupBy: 'escola',
+        where: {},
+        limit: Math.min(Math.max(parseLimitFromQuestion(question) || 25, 1), 50),
+        order: 'desc',
+      };
+
+      const result = await runQuery(spec, contextFilters, req.user);
+      if (result.ok) {
+        const rows = (result.rows || []).map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
+        const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
+        const answer = `${namePrefix}${ALLOWED_METRICS[metric].label} por escola`;
+
+        const payload = {
+          ok: true,
+          kind: 'breakdown',
+          answer,
+          data: { rows, groupBy: 'escola', metric },
+          spec,
+          conversationId,
+        };
+        await saveMessage(conversationId, 'assistant', payload.answer, 'breakdown', spec);
+        return res.json(payload);
+      }
+    }
+
+    // 3) Desambiguação de etapa (pré-spec)
     const metricGuess = inferMetricFromQuestion(question);
     const etapaBase = inferEtapaAnoFromQuestion(question);
-    const selection = req.body?.selection || null; // opcional: { dimension, value } ou { mode: 'sum'|'separate', base, dimension }
 
     if (availableFilters && etapaBase && !selection) {
       const dim = chooseEtapaDimension(metricGuess, question);
       const options = Array.isArray(availableFilters?.[dim]) ? availableFilters[dim] : [];
       const matches = findMatchingOptions(options, etapaBase);
 
-      // se o baseToken tem múltiplas opções no banco, pergunta ao usuário o que ele quer
-      // Ex.: 1º ANO (9 ANOS), 1º ANO (9 ANOS) URBANO, 1º ANO (9 ANOS) RURAL...
       if (matches.length > 1) {
         const resp = buildDisambiguationResponse({
           identity,
@@ -1059,10 +1134,11 @@ const query = async (req, res) => {
       }
     }
 
-    // =====================
-    // 2) Tenta responder pelo snapshot (mais rápido e preciso)
-    // =====================
-    if (dashboardContext?.totals && isSameActiveFilters(dashboardContext?.activeFilters, contextFilters)) {
+    // 4) Snapshot (somente quando não é compare/list/why)
+    if (
+      dashboardContext?.totals &&
+      isSameActiveFilters(dashboardContext?.activeFilters, contextFilters)
+    ) {
       const ctxAnswer = answerFromDashboardContext(question, dashboardContext);
       if (ctxAnswer) {
         const answer = identity.userName && created
@@ -1074,10 +1150,7 @@ const query = async (req, res) => {
       }
     }
 
-    // =====================
-    // 3) Heurística + LLM (com domínio + histórico)
-    // =====================
-
+    // 5) Heurística + LLM
     const heur = heuristicSpec(question);
     const domainOptionsString = formatDomainOptions(availableFilters);
     const spec = heur || (await deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity));
@@ -1096,16 +1169,16 @@ const query = async (req, res) => {
         'Matrículas por turno',
         'Matrículas por sexo',
         'Comparar matrículas 2026 e 2025 por escola',
-        'Comparar desistentes 2026 e 2025 por zona_escola',
+        'Matrículas por situação',
       ];
       const namePrefix = identity.userName ? `${identity.userName}, ` : '';
       const resp = {
         ok: false,
         kind: 'clarify',
         answer:
-          `${namePrefix}ainda não entendi totalmente, mas eu consigo responder agregados, rankings e comparativos por ano — sempre sem dados pessoais.\n\n` +
+          `${namePrefix}eu consigo responder agregados, rankings e comparativos (por escola, turno, sexo, etapa, zona etc.). ` +
+          `Eu não retorno dados pessoais de alunos.\n\n` +
           `Me diga a métrica e como quer ver. Exemplos:\n` +
-          `- "Qual escola tem mais alunos ativos?"\n` +
           `- "Top 10 escolas com mais matrículas"\n` +
           `- "Matrículas por turno"\n` +
           `- "Comparar matrículas 2026 e 2025 por escola"`,
@@ -1117,14 +1190,49 @@ const query = async (req, res) => {
       return res.json(resp);
     }
 
-    // Aplica seleção vinda do frontend (quando usuário escolhe uma opção)
-    // - selection: { dimension, value }
-    // - selection: { dimension, base, mode:'sum'|'separate' } (tratado no frontend como pergunta guiada)
+    // 6) Aplicar seleção do frontend (desambiguação)
+    if (selection?.mode && selection?.dimension && Array.isArray(selection?.matches)) {
+      const metric = spec.metric || inferMetricFromQuestion(question);
+      const result = await runEtapaSelectionMode({
+        mode: String(selection.mode),
+        dimension: String(selection.dimension),
+        matches: selection.matches,
+        metric,
+        contextFilters,
+        user: req.user,
+      });
+
+      if (!result.ok) {
+        const resp = { ok: false, answer: result.message || 'Não consegui executar essa seleção.', conversationId };
+        await saveMessage(conversationId, 'assistant', resp.answer, 'error', { selection, metric });
+        return res.json(resp);
+      }
+
+      const metricLabel = ALLOWED_METRICS[metric].label;
+      if (result.kind === 'single') {
+        const vFmt = metric === 'taxa_evasao' ? `${formatPtBRPercent(result.value)}%` : formatPtBRNumber(result.value);
+        const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
+        const answer = `${namePrefix}${metricLabel}: ${vFmt}`;
+        const payload = { ok: true, kind: 'single', answer, data: { value: result.value }, spec: { type: 'single', metric, selection }, conversationId };
+        await saveMessage(conversationId, 'assistant', payload.answer, 'single', payload.spec);
+        return res.json(payload);
+      }
+
+      if (result.kind === 'breakdown') {
+        const rows = (result.rows || []).map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
+        const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
+        const answer = `${namePrefix}${metricLabel} por ${String(selection.dimension).replace('_', ' ')}`;
+        const payload = { ok: true, kind: 'breakdown', answer, data: { rows, groupBy: selection.dimension, metric }, spec: { type: 'breakdown', metric, groupBy: selection.dimension, selection }, conversationId };
+        await saveMessage(conversationId, 'assistant', payload.answer, 'breakdown', payload.spec);
+        return res.json(payload);
+      }
+    }
+
     if (selection?.dimension && selection?.value && ALLOWED_DIMENSIONS[selection.dimension]) {
       spec.where = { ...(spec.where || {}), [selection.dimension]: String(selection.value) };
     }
 
-    // Validações finais (segurança)
+    // Validações finais
     if (!ALLOWED_METRICS[spec.metric]) {
       const resp = { ok: false, answer: 'Métrica não suportada nessa versão.', conversationId };
       await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
@@ -1157,7 +1265,6 @@ const query = async (req, res) => {
           await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, resp.clarify);
           return res.json({ ...resp, conversationId });
         }
-        // Se houve match único, ajusta o WHERE automaticamente.
         if (matches.length === 1 && ALLOWED_DIMENSIONS[etapaKey]) {
           spec.where = { ...(spec.where || {}), [etapaKey]: matches[0] };
         }
@@ -1178,14 +1285,14 @@ const query = async (req, res) => {
       const answer = (identity.userName && created)
         ? `${identity.userName}, ${metricLabel}: ${valueFmt}`
         : `${metricLabel}: ${valueFmt}`;
-      const payload = { ok: true, answer, data: { value: result.value }, spec, conversationId };
+      const payload = { ok: true, kind: 'single', answer, data: { value: result.value }, spec, conversationId };
       await saveMessage(conversationId, 'assistant', payload.answer, 'single', spec);
       return res.json(payload);
     }
 
     if (result.kind === 'breakdown') {
       const rows = (result.rows || []).map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
-      const groupTxt = result.groupBy.replace('_', ' ');
+      const groupTxt = String(result.groupBy || spec.groupBy || '').replace('_', ' ');
       let answer = `${metricLabel} por ${groupTxt}`;
       if (rows.length === 1 && spec?.groupBy) {
         const v = rows[0].value;
@@ -1196,7 +1303,7 @@ const query = async (req, res) => {
       }
       if (identity.userName && created) answer = `${identity.userName}, ${answer}`;
 
-      const payload = { ok: true, answer, kind: 'breakdown', data: { rows, groupBy: result.groupBy, metric: spec.metric }, spec, conversationId };
+      const payload = { ok: true, kind: 'breakdown', answer, data: { rows, groupBy: result.groupBy, metric: spec.metric }, spec, conversationId };
       await saveMessage(conversationId, 'assistant', payload.answer, 'breakdown', spec);
       return res.json(payload);
     }
