@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import api from './api';
 
 /**
  * AiAssistant.jsx
@@ -101,12 +102,14 @@ export default function AiAssistant({ filters }) {
     setLoading(true);
 
     try {
-      const resp = await fetch('/api/ai/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: trimmed, filters: filters || {} }),
+      // IMPORTANT:
+      // - usa baseURL via REACT_APP_API_URL
+      // - envia token automaticamente (interceptor)
+      // - evita erro "Unexpected end of JSON" quando o frontend não está no mesmo domínio do backend
+      const { data: json } = await api.post('/ai/query', {
+        question: trimmed,
+        filters: filters || {},
       });
-      const json = await resp.json();
 
       // evita loop de mensagem igual
       setMessages((prev) => {
@@ -133,7 +136,10 @@ export default function AiAssistant({ filters }) {
         return [...prev, next];
       });
     } catch (e) {
-      setMessages((prev) => [...prev, { role: 'assistant', kind: 'error', content: `Erro ao consultar IA: ${e?.message || 'erro desconhecido'}` }]);
+      // Axios padroniza erro em e.response
+      const backendMsg = e?.response?.data?.error || e?.response?.data?.message || e?.response?.data?.details;
+      const msg = backendMsg || e?.message || 'erro desconhecido';
+      setMessages((prev) => [...prev, { role: 'assistant', kind: 'error', content: `Erro ao consultar IA: ${msg}` }]);
     } finally {
       setLoading(false);
     }

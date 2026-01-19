@@ -272,23 +272,68 @@ Notas:
   const user = `Pergunta: ${question}
 \nContexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(context || {})}`;
 
-  const resp = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      temperature: 0.1,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    }),
-  });
+  // DeepSeek às vezes pode retornar body vazio em cenários de erro/timeout.
+  // Se a gente chamar resp.json() diretamente, pode estourar:
+  // "Unexpected end of JSON input".
+  const controller = new AbortController();
+  const timeoutMs = Number(process.env.DEEPSEEK_TIMEOUT_MS || 25000);
+  const t = setTimeout(() => controller.abort(), timeoutMs);
 
-  const json = await resp.json();
+  let resp;
+  let text = '';
+  try {
+    resp = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    // sempre lê como texto primeiro para tratar body vazio
+    text = await resp.text();
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      throw new Error(`Timeout ao chamar DeepSeek (>${timeoutMs}ms).`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+
+  // tratamento consistente de erros de upstream
+  if (!resp?.ok) {
+    let details = text;
+    // tenta extrair mensagem de erro caso venha JSON
+    try {
+      const j = text ? JSON.parse(text) : null;
+      details = j?.error?.message || j?.message || j?.error || details;
+    } catch (_) {}
+    const msg = `DeepSeek respondeu HTTP ${resp?.status || '???'}${details ? `: ${String(details).slice(0, 300)}` : ''}`;
+    throw new Error(msg);
+  }
+
+  if (!text || !String(text).trim()) {
+    throw new Error('DeepSeek retornou resposta vazia.');
+  }
+
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`DeepSeek retornou JSON inválido: ${String(e?.message || e).slice(0, 120)}`);
+  }
+
   const content = json?.choices?.[0]?.message?.content;
 
   let spec = extractJsonMaybe(content);
