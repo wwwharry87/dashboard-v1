@@ -32,6 +32,8 @@ const ALLOWED_DIMENSIONS = {
   turno: { col: 'turno', type: 'text' },
   situacao_matricula: { col: 'situacao_matricula', type: 'text' },
   etapa_matricula: { col: 'etapa_matricula', type: 'text' },
+  // etapa/turma (série/ano da turma) — muito usado para perguntas tipo "turmas do 1º ano"
+  etapa_turma: { col: 'etapa_turma', type: 'text' },
   grupo_etapa: { col: 'grupo_etapa', type: 'text' },
   deficiencia: { col: 'deficiencia', type: 'text' },
   transporte_escolar: { col: 'transporte_escolar', type: 'text' },
@@ -44,6 +46,15 @@ const ALLOWED_METRICS = {
   total_matriculas: {
     label: 'Total de matrículas',
     sql: 'COUNT(DISTINCT idmatricula)'
+  },
+  total_turmas: {
+    label: 'Total de turmas',
+    // idturma se repete por aluno; por isso DISTINCT
+    sql: `COUNT(DISTINCT CASE WHEN idturma IS NOT NULL AND idturma <> 0 THEN idturma END)`
+  },
+  total_escolas: {
+    label: 'Total de escolas',
+    sql: `COUNT(DISTINCT CASE WHEN idescola IS NOT NULL AND idescola <> 0 THEN idescola END)`
   },
   matriculas_ativas: {
     label: 'Matrículas ativas',
@@ -74,6 +85,14 @@ function metricSqlForYear(metricKey, yearParamRef) {
 
   if (metricKey === 'total_matriculas') {
     return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} THEN idmatricula END)`;
+  }
+
+  if (metricKey === 'total_turmas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND idturma IS NOT NULL AND idturma <> 0 THEN idturma END)`;
+  }
+
+  if (metricKey === 'total_escolas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND idescola IS NOT NULL AND idescola <> 0 THEN idescola END)`;
   }
 
   if (metricKey === 'matriculas_ativas') {
@@ -140,6 +159,8 @@ function parseLimitFromQuestion(question) {
 
 function inferMetricFromQuestion(q) {
   const s = String(q || '').toLowerCase();
+  if (/\bturmas?\b/.test(s)) return 'total_turmas';
+  if (/\bquantas?\s+escolas?\b/.test(s) || /\btotal\s+de\s+escolas?\b/.test(s)) return 'total_escolas';
   if (/evas[aã]o/.test(s)) return 'taxa_evasao';
   if (/desistent|aband|evad/.test(s)) return 'desistentes';
   if (/ativa|ativos/.test(s)) return 'matriculas_ativas';
@@ -154,6 +175,7 @@ function inferGroupByFromQuestion(q) {
   if (/por\s+situ[aã]c|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(s)) return 'situacao_matricula';
   if (/por\s+zona\s+da\s+escola|zona\s+escola/.test(s)) return 'zona_escola';
   if (/por\s+zona\s+do\s+aluno|zona\s+aluno/.test(s)) return 'zona_aluno';
+  if (/por\s+etapa\s+da\s+turma|por\s+etapa\s+turma|etapa\s+turma/.test(s)) return 'etapa_turma';
   if (/por\s+etapa|etapa/.test(s)) return 'etapa_matricula';
   if (/por\s+grupo\s+etapa|grupo\s+etapa/.test(s)) return 'grupo_etapa';
   if (/por\s+tipo\s+de\s+matr[ií]cula|tipo\s+matr[ií]cula/.test(s)) return 'tipo_matricula';
@@ -161,8 +183,77 @@ function inferGroupByFromQuestion(q) {
   return null;
 }
 
+function inferEtapaAnoFromQuestion(q) {
+  // tenta inferir "1º ANO", "2º ANO", ... a partir de "1 ano", "1º", "primeiro ano" etc.
+  const s = String(q || '').toLowerCase();
+  // 1..9
+  const m = s.match(/\b([1-9])\s*(?:o|º|°)?\s*ano\b|\b([1-9])\s*(?:o|º|°)\b/);
+  const n = Number(m?.[1] || m?.[2]);
+  if (Number.isFinite(n) && n >= 1 && n <= 9) return `${n}º ANO`;
+
+  if (/\bprimeir[oa]\s+ano\b/.test(s)) return '1º ANO';
+  if (/\bsegund[oa]\s+ano\b/.test(s)) return '2º ANO';
+  if (/\bterceir[oa]\s+ano\b/.test(s)) return '3º ANO';
+  if (/\bquart[oa]\s+ano\b/.test(s)) return '4º ANO';
+  if (/\bquint[oa]\s+ano\b/.test(s)) return '5º ANO';
+  if (/\bsext[oa]\s+ano\b/.test(s)) return '6º ANO';
+  if (/\bs[eé]tim[oa]\s+ano\b/.test(s)) return '7º ANO';
+  if (/\boitav[oa]\s+ano\b/.test(s)) return '8º ANO';
+  if (/\bnon[oa]\s+ano\b/.test(s)) return '9º ANO';
+
+  return null;
+}
+
 function heuristicSpec(question) {
   const q = String(question || '').toLowerCase();
+  // =========================
+  // TURMAS (métrica nova)
+  // =========================
+  if (/\bturmas?\b/.test(q)) {
+    const metric = 'total_turmas';
+    const groupBy = inferGroupByFromQuestion(q);
+    const limit = Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50);
+    const order = /(menor|menos|pior)/.test(q) ? 'asc' : 'desc';
+
+    // tenta aplicar "1º ANO" etc.
+    const etapa = inferEtapaAnoFromQuestion(q);
+    const where = {};
+    if (etapa) {
+      // para TURMAS, etapa mais fiel costuma ser etapa_turma
+      where.etapa_turma = etapa;
+    }
+
+    // "turmas por etapa" -> breakdown em etapa_turma
+    if (/por\s+etapa|por\s+ano|por\s+s[eé]rie/.test(q)) {
+      return {
+        type: 'breakdown',
+        metric,
+        groupBy: 'etapa_turma',
+        where,
+        limit,
+        order,
+      };
+    }
+
+    // ranking (por escola) ou "qual escola tem mais turmas"
+    const wantsRanking = /(top|ranking|maior|menor|mais|menos|qual\s+escola)/.test(q);
+    if (wantsRanking) {
+      const by = groupBy || 'escola';
+      const isSingle = /(\bqual\b|\bqual\s+é\b)/.test(q) && !/\btop\b/.test(q) && !/\b\d{1,2}\b/.test(q);
+      return {
+        type: 'breakdown',
+        metric,
+        groupBy: by,
+        where,
+        limit: isSingle ? 1 : Math.min(Math.max(parseLimitFromQuestion(q) || 10, 1), 50),
+        order,
+      };
+    }
+
+    // default: single
+    return { type: 'single', metric, groupBy: null, where, limit: 20 };
+  }
+
 
   // anos mencionados
   const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)].map((m) => Number(m[1])).filter(Boolean);
@@ -241,7 +332,7 @@ async function deepseekToSpec(question, context) {
     };
   }
 
-  const system = `Você é um tradutor de perguntas em linguagem natural para uma CONSULTA ESTRUTURADA (JSON) sobre matrículas escolares.
+  const system = `Você é um tradutor de perguntas em linguagem natural para uma CONSULTA ESTRUTURADA (JSON) sobre dados do dashboard escolar (matrículas, turmas e escolas).
 Regras:
 - Responda SOMENTE com JSON válido (sem texto fora do JSON).
 - Nunca peça ou retorne dados pessoais (nome de aluno, CPF, etc.).
@@ -249,10 +340,15 @@ Regras:
 - Use apenas estas dimensões para agrupamento: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
 - Se a pergunta não puder ser atendida com segurança, retorne {"type":"unsupported","reason":"..."}.
 
+Mapeamentos importantes:
+- "turma(s)" => métrica total_turmas (usa idturma distinto).
+- "quantas escolas" / "total de escolas" => métrica total_escolas.
+- "1º ano", "1 ano", "primeiro ano" => normalmente corresponde a etapa_turma = "1º ANO" (para turmas) e/ou etapa_matricula (para matrículas).
+
 Formato:
 {
   "type": "single" | "breakdown" | "compare" | "unsupported",
-  "metric": "total_matriculas" | "matriculas_ativas" | "desistentes" | "taxa_evasao",
+  "metric": "total_matriculas" | "matriculas_ativas" | "desistentes" | "taxa_evasao" | "total_turmas" | "total_escolas",
   "groupBy": "<dimension>" | null,
   "where": { "<dimension>": "<value>", ... },
   "limit": 20,
@@ -352,8 +448,18 @@ function mergeFilters(contextFilters, whereFromLLM) {
   for (const [k, v] of Object.entries(where)) {
     if (!ALLOWED_DIMENSIONS[k]) continue;
     if (v === undefined || v === null || v === '') continue;
-    // mapeamento amigável (ex.: user pode falar zona_escola, sexo, turno etc.)
-    merged[k === 'ano_letivo' ? 'anoLetivo' : k] = v;
+    // mapeamento snake_case (LLM) -> camelCase (filtros do dashboard)
+    const key =
+      k === 'ano_letivo' ? 'anoLetivo' :
+      k === 'situacao_matricula' ? 'situacaoMatricula' :
+      k === 'grupo_etapa' ? 'grupoEtapa' :
+      k === 'etapa_matricula' ? 'etapaMatricula' :
+      k === 'etapa_turma' ? 'etapaTurma' :
+      k === 'tipo_matricula' ? 'tipoMatricula' :
+      k === 'tipo_transporte' ? 'tipoTransporte' :
+      k === 'transporte_escolar' ? 'transporteEscolar' :
+      k;
+    merged[key] = v;
   }
 
   return merged;
@@ -547,6 +653,9 @@ const query = async (req, res) => {
       const q = String(question || '').toLowerCase();
       const suggestions = [
         'Total de matrículas ativas',
+        'Quantas turmas existem?',
+        'Quantas turmas do 1º ANO?',
+        'Turmas por etapa_turma',
         'Matrículas por turno',
         'Matrículas por sexo',
         'Comparar matrículas 2026 e 2025 por escola',
@@ -555,8 +664,14 @@ const query = async (req, res) => {
       if (/escola|unidade|inep/.test(q)) {
         suggestions.unshift('Qual escola tem mais alunos ativos?', 'Top 10 escolas com mais matrículas');
       }
+      if (/\bturmas?\b/.test(q)) {
+        suggestions.unshift('Top 10 escolas com mais turmas', 'Quantas turmas do 1º ANO?');
+      }
       if (/etapa|1º|2º|3º|4º|5º|6º|7º|8º|9º|ano\b/.test(q)) {
         suggestions.unshift('Matrículas ativas na etapa 1º ANO');
+      }
+      if (/\bturmas?\b/.test(q)) {
+        suggestions.unshift('Quantas turmas do 1º ANO?', 'Top 10 escolas com mais turmas');
       }
       if (/situa|ativo|ativa|desistent|cancel/.test(q)) {
         suggestions.unshift('Matrículas ativas por situação de matrícula');

@@ -71,12 +71,14 @@ export default function AiAssistant({ filters }) {
         'Oi! Eu sou sua IA do Dashboard. Me pergunte coisas como:\n' +
         '• "Qual escola tem mais alunos ativos?"\n' +
         '• "Top 10 escolas com mais matrículas"\n' +
+        '• "Quantas turmas do 1º ano?"\n' +
         '• "Matrículas por turno"\n' +
         '• "Comparar matrículas 2026 e 2025 por escola"\n\n' +
         'Eu respondo só com números agregados (sem dados pessoais).',
       suggestions: [
         'Qual escola tem mais alunos ativos?',
         'Top 10 escolas com mais matrículas',
+        'Quantas turmas do 1º ano?',
         'Matrículas por turno',
         'Comparar matrículas 2026 e 2025 por escola',
       ],
