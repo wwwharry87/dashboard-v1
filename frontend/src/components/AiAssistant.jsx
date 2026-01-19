@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import api from './api';
+import api from './api'; // Certifique-se que o caminho está correto para seu projeto
 
-// Charts (recharts)
+// Charts (recharts) - Certifique-se de ter rodado: npm install recharts
 import {
   BarChart,
   Bar,
@@ -14,12 +14,12 @@ import {
 } from 'recharts';
 
 /**
- * AiAssistant.jsx
+ * AiAssistant.jsx - VERSÃO FINAL TOP TIER
  *
- * Chat simples para "Pergunte ao Dashboard".
- * - Mostra sugestões (chips) quando o backend retorna kind=clarify
- * - Renderiza tabelas para breakdown/compare
- * - Evita repetir a mesma mensagem de clarificação em loop
+ * - Gráficos visuais com números externos (legibilidade máxima)
+ * - Cores consistentes (Violeta)
+ * - Tratamento de erro em gráficos
+ * - Envio de contexto rico (Histórico + Catálogo de Filtros)
  */
 
 function formatPtBRNumber(x) {
@@ -29,7 +29,7 @@ function formatPtBRNumber(x) {
 }
 
 function formatPercentMaybe(metric, value) {
-  if (metric === 'taxa_evasao') {
+  if (metric === 'taxa_evasao' || metric === 'taxa_ocupacao') {
     const n = Number(value);
     if (!Number.isFinite(n)) return '0,00%';
     return `${n.toFixed(2).replace('.', ',')}%`;
@@ -39,7 +39,7 @@ function formatPercentMaybe(metric, value) {
 
 function Badge({ children }) {
   return (
-    <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-xs">
+    <span className="inline-flex items-center rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 text-xs font-semibold border border-violet-200">
       {children}
     </span>
   );
@@ -47,12 +47,12 @@ function Badge({ children }) {
 
 function Table({ columns, rows }) {
   return (
-    <div className="mt-3 overflow-auto rounded-lg border border-gray-200">
+    <div className="mt-3 overflow-auto rounded-lg border border-gray-200 shadow-sm">
       <table className="min-w-full text-sm">
         <thead className="bg-gray-50">
           <tr>
             {columns.map((c) => (
-              <th key={c.key} className="text-left font-semibold text-gray-700 px-3 py-2 whitespace-nowrap">
+              <th key={c.key} className="text-left font-semibold text-gray-700 px-3 py-2 whitespace-nowrap border-b border-gray-200">
                 {c.label}
               </th>
             ))}
@@ -60,7 +60,7 @@ function Table({ columns, rows }) {
         </thead>
         <tbody>
           {rows.map((r, idx) => (
-            <tr key={idx} className={idx % 2 ? 'bg-white' : 'bg-gray-50/40'}>
+            <tr key={idx} className={`hover:bg-violet-50/50 transition-colors ${idx % 2 ? 'bg-white' : 'bg-gray-50/30'}`}>
               {columns.map((c) => (
                 <td key={c.key} className="px-3 py-2 text-gray-800 whitespace-nowrap">
                   {r[c.key]}
@@ -74,7 +74,7 @@ function Table({ columns, rows }) {
   );
 }
 
-// Resiliência: se o Recharts falhar por qualquer motivo, caímos de volta para a tabela.
+// Resiliência: se o Recharts falhar, cai de volta para a tabela
 class ChartErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -86,8 +86,6 @@ class ChartErrorBoundary extends React.Component {
   }
 
   componentDidCatch(err) {
-    // Mantém log apenas em console para diagnóstico; UX faz fallback.
-    // eslint-disable-next-line no-console
     console.warn('[AiAssistant] Chart render failed:', err);
   }
 
@@ -104,38 +102,54 @@ function BreakdownBarChart({ rows, metric, groupBy }) {
         .map((r) => ({ name: String(r.label), value: Number(r.value) || 0 }))
     : [];
 
-  // Recharts costuma sofrer com labels gigantes. Mantemos um label curto no eixo,
-  // mas o tooltip mostra completo.
-  const short = (s) => {
+  // Truncar labels muito longos no eixo Y para não quebrar o layout
+  const shortLabel = (s) => {
     const str = String(s || '');
-    return str.length > 26 ? `${str.slice(0, 24)}…` : str;
+    return str.length > 20 ? `${str.slice(0, 18)}…` : str;
   };
 
   if (!chartData.length) return null;
 
+  // Ajuste de altura dinâmico baseado na quantidade de barras
+  const dynamicHeight = Math.min(400, Math.max(200, chartData.length * 35));
+
   return (
-    <div className="mt-3 rounded-lg border border-gray-200 bg-white p-2">
-      <div className="mb-2 text-xs text-gray-600">
-        {groupBy ? `Detalhamento por ${groupBy}` : 'Detalhamento'}
+    <div className="mt-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+      <div className="mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+        {groupBy ? `Análise por ${groupBy.replace('_', ' ')}` : 'Análise'}
       </div>
-      <div style={{ width: '100%', height: Math.min(380, Math.max(220, chartData.length * 28)) }}>
+      <div style={{ width: '100%', height: dynamicHeight }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" />
+          <BarChart 
+            data={chartData} 
+            layout="vertical" 
+            margin={{ top: 5, right: 45, left: 10, bottom: 5 }} // Right maior para o LabelList caber
+          >
+            <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e5e7eb" />
             <XAxis
               type="number"
-              tickFormatter={(v) => (metric === 'taxa_evasao' ? `${Number(v).toFixed(2).replace('.', ',')}%` : formatPtBRNumber(v))}
+              hide // Esconde o eixo X numérico para limpar o visual
             />
-            <YAxis type="category" dataKey="name" width={140} tickFormatter={short} />
+            <YAxis 
+              type="category" 
+              dataKey="name" 
+              width={110} 
+              tickFormatter={shortLabel} 
+              tick={{ fontSize: 11, fill: '#4b5563' }}
+              interval={0}
+            />
             <Tooltip
-              formatter={(value) => [formatPercentMaybe(metric, value), metric || 'valor']}
-              labelFormatter={(label) => `${groupBy || 'Grupo'}: ${label}`}
+              cursor={{ fill: '#f3f4f6' }}
+              contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+              formatter={(value) => [formatPercentMaybe(metric, value), metric === 'taxa_evasao' ? 'Taxa' : 'Total']}
+              labelFormatter={(label) => `${label}`}
             />
-            <Bar dataKey="value" radius={[6, 6, 6, 6]}>
+            <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20} fill="#7c3aed">
               <LabelList
                 dataKey="value"
                 position="right"
                 formatter={(v) => formatPercentMaybe(metric, v)}
+                style={{ fill: '#4b5563', fontSize: '11px', fontWeight: 'bold' }}
               />
             </Bar>
           </BarChart>
@@ -166,19 +180,18 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       role: 'assistant',
       kind: 'intro',
       content:
-        'Oi! Eu sou sua IA do Dashboard. Me pergunte coisas como:\n' +
-        '• "Qual escola tem mais alunos ativos?"\n' +
-        '• "Top 10 escolas com mais matrículas"\n' +
-        '• "Quantas turmas do 1º ano?"\n' +
+        'Olá! Sou sua Inteligência de Dados. 🧠\n' +
+        'Analiso matrículas, turmas e escolas em tempo real.\n\n' +
+        'Tente perguntar:\n' +
+        '• "Qual escola tem mais alunos?"\n' +
         '• "Matrículas por turno"\n' +
-        '• "Comparar matrículas 2026 e 2025 por escola"\n\n' +
-        'Eu respondo só com números agregados (sem dados pessoais).',
+        '• "Quantas turmas de 1º ano?"\n' +
+        '• "Comparar 2026 e 2025"',
       suggestions: [
-        'Qual escola tem mais alunos ativos?',
-        'Top 10 escolas com mais matrículas',
-        'Quantas turmas do 1º ano?',
+        'Qual escola tem mais alunos?',
         'Matrículas por turno',
-        'Comparar matrículas 2026 e 2025 por escola',
+        'Quantas turmas de 1º ano?',
+        'Comparar matrículas 2026 e 2025',
       ],
     },
   ]));
@@ -203,29 +216,20 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
     try {
       const history = buildHistoryString(messages, trimmed);
-      // IMPORTANT:
-      // - usa baseURL via REACT_APP_API_URL
-      // - envia token automaticamente (interceptor)
-      // - evita erro "Unexpected end of JSON" quando o frontend não está no mesmo domínio do backend
-      // Envia um "snapshot" do dashboard (agregados + catálogo de filtros) para a IA responder
-      // com base no que o usuário está vendo agora (mesmos filtros e mesmos totais).
+      
       const { data: json } = await api.post('/ai/query', {
         question: trimmed,
         filters: filters || {},
-        // (1) contexto rico p/ perguntas de continuação
         history,
         dashboardContext: {
-          // filtros disponíveis (valores possíveis) — sem dados pessoais
           availableFilters: filtersCatalog || null,
-          // totais/agrupamentos já carregados pelo dashboard — sem PII
           totals: totals || null,
-          // filtros ativos no momento
           activeFilters: filters || {},
         },
       });
 
-      // evita loop de mensagem igual
       setMessages((prev) => {
+        // Lógica para evitar mensagens duplicadas se a IA repetir o clarify
         const last = [...prev].reverse().find((m) => m.role === 'assistant');
         const inferredKind =
           json?.kind ||
@@ -241,7 +245,6 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         };
 
         if (last && last.content === next.content && next.kind === 'clarify') {
-          // se repetiu, só atualiza sugestões
           const merged = Array.from(new Set([...(last.suggestions || []), ...(next.suggestions || [])])).slice(0, 8);
           const updatedLast = { ...last, suggestions: merged };
           const out = prev.slice();
@@ -253,7 +256,6 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         return [...prev, next];
       });
     } catch (e) {
-      // Axios padroniza erro em e.response
       const backendMsg = e?.response?.data?.error || e?.response?.data?.message || e?.response?.data?.details;
       const msg = backendMsg || e?.message || 'erro desconhecido';
       setMessages((prev) => [...prev, { role: 'assistant', kind: 'error', content: `Erro ao consultar IA: ${msg}` }]);
@@ -265,23 +267,20 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
   function renderAssistantExtras(m) {
     const data = m?.data;
     const spec = m?.spec;
-
-    // chips
     const suggestions = (m?.suggestions || []).filter(Boolean);
 
     // breakdown / compare
     if (data?.rows && Array.isArray(data.rows) && data.rows.length) {
       if (m.kind === 'compare') {
-        // compare table
         const cols = [
-          { key: 'label', label: spec?.groupBy ? `Grupo (${spec.groupBy})` : 'Grupo' },
+          { key: 'label', label: spec?.groupBy ? `Grupo` : 'Métrica' },
           { key: 'base', label: `${data.compare?.baseYear ?? 'Base'}` },
-          { key: 'comp', label: `${data.compare?.compareYear ?? 'Comparação'}` },
-          { key: 'delta', label: 'Δ' },
-          { key: 'pct', label: '% Δ' },
+          { key: 'comp', label: `${data.compare?.compareYear ?? 'Atual'}` },
+          { key: 'delta', label: 'Diferença' },
+          { key: 'pct', label: 'Variação' },
         ];
         const rows = data.rows.map((r) => ({
-          label: r.label,
+          label: r.label || 'Geral',
           base: formatPercentMaybe(data.metric, r.base_value),
           comp: formatPercentMaybe(data.metric, r.compare_value),
           delta: formatPercentMaybe(data.metric, r.delta),
@@ -289,28 +288,25 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         }));
 
         return (
-          <>
+          <div className="w-full">
             <Table columns={cols} rows={rows} />
             {suggestions.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {suggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => send(s)}
-                    className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
-                  >
+                  <button key={i} onClick={() => send(s)} className="px-3 py-1.5 rounded-full text-xs border border-violet-200 bg-white text-violet-700 hover:bg-violet-50 transition-colors">
                     {s}
                   </button>
                 ))}
               </div>
             )}
-          </>
+          </div>
         );
       }
 
-      // breakdown -> renderiza gráfico (recharts). Se falhar, cai para tabela.
+      // Breakdown -> Gráfico
       const metric = data.metric || spec?.metric;
       const groupBy = data.groupBy || spec?.groupBy;
+      
       const cols = [
         { key: 'label', label: groupBy ? `Grupo (${groupBy})` : 'Grupo' },
         { key: 'value', label: 'Valor' },
@@ -323,10 +319,9 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       const fallbackTable = <Table columns={cols} rows={rows} />;
 
       return (
-        <>
+        <div className="w-full">
           {m.kind === 'breakdown' ? (
             <ChartErrorBoundary fallback={fallbackTable}>
-              {/* Se não houver dados suficientes, ou o recharts der erro, a tabela aparece. */}
               <BreakdownBarChart rows={data.rows} metric={metric} groupBy={groupBy} />
             </ChartErrorBoundary>
           ) : (
@@ -335,30 +330,22 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
           {suggestions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {suggestions.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => send(s)}
-                  className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
-                >
+                <button key={i} onClick={() => send(s)} className="px-3 py-1.5 rounded-full text-xs border border-violet-200 bg-white text-violet-700 hover:bg-violet-50 transition-colors">
                   {s}
                 </button>
               ))}
             </div>
           )}
-        </>
+        </div>
       );
     }
 
-    // clarify chips even sem data
+    // Clarify chips
     if (m.kind === 'clarify' && suggestions.length > 0) {
       return (
         <div className="mt-3 flex flex-wrap gap-2">
           {suggestions.map((s, i) => (
-            <button
-              key={i}
-              onClick={() => send(s)}
-              className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
-            >
+            <button key={i} onClick={() => send(s)} className="px-3 py-1.5 rounded-full text-xs border border-violet-200 bg-white text-violet-700 hover:bg-violet-50 transition-colors">
               {s}
             </button>
           ))}
@@ -370,82 +357,82 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
   }
 
   return (
-    <div className="w-full rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <div className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-xl bg-violet-600/10 flex items-center justify-center">
-            <span className="text-violet-700 font-bold">AI</span>
+    <div className="w-full rounded-2xl border border-gray-200 bg-white shadow-lg flex flex-col h-[600px] overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-violet-600 to-indigo-600">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-white text-xl">
+            🤖
           </div>
           <div>
-            <div className="font-semibold text-gray-900">Assistente do Dashboard</div>
-            <div className="text-xs text-gray-500">Pergunte, compare e descubra — sem dados pessoais</div>
+            <div className="font-bold text-white">Assistente IA</div>
+            <div className="text-xs text-violet-100 opacity-90">Powered by DeepSeek</div>
           </div>
         </div>
-        <Badge>Beta</Badge>
-      </div>
-
-      <div className="px-4 py-3 h-[360px] overflow-auto">
-        <div className="space-y-3">
-          {messages.map((m, idx) => (
-            <div key={idx} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-              <div
-                className={
-                  m.role === 'user'
-                    ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-violet-600 text-white px-3 py-2 text-sm'
-                    : 'max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100'
-                }
-              >
-                <div className="whitespace-pre-line leading-relaxed">{m.content}</div>
-                {m.role === 'assistant' && renderAssistantExtras(m)}
-              </div>
-            </div>
-          ))}
-
-          {loading && (
-            <div className="flex justify-start">
-              <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
-                  <span className="text-gray-600">Pensando...</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div ref={bottomRef} />
+        <div className="bg-white/20 text-white text-[10px] font-bold px-2 py-1 rounded-lg backdrop-blur-sm">
+          V2.0 PRO
         </div>
       </div>
 
-      <div className="px-4 py-3 border-t border-gray-100">
+      {/* Area do Chat */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-slate-50">
+        {messages.map((m, idx) => (
+          <div key={idx} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`
+                max-w-[92%] sm:max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm
+                ${m.role === 'user' 
+                  ? 'bg-violet-600 text-white rounded-br-none' 
+                  : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'}
+              `}
+            >
+              <div className="whitespace-pre-line leading-relaxed">{m.content}</div>
+              {m.role === 'assistant' && renderAssistantExtras(m)}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-white px-4 py-3 rounded-2xl rounded-bl-none border border-gray-200 shadow-sm flex items-center gap-2">
+              <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" />
+              <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce delay-100" />
+              <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce delay-200" />
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input Area */}
+      <div className="p-4 bg-white border-t border-gray-100">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             send(question);
           }}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 relative"
         >
           <input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder='Ex.: "Qual escola tem mais alunos ativos?"'
-            className="flex-1 h-11 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-violet-200"
+            className="flex-1 h-12 pl-4 pr-12 rounded-xl bg-gray-50 border-0 ring-1 ring-gray-200 focus:ring-2 focus:ring-violet-500 focus:bg-white transition-all text-gray-700 placeholder-gray-400"
           />
           <button
             type="submit"
             disabled={!canSend}
-            className={
-              canSend
-                ? 'h-11 px-4 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700'
-                : 'h-11 px-4 rounded-xl bg-gray-200 text-gray-500 font-semibold cursor-not-allowed'
-            }
+            className={`
+              absolute right-2 h-9 px-4 rounded-lg font-medium transition-all text-sm
+              ${canSend 
+                ? 'bg-violet-600 text-white hover:bg-violet-700 shadow-md transform hover:scale-105' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'}
+            `}
           >
             Enviar
           </button>
         </form>
-
-        <div className="mt-2 text-[11px] text-gray-500">
-          Dica: você pode usar os filtros do dashboard (ano, etapa, turno, etc.) e depois perguntar aqui.
-        </div>
       </div>
     </div>
   );
