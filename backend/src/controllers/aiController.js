@@ -206,6 +206,20 @@ function inferEtapaAnoFromQuestion(q) {
 
 function heuristicSpec(question) {
   const q = String(question || '').toLowerCase();
+
+  // anos mencionados (um ou mais) — usado tanto em "turmas" quanto em outras métricas
+  const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)]
+    .map((m) => Number(m[1]))
+    .filter(Boolean);
+  const uniqYears = Array.from(new Set(years)).slice(0, 3);
+
+  const wantsCompare = /(compar|comparativo|comparar|diferen[cç]a|varia[cç][aã]o|delta|evolu|cres|aument|redu[cç][aã]o|queda|diminui)/.test(q);
+
+  // se o usuário mencionar APENAS um ano (ex.: "em 2026"), aplicamos como filtro
+  // para as consultas não-comparativas.
+  const yearWhere = (!wantsCompare && uniqYears.length === 1)
+    ? { ano_letivo: uniqYears[0] }
+    : {};
   // =========================
   // TURMAS (métrica nova)
   // =========================
@@ -215,9 +229,32 @@ function heuristicSpec(question) {
     const limit = Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50);
     const order = /(menor|menos|pior)/.test(q) ? 'asc' : 'desc';
 
+    // "comparar turmas 2026 e 2025" (não deixar cair no fluxo de turmas simples)
+    if (wantsCompare && uniqYears.length >= 2) {
+      const baseYear = Math.min(uniqYears[0], uniqYears[1]);
+      const compareYear = Math.max(uniqYears[0], uniqYears[1]);
+      const direction = /(redu[cç][aã]o|queda|diminui)/.test(q)
+        ? 'decrease'
+        : (/(aument|cres|subiu)/.test(q) ? 'increase' : 'all');
+
+      return {
+        type: 'compare',
+        metric,
+        groupBy: groupBy || null,
+        where: {},
+        limit,
+        compare: { baseYear, compareYear, direction },
+      };
+    }
+
     // tenta aplicar "1º ANO" etc.
     const etapa = inferEtapaAnoFromQuestion(q);
     const where = {};
+
+    // se mencionar um ano específico (ex.: "turmas em 2026"), aplica como filtro
+    if (!wantsCompare && uniqYears.length === 1) {
+      where.ano_letivo = uniqYears[0];
+    }
     if (etapa) {
       // para TURMAS, etapa mais fiel costuma ser etapa_turma
       where.etapa_turma = etapa;
@@ -254,12 +291,6 @@ function heuristicSpec(question) {
     return { type: 'single', metric, groupBy: null, where, limit: 20 };
   }
 
-
-  // anos mencionados
-  const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)].map((m) => Number(m[1])).filter(Boolean);
-  const uniqYears = Array.from(new Set(years)).slice(0, 3);
-
-  const wantsCompare = /(compar|comparativo|comparar|diferen[cç]a|varia[cç][aã]o|delta|evolu|cres|aument|redu[cç][aã]o|queda|diminui)/.test(q);
   if (wantsCompare && uniqYears.length >= 2) {
     const baseYear = Math.min(uniqYears[0], uniqYears[1]);
     const compareYear = Math.max(uniqYears[0], uniqYears[1]);
@@ -284,7 +315,7 @@ function heuristicSpec(question) {
       type: 'breakdown',
       metric: inferMetricFromQuestion(q),
       groupBy: by,
-      where: {},
+      where: yearWhere,
       limit: Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50),
       order: 'desc',
     };
@@ -305,16 +336,16 @@ function heuristicSpec(question) {
       type: 'breakdown',
       metric,
       groupBy,
-      where: {},
+      where: yearWhere,
       limit: isSingle ? 1 : limit,
       order,
     };
   }
 
   // single (um número)
-  if (/taxa\s+de\s+evas[aã]o|evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: {}, limit: 20 };
-  if (/matr[ií]culas\s+ativas|ativas/.test(q)) return { type: 'single', metric: 'matriculas_ativas', groupBy: null, where: {}, limit: 20 };
-  if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas|quantas\s+matr[ií]culas/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: {}, limit: 20 };
+  if (/taxa\s+de\s+evas[aã]o|evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: yearWhere, limit: 20 };
+  if (/matr[ií]culas\s+ativas|ativas/.test(q)) return { type: 'single', metric: 'matriculas_ativas', groupBy: null, where: yearWhere, limit: 20 };
+  if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas|quantas\s+matr[ií]culas/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: yearWhere, limit: 20 };
 
   return null;
 }
@@ -621,13 +652,226 @@ function formatPtBRPercent(x) {
   return n.toFixed(2).replace('.', ',');
 }
 
+function isSameActiveFilters(a, b) {
+  // compara apenas chaves presentes em ambos; usado para evitar usar um snapshot
+  // que não corresponde aos filtros enviados.
+  const A = a || {};
+  const B = b || {};
+  const keys = new Set([...Object.keys(A), ...Object.keys(B)]);
+  for (const k of keys) {
+    // normaliza undefined/null/'' como ''
+    const va = A[k] ?? '';
+    const vb = B[k] ?? '';
+    if (String(va) !== String(vb)) return false;
+  }
+  return true;
+}
+
+function toRowsFromObject(obj) {
+  if (!obj || typeof obj !== 'object') return [];
+  return Object.entries(obj)
+    .map(([label, value]) => ({ label, value: Number(value) || 0 }))
+    .sort((a, b) => (b.value || 0) - (a.value || 0));
+}
+
+function answerFromDashboardContext(question, dashboardContext) {
+  const q = String(question || '').toLowerCase();
+  const ctx = dashboardContext || {};
+  const totals = ctx.totals || null;
+  const available = ctx.availableFilters || null;
+  const active = ctx.activeFilters || {};
+
+  if (!totals) return null;
+
+  // --- perguntas sobre catálogo de filtros ---
+  if (available && /(quais|lista|mostrar).*(anos?|ano\s+letivo)/.test(q)) {
+    const anos = Array.isArray(available?.ano_letivo) ? available.ano_letivo : [];
+    if (anos.length) {
+      return {
+        ok: true,
+        kind: 'ok',
+        answer: `Anos letivos disponíveis: ${anos.join(', ')}.`,
+        data: { years: anos },
+        spec: { type: 'info', topic: 'ano_letivo' },
+      };
+    }
+  }
+
+  // --- última atualização ---
+  if (/atuali[sz]a/.test(q) && /ultima|última|data|hora/.test(q)) {
+    if (totals.ultimaAtualizacao) {
+      return {
+        ok: true,
+        answer: `Última atualização: ${new Date(totals.ultimaAtualizacao).toLocaleString('pt-BR')}`,
+        data: { ultimaAtualizacao: totals.ultimaAtualizacao },
+        spec: { type: 'single', metric: 'ultimaAtualizacao' },
+      };
+    }
+  }
+
+  // --- respostas diretas (totais) ---
+  if (/\bturmas?\b/.test(q) && !/por\s+escola|por\s+etapa|detalh|rank|top|lista/.test(q)) {
+    const v = totals.totalTurmas ?? totals.total_turmas;
+    if (v !== undefined && v !== null) {
+      return {
+        ok: true,
+        answer: `Total de turmas: ${formatPtBRNumber(v)}`,
+        data: { value: Number(v) || 0 },
+        spec: { type: 'single', metric: 'total_turmas' },
+      };
+    }
+  }
+
+  if (/\bescolas?\b/.test(q) && !/por\s+zona|por\s+escola|rank|top|lista/.test(q)) {
+    const v = totals.totalEscolas ?? totals.total_escolas;
+    if (v !== undefined && v !== null) {
+      return {
+        ok: true,
+        answer: `Total de escolas: ${formatPtBRNumber(v)}`,
+        data: { value: Number(v) || 0 },
+        spec: { type: 'single', metric: 'total_escolas' },
+      };
+    }
+  }
+
+  if (/matr[ií]cul/.test(q) && !/por\s+/.test(q) && !/rank|top|lista/.test(q)) {
+    // tenta diferenciar ativas
+    const wantsAtivas = /ativas|ativos|ativo|ativa/.test(q);
+    const v = wantsAtivas
+      ? (totals.totalMatriculasAtivas ?? totals.matriculasAtivas ?? totals.totalMatriculas)
+      : (totals.totalMatriculas ?? totals.total_matriculas);
+    if (v !== undefined && v !== null) {
+      const label = wantsAtivas ? 'Matrículas ativas' : 'Total de matrículas';
+      return {
+        ok: true,
+        answer: `${label}: ${formatPtBRNumber(v)}`,
+        data: { value: Number(v) || 0 },
+        spec: { type: 'single', metric: wantsAtivas ? 'matriculas_ativas' : 'total_matriculas' },
+      };
+    }
+  }
+
+  // --- breakdowns que já existem no payload do dashboard ---
+  if (/por\s+sexo|sexo/.test(q)) {
+    const rows = toRowsFromObject(totals.matriculasPorSexo);
+    if (rows.length) {
+      return {
+        ok: true,
+        answer: 'Matrículas por sexo',
+        data: { rows, groupBy: 'sexo', metric: 'total_matriculas' },
+        spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'sexo' },
+      };
+    }
+  }
+
+  if (/por\s+turno|turno|manha|manhã|tarde|noite|integral/.test(q)) {
+    const rows = toRowsFromObject(totals.matriculasPorTurno);
+    if (rows.length) {
+      return {
+        ok: true,
+        answer: 'Matrículas por turno',
+        data: { rows, groupBy: 'turno', metric: 'total_matriculas' },
+        spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'turno' },
+      };
+    }
+  }
+
+  if (/por\s+situa|situa[cç][aã]o\s+da\s+matr[ií]cula|ativos|cancel|desistent|transfer/.test(q)) {
+    const rows = toRowsFromObject(totals.matriculasPorSituacao);
+    if (rows.length) {
+      return {
+        ok: true,
+        answer: 'Matrículas por situação',
+        data: { rows, groupBy: 'situacao_matricula', metric: 'total_matriculas' },
+        spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'situacao_matricula' },
+      };
+    }
+  }
+
+  if (/por\s+zona|zona\s+urb|zona\s+rur|urbana|rural/.test(q)) {
+    // tenta descobrir se o usuário quer turmas, escolas, vagas/capacidade ou matrículas
+    if (/\bturmas?\b/.test(q) && totals.turmasPorZona) {
+      const rows = toRowsFromObject(totals.turmasPorZona);
+      if (rows.length) {
+        return {
+          ok: true,
+          answer: 'Turmas por zona',
+          data: { rows, groupBy: 'zona_escola', metric: 'total_turmas' },
+          spec: { type: 'breakdown', metric: 'total_turmas', groupBy: 'zona_escola' },
+        };
+      }
+    }
+    if (/\bescolas?\b/.test(q) && totals.escolasPorZona) {
+      const rows = toRowsFromObject(totals.escolasPorZona);
+      if (rows.length) {
+        return {
+          ok: true,
+          answer: 'Escolas por zona',
+          data: { rows, groupBy: 'zona_escola', metric: 'total_escolas' },
+          spec: { type: 'breakdown', metric: 'total_escolas', groupBy: 'zona_escola' },
+        };
+      }
+    }
+    if (totals.matriculasPorZona) {
+      const rows = toRowsFromObject(totals.matriculasPorZona);
+      if (rows.length) {
+        return {
+          ok: true,
+          answer: 'Matrículas por zona',
+          data: { rows, groupBy: 'zona_aluno', metric: 'total_matriculas' },
+          spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'zona_aluno' },
+        };
+      }
+    }
+  }
+
+  // --- ranking por escola (com base no snapshot do mapa) ---
+  if ((/qual\s+escola|quais\s+escolas|top\s*\d+\s+escolas|escolas\s+com\s+mais/.test(q)) && Array.isArray(totals.escolas)) {
+    const wantsAtivos = /ativas|ativos|ativo|ativa/.test(q);
+    const field = wantsAtivos ? 'ativos' : 'total';
+    const limit = parseLimitFromQuestion(question) || 10;
+    const rows = (totals.escolas || [])
+      .map((e) => ({ label: e.nome || e.escola || String(e.idescola || ''), value: Number(e[field]) || 0 }))
+      .sort((a, b) => (b.value || 0) - (a.value || 0))
+      .slice(0, Math.min(Math.max(limit, 1), 50));
+
+    if (rows.length) {
+      const metric = wantsAtivos ? 'matriculas_ativas' : 'total_matriculas';
+      const answer = rows.length === 1
+        ? `Maior ${wantsAtivos ? 'nº de matrículas ativas' : 'nº de matrículas'}: ${rows[0].label} (${formatPtBRNumber(rows[0].value)})`
+        : `${wantsAtivos ? 'Matrículas ativas' : 'Matrículas'} por escola (Top ${rows.length})`;
+
+      return {
+        ok: true,
+        answer,
+        data: { rows, groupBy: 'escola', metric },
+        spec: { type: 'breakdown', metric, groupBy: 'escola', limit: rows.length, order: 'desc' },
+      };
+    }
+  }
+
+  // não consegui responder só com o snapshot
+  return null;
+}
+
 const query = async (req, res) => {
   try {
     const question = sanitizeQuestion(req.body?.question);
     const contextFilters = req.body?.filters || {};
+    const dashboardContext = req.body?.dashboardContext || null;
 
     if (!question) {
       return res.status(400).json({ error: 'Informe uma pergunta.' });
+    }
+
+    // 0) Se o frontend mandou o snapshot do dashboard (totais + catálogo de filtros),
+    // tentamos responder DIRETO pelo que o usuário está vendo (mais rápido e mais preciso
+    // para perguntas sobre os cards/gráficos já carregados).
+    if (dashboardContext?.totals && isSameActiveFilters(dashboardContext?.activeFilters, contextFilters)) {
+      const ctxAnswer = answerFromDashboardContext(question, dashboardContext);
+      if (ctxAnswer) {
+        return res.json(ctxAnswer);
+      }
     }
 
     // 1) heurística para comparativos (evita frustração e diminui dependência do LLM)

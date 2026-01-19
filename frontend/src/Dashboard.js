@@ -2012,7 +2012,7 @@ const Dashboard = () => {
           {/* ABA: ASSISTENTE IA */}
           {activeTab === "assistant" && (
             <div className="space-y-3 sm:space-y-4">
-              <AiAssistant filters={selectedFilters} />
+              <AiAssistant filters={selectedFilters} totals={data} filtersCatalog={filters} />
             </div>
           )}
         </div>

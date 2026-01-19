@@ -62,7 +62,7 @@ function Table({ columns, rows }) {
   );
 }
 
-export default function AiAssistant({ filters }) {
+export default function AiAssistant({ filters, totals, filtersCatalog }) {
   const [messages, setMessages] = useState(() => ([
     {
       role: 'assistant',
@@ -108,9 +108,19 @@ export default function AiAssistant({ filters }) {
       // - usa baseURL via REACT_APP_API_URL
       // - envia token automaticamente (interceptor)
       // - evita erro "Unexpected end of JSON" quando o frontend não está no mesmo domínio do backend
+      // Envia um "snapshot" do dashboard (agregados + catálogo de filtros) para a IA responder
+      // com base no que o usuário está vendo agora (mesmos filtros e mesmos totais).
       const { data: json } = await api.post('/ai/query', {
         question: trimmed,
         filters: filters || {},
+        dashboardContext: {
+          // filtros disponíveis (valores possíveis) — sem dados pessoais
+          availableFilters: filtersCatalog || null,
+          // totais/agrupamentos já carregados pelo dashboard — sem PII
+          totals: totals || null,
+          // filtros ativos no momento
+          activeFilters: filters || {},
+        },
       });
 
       // evita loop de mensagem igual
