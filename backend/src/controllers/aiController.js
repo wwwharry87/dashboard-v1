@@ -3,16 +3,15 @@
 /**
  * aiController.js (Premium Agent)
  *
- * Segurança mantida:
+ * Mantém segurança:
  * - ALLOWED_DIMENSIONS + ALLOWED_METRICS (allow-lists)
- * - runQuery executa SQL parametrizado via pool.query + buildWhereClause (sem SQL livre do usuário)
+ * - runQuery executa SQL parametrizado, sem SQL livre do usuário
  *
- * Premium:
+ * Melhora o agente:
  * - Injeta domínio (valores reais dos filtros) no system prompt
- * - Usa histórico curto (últimas N mensagens) para continuação
- * - Desambiguação de etapa (1º ano urbano/rural/indígena...)
- * - Persistência de conversas no PostgreSQL (continuidade + reuso)
- * - Personalização: nome do usuário vem do JWT (req.user.nome) quando disponível
+ * - Envia histórico curto (últimas N mensagens) para perguntas de continuação
+ * - Desambiguação inteligente de etapa (1º ano urbano/rural/indígena...)
+ * - Persistência de conversas no PostgreSQL (reuso + continuidade)
  */
 
 const pool = require('../config/db');
@@ -89,9 +88,86 @@ const ALLOWED_METRICS = {
 
 let _aiTablesReady = false;
 
+let _aiMessageIdMode = null; // 'auto' | 'explicit' | 'unknown'
+
+async function detectAiMessageIdMode() {
+  if (_aiMessageIdMode) return _aiMessageIdMode;
+  try {
+    const r = await pool.query(
+      `SELECT data_type, udt_name, column_default
+       FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='ai_message' AND column_name='id'`
+    );
+    if (r.rowCount === 0) {
+      _aiMessageIdMode = 'auto';
+      return _aiMessageIdMode;
+    }
+    const row = r.rows[0] || {};
+    const dataType = String(row.data_type || '').toLowerCase();
+    const udtName = String(row.udt_name || '').toLowerCase();
+    const hasDefault = !!row.column_default;
+
+    const isUuid = dataType === 'uuid' || udtName === 'uuid';
+    const isText = dataType === 'text' || udtName === 'text' || dataType === 'character varying' || dataType === 'varchar';
+    const isNumeric = dataType.includes('int') || udtName.startsWith('int') || dataType === 'bigint' || udtName === 'int8' || udtName === 'int4';
+
+    if (hasDefault) {
+      _aiMessageIdMode = 'auto';
+      return _aiMessageIdMode;
+    }
+
+    // Sem default:
+    // - UUID/TEXT: inserir id explicitamente (não depende de extensão no Postgres)
+    if (isUuid || isText) {
+      _aiMessageIdMode = 'explicit';
+      return _aiMessageIdMode;
+    }
+
+    // - Numérico: vamos configurar DEFAULT via sequence e manter modo auto
+    if (isNumeric) {
+      _aiMessageIdMode = 'auto';
+      return _aiMessageIdMode;
+    }
+
+    _aiMessageIdMode = 'unknown';
+    return _aiMessageIdMode;
+  } catch (e) {
+    _aiMessageIdMode = 'unknown';
+    return _aiMessageIdMode;
+  }
+}
+
+async function ensureAiMessageIdDefaultIfNeeded() {
+  // Corrige bancos onde ai_message já existia com id NOT NULL sem DEFAULT
+  const r = await pool.query(
+    `SELECT data_type, udt_name, column_default
+     FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='ai_message' AND column_name='id'`
+  );
+  if (r.rowCount === 0) return;
+
+  const row = r.rows[0] || {};
+  const dataType = String(row.data_type || '').toLowerCase();
+  const udtName = String(row.udt_name || '').toLowerCase();
+  const hasDefault = !!row.column_default;
+
+  if (hasDefault) return;
+
+  const isNumeric = dataType.includes('int') || udtName.startsWith('int') || dataType === 'bigint' || udtName === 'int8' || udtName === 'int4';
+
+  // Para UUID/TEXT: não é obrigatório mexer no schema, pois vamos inserir id explicitamente.
+  // Para NUMÉRICO: precisamos criar um DEFAULT (sequence), senão quebra com NULL.
+  if (isNumeric) {
+    await pool.query(`CREATE SEQUENCE IF NOT EXISTS ai_message_id_seq;`);
+    await pool.query(`ALTER TABLE ai_message ALTER COLUMN id SET DEFAULT nextval('ai_message_id_seq');`);
+  }
+}
+
 async function ensureAiTables() {
   if (_aiTablesReady) return;
-
+  // Tabelas simples, multi-tenant (idcliente).
+  // Obs.: não armazena PII sensível; apenas conteúdo de chat (que pode conter texto livre do usuário)
+  //       e specs geradas (JSON).
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ai_conversation (
       id UUID PRIMARY KEY,
@@ -116,6 +192,12 @@ async function ensureAiTables() {
       ON ai_message(conversation_id, created_at DESC);
   `);
 
+  // ✅ Migração: se a tabela já existia com schema diferente (ex.: id NOT NULL sem DEFAULT),
+  // corrigimos automaticamente para não quebrar no Render.
+  await ensureAiMessageIdDefaultIfNeeded();
+  _aiMessageIdMode = null;
+  await detectAiMessageIdMode();
+
   _aiTablesReady = true;
 }
 
@@ -124,30 +206,22 @@ function isUuid(v) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 }
 
-function safeTrim(v, max = 80) {
+function safeTrim(v, max = 60) {
   return String(v || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, max);
 }
 
-/**
- * Premium identity:
- * - idcliente e userId SEMPRE do JWT (req.user)
- * - userName preferencialmente do JWT (req.user.nome)
- * - header/body apenas como fallback (nunca para segurança)
- */
 function getIdentity(req) {
-  const idcliente = Number(req.user?.clientId || req.user?.idcliente || 0) || 0;
-  const userId = safeTrim(req.user?.id || '', 80) || null;
+  // Pelo seu authMiddleware, req.user tem id/clientId/allowedClients. fileciteturn4file0L14-L19
+  // O nome pode vir do frontend (apenas para personalização, nunca para segurança).
+  const headerName = req.header('X-User-Name') || req.header('x-user-name');
+  const bodyName = req.body?.clientUserName || req.body?.userName || req.body?.clientUser?.name || req.body?.clientUser?.nome;
 
-  // ✅ preferir SEMPRE o nome do JWT (após você incluir "nome" no tokenPayload do login)
-  const jwtName = safeTrim(req.user?.nome || req.user?.name || '', 80);
-
-  // fallback opcional para compatibilidade (se token antigo ainda não tiver nome)
-  const headerName = safeTrim(req.header('x-user-name') || req.header('X-User-Name') || '', 80);
-  const bodyName = safeTrim(req.body?.clientUserName || req.body?.userName || req.body?.clientUser?.name || req.body?.clientUser?.nome || '', 80);
-
-  const userName = jwtName || bodyName || headerName || null;
-
-  return { idcliente, userId, userName };
+  const userName = safeTrim(bodyName || headerName || req.user?.nome || req.user?.name || '', 80);
+  return {
+    idcliente: Number(req.user?.clientId || req.user?.idcliente || 0) || 0,
+    userId: safeTrim(req.user?.id || '', 80) || null,
+    userName: userName || null,
+  };
 }
 
 async function getOrCreateConversation(conversationId, identity) {
@@ -163,14 +237,13 @@ async function getOrCreateConversation(conversationId, identity) {
     return { id, created: true };
   }
 
-  // Confere se a conversa pertence ao mesmo cliente
+  // Confere se a conversa pertence ao mesmo cliente (isolamento multi-tenant)
   const r = await pool.query(
     `SELECT id FROM ai_conversation WHERE id=$1 AND idcliente=$2`,
     [id, identity.idcliente]
   );
-
   if (r.rowCount === 0) {
-    // Conversa de outro cliente -> cria nova
+    // Se tentar usar conversa de outro cliente, cria uma nova (silencioso e seguro)
     const newId = randomUUID();
     await pool.query(
       `INSERT INTO ai_conversation (id, idcliente, user_id, user_name)
@@ -180,7 +253,7 @@ async function getOrCreateConversation(conversationId, identity) {
     return { id: newId, created: true };
   }
 
-  // Atualiza nome se chegou agora (ou se mudou)
+  // Atualiza nome se chegou agora
   if (identity.userName) {
     await pool.query(
       `UPDATE ai_conversation
@@ -199,11 +272,54 @@ async function getOrCreateConversation(conversationId, identity) {
 }
 
 async function saveMessage(conversationId, role, content, kind = null, spec = null) {
-  await pool.query(
-    `INSERT INTO ai_message (conversation_id, role, content, kind, spec_json)
-     VALUES ($1,$2,$3,$4,$5)`,
-    [conversationId, role, String(content || ''), kind, spec ? JSON.stringify(spec) : null]
-  );
+  const payload = [conversationId, role, String(content || ''), kind, spec ? JSON.stringify(spec) : null];
+
+  // Preferir omitir id quando o banco tem DEFAULT. Se não tiver (uuid/text), inserir id explícito.
+  const mode = await detectAiMessageIdMode();
+
+  try {
+    if (mode === 'explicit') {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO ai_message (id, conversation_id, role, content, kind, spec_json)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [id, ...payload]
+      );
+      return;
+    }
+
+    await pool.query(
+      `INSERT INTO ai_message (conversation_id, role, content, kind, spec_json)
+       VALUES ($1,$2,$3,$4,$5)`,
+      payload
+    );
+  } catch (e) {
+    // Fallback automático para bancos antigos que exigem id
+    if (e && e.code === '23502' && String(e.message || '').includes('ai_message') && String(e.message || '').includes('id')) {
+      // 1) tenta novamente inserindo UUID (funciona se o tipo do id for uuid/text)
+      const id = randomUUID();
+      try {
+        await pool.query(
+          `INSERT INTO ai_message (id, conversation_id, role, content, kind, spec_json)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [id, ...payload]
+        );
+        _aiMessageIdMode = 'explicit';
+        return;
+      } catch (_) {
+        // 2) se falhar, tenta configurar default numérico e re-inserir sem id
+        await ensureAiMessageIdDefaultIfNeeded();
+        await pool.query(
+          `INSERT INTO ai_message (conversation_id, role, content, kind, spec_json)
+           VALUES ($1,$2,$3,$4,$5)`,
+          payload
+        );
+        _aiMessageIdMode = 'auto';
+        return;
+      }
+    }
+    throw e;
+  }
 }
 
 async function loadRecentMessages(conversationId, limit = 8) {
@@ -332,6 +448,9 @@ function extractJsonMaybe(content) {
 }
 
 function chooseEtapaDimension(metricKey, question) {
+  // Regra de negócio que você descreveu:
+  // - Quando falar de TURMAS -> etapa_turma
+  // - Quando falar de MATRÍCULAS -> etapa_matricula
   const q = String(question || '').toLowerCase();
   if (/\bturmas?\b/.test(q) || metricKey === 'total_turmas') return 'etapa_turma';
   if (/matr[ií]cul/.test(q) || metricKey === 'total_matriculas' || metricKey === 'matriculas_ativas' || metricKey === 'desistentes') {
@@ -410,7 +529,7 @@ function heuristicSpec(question) {
     const etapaBase = inferEtapaAnoFromQuestion(q);
     const where = {};
     if (!wantsCompare && uniqYears.length === 1) where.ano_letivo = uniqYears[0];
-    if (etapaBase) where.etapa_turma = etapaBase;
+    if (etapaBase) where.etapa_turma = etapaBase; // base (pode precisar desambiguar depois)
 
     if (/por\s+etapa|por\s+ano|por\s+s[eé]rie/.test(q)) {
       return { type: 'breakdown', metric, groupBy: 'etapa_turma', where, limit, order };
@@ -481,9 +600,7 @@ async function deepseekToSpec(question, contextFilters, historyString, domainOpt
     return { type: 'error', message: 'DEEPSEEK_API_KEY não configurada no backend.' };
   }
 
-  const userNameLine = identity?.userName
-    ? `O usuário se chama: ${identity.userName}. Seja humano, cordial e direto. Não repita o nome toda hora.`
-    : 'Seja humano, cordial e direto.';
+  const userNameLine = identity?.userName ? `O usuário se chama: ${identity.userName}. Seja humano e cordial.` : 'Seja humano e cordial.';
 
   const system = `Você é um tradutor de perguntas em linguagem natural para uma CONSULTA ESTRUTURADA (JSON) sobre dados do dashboard escolar.
 ${userNameLine}
@@ -495,9 +612,9 @@ Regras obrigatórias:
 - Use apenas estas dimensões: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
 - Se não puder atender com segurança, retorne {"type":"unsupported","reason":"..."}.
 
-Mapeamentos de negócio:
-- Quando a pergunta for sobre "turmas": use metric=total_turmas e, para filtrar por série/ano, use etapa_turma.
-- Quando a pergunta for sobre "matrículas": use total_matriculas/matriculas_ativas/desistentes e, para filtrar por série/ano, use etapa_matricula.
+Mapeamentos de negócio (muito importante):
+- Quando a pergunta for sobre "turmas": use metric=total_turmas e, para filtrar por série/ano, use a coluna etapa_turma.
+- Quando a pergunta for sobre "matrículas": use metric total_matriculas/matriculas_ativas/desistentes e, para filtrar por série/ano, use a coluna etapa_matricula.
 - Multisseriado pode fazer etapa_matricula diferente de etapa_turma; siga a regra acima conforme o tipo de pergunta.
 
 Domínio (valores existentes no banco) — Use APENAS estes valores para filtros no WHERE:
@@ -804,6 +921,7 @@ function answerFromDashboardContext(question, dashboardContext) {
 
   if (!totals) return null;
 
+  // catálogo
   if (available && /(quais|lista|mostrar).*(anos?|ano\s+letivo)/.test(q)) {
     const anos = Array.isArray(available?.ano_letivo) ? available.ano_letivo : [];
     if (anos.length) {
@@ -893,8 +1011,6 @@ function answerFromDashboardContext(question, dashboardContext) {
 // =========================
 
 const query = async (req, res) => {
-  let conversationIdForError = null;
-
   try {
     await ensureAiTables();
 
@@ -908,25 +1024,28 @@ const query = async (req, res) => {
 
     // Conversa persistida
     const { id: conversationId, created } = await getOrCreateConversation(req.body?.conversationId, identity);
-    conversationIdForError = conversationId;
 
-    // Histórico
+    // Carrega histórico (últimas mensagens)
     const recent = await loadRecentMessages(conversationId, 8);
     const historyString = buildHistoryString(recent, 4);
 
     // Salva msg do usuário
     await saveMessage(conversationId, 'user', question);
 
-    // 1) Desambiguação de etapa
+    // =====================
+    // 1) Desambiguação de etapa (UX premium)
+    // =====================
     const metricGuess = inferMetricFromQuestion(question);
     const etapaBase = inferEtapaAnoFromQuestion(question);
-    const selection = req.body?.selection || null;
+    const selection = req.body?.selection || null; // opcional: { dimension, value } ou { mode: 'sum'|'separate', base, dimension }
 
     if (availableFilters && etapaBase && !selection) {
       const dim = chooseEtapaDimension(metricGuess, question);
       const options = Array.isArray(availableFilters?.[dim]) ? availableFilters[dim] : [];
       const matches = findMatchingOptions(options, etapaBase);
 
+      // se o baseToken tem múltiplas opções no banco, pergunta ao usuário o que ele quer
+      // Ex.: 1º ANO (9 ANOS), 1º ANO (9 ANOS) URBANO, 1º ANO (9 ANOS) RURAL...
       if (matches.length > 1) {
         const resp = buildDisambiguationResponse({
           identity,
@@ -940,21 +1059,25 @@ const query = async (req, res) => {
       }
     }
 
-    // 2) Snapshot rápido
+    // =====================
+    // 2) Tenta responder pelo snapshot (mais rápido e preciso)
+    // =====================
     if (dashboardContext?.totals && isSameActiveFilters(dashboardContext?.activeFilters, contextFilters)) {
       const ctxAnswer = answerFromDashboardContext(question, dashboardContext);
       if (ctxAnswer) {
         const answer = identity.userName && created
           ? `${identity.userName}, ${ctxAnswer.answer}`
           : ctxAnswer.answer;
-
         const payload = { ...ctxAnswer, answer, conversationId };
         await saveMessage(conversationId, 'assistant', payload.answer, payload.kind || 'ok', payload.spec || null);
         return res.json(payload);
       }
     }
 
-    // 3) Heurística + LLM
+    // =====================
+    // 3) Heurística + LLM (com domínio + histórico)
+    // =====================
+
     const heur = heuristicSpec(question);
     const domainOptionsString = formatDomainOptions(availableFilters);
     const spec = heur || (await deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity));
@@ -994,12 +1117,14 @@ const query = async (req, res) => {
       return res.json(resp);
     }
 
-    // Aplica seleção (quando usuário escolhe uma opção)
+    // Aplica seleção vinda do frontend (quando usuário escolhe uma opção)
+    // - selection: { dimension, value }
+    // - selection: { dimension, base, mode:'sum'|'separate' } (tratado no frontend como pergunta guiada)
     if (selection?.dimension && selection?.value && ALLOWED_DIMENSIONS[selection.dimension]) {
       spec.where = { ...(spec.where || {}), [selection.dimension]: String(selection.value) };
     }
 
-    // Validações finais
+    // Validações finais (segurança)
     if (!ALLOWED_METRICS[spec.metric]) {
       const resp = { ok: false, answer: 'Métrica não suportada nessa versão.', conversationId };
       await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
@@ -1012,7 +1137,7 @@ const query = async (req, res) => {
     }
     if (spec?.order && !['asc', 'desc'].includes(String(spec.order))) delete spec.order;
 
-    // Desambiguação pós-spec
+    // Desambiguação pós-spec (quando IA retornou etapa base genérica)
     if (availableFilters) {
       const dim = chooseEtapaDimension(spec.metric, question);
       const etapaKey = dim === 'etapa_turma' ? 'etapa_turma' : 'etapa_matricula';
@@ -1021,7 +1146,6 @@ const query = async (req, res) => {
       if (base && (!selection || !selection.value)) {
         const options = Array.isArray(availableFilters?.[dim]) ? availableFilters[dim] : [];
         const matches = findMatchingOptions(options, base);
-
         if (matches.length > 1 && (!etapaValue || normalizeText(etapaValue) === normalizeText(base))) {
           const resp = buildDisambiguationResponse({
             identity,
@@ -1033,7 +1157,7 @@ const query = async (req, res) => {
           await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, resp.clarify);
           return res.json({ ...resp, conversationId });
         }
-
+        // Se houve match único, ajusta o WHERE automaticamente.
         if (matches.length === 1 && ALLOWED_DIMENSIONS[etapaKey]) {
           spec.where = { ...(spec.where || {}), [etapaKey]: matches[0] };
         }
@@ -1102,11 +1226,7 @@ const query = async (req, res) => {
     return res.json(fallback);
   } catch (err) {
     console.error('[aiController] Erro:', err);
-    return res.status(500).json({
-      error: 'Erro ao executar consulta IA',
-      details: err.message,
-      conversationId: conversationIdForError,
-    });
+    return res.status(500).json({ error: 'Erro ao executar consulta IA', details: err.message });
   }
 };
 
