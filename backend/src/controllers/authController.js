@@ -32,20 +32,24 @@ const login = async (req, res) => {
       'SELECT idcliente FROM usuario_clientes WHERE usuario_id = $1',
       [user.id]
     );
-    
+
     const allowedClients = clientesResult.rows.map(row => row.idcliente);
 
-    const tokenPayload = { 
+    // ✅ MELHORIA: incluir nome no token (para IA e UX sem depender do frontend)
+    // Dica premium: use nome (e opcionalmente "role" se existir) e evite colocar dados sensíveis demais.
+    const tokenPayload = {
       id: user.id,
       cpf: user.cpf,
+      nome: user.nome, // ✅ ADICIONADO
       allowedClients,
       clientId: allowedClients[0] || null
     };
 
     const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '1d' });
+
     console.timeEnd('LOGIN');
-    return res.json({ 
-      token, 
+    return res.json({
+      token,
       nome: user.nome,
       idcliente: allowedClients[0] || null
     });
@@ -95,7 +99,7 @@ const resetPasswordManual = async (req, res) => {
       [hashedPassword, user.id]
     );
     return res.json({ message: 'Senha redefinida com sucesso.' });
-    
+
   } catch (error) {
     console.error('Erro em resetPasswordManual:', error);
     return res.status(500).json({ error: 'Erro ao redefinir senha.' });
@@ -106,7 +110,7 @@ const resetPasswordManual = async (req, res) => {
 const getUser = async (req, res) => {
   try {
     const user = req.user;
-    
+
     // Busca os dados completos do usuário no banco
     const result = await pool.query('SELECT id, nome, cpf FROM usuarios WHERE id = $1', [user.id]);
     if (result.rows.length === 0) {
@@ -114,7 +118,7 @@ const getUser = async (req, res) => {
     }
 
     const userData = result.rows[0];
-    res.json({ 
+    res.json({
       id: userData.id,
       nome: userData.nome,
       cpf: userData.cpf

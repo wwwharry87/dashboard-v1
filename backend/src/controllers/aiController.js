@@ -1,16 +1,23 @@
 'use strict';
 
 /**
- * aiController.js
+ * aiController.js (Premium Agent)
  *
- * MVP seguro de "Pergunte ao Dashboard" usando DeepSeek.
- * - O LLM apenas traduz a pergunta em uma CONSULTA ESTRUTURADA (JSON)
- * - O servidor executa SQL parametrizado com allow-list de métricas/dimensões
- * - Nunca retorna PII (nomes de alunos, CPF, etc.)
+ * Segurança mantida:
+ * - ALLOWED_DIMENSIONS + ALLOWED_METRICS (allow-lists)
+ * - runQuery executa SQL parametrizado via pool.query + buildWhereClause (sem SQL livre do usuário)
+ *
+ * Premium:
+ * - Injeta domínio (valores reais dos filtros) no system prompt
+ * - Usa histórico curto (últimas N mensagens) para continuação
+ * - Desambiguação de etapa (1º ano urbano/rural/indígena...)
+ * - Persistência de conversas no PostgreSQL (continuidade + reuso)
+ * - Personalização: nome do usuário vem do JWT (req.user.nome) quando disponível
  */
 
 const pool = require('../config/db');
 const NodeCache = require('node-cache');
+const { randomUUID } = require('crypto');
 const { buildWhereClause } = require('./dashboardController');
 
 const cache = new NodeCache({ stdTTL: 180, checkperiod: 60 });
@@ -18,6 +25,10 @@ const cache = new NodeCache({ stdTTL: 180, checkperiod: 60 });
 const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+
+// =========================
+// Segurança: allow-lists
+// =========================
 
 function sanitizeQuestion(q) {
   return String(q || '').trim().slice(0, 800);
@@ -32,7 +43,6 @@ const ALLOWED_DIMENSIONS = {
   turno: { col: 'turno', type: 'text' },
   situacao_matricula: { col: 'situacao_matricula', type: 'text' },
   etapa_matricula: { col: 'etapa_matricula', type: 'text' },
-  // etapa/turma (série/ano da turma) — muito usado para perguntas tipo "turmas do 1º ano"
   etapa_turma: { col: 'etapa_turma', type: 'text' },
   grupo_etapa: { col: 'grupo_etapa', type: 'text' },
   deficiencia: { col: 'deficiencia', type: 'text' },
@@ -45,103 +55,263 @@ const ALLOWED_DIMENSIONS = {
 const ALLOWED_METRICS = {
   total_matriculas: {
     label: 'Total de matrículas',
-    sql: 'COUNT(DISTINCT idmatricula)'
+    sql: 'COUNT(DISTINCT idmatricula)',
   },
   total_turmas: {
     label: 'Total de turmas',
-    // idturma se repete por aluno; por isso DISTINCT
-    sql: `COUNT(DISTINCT CASE WHEN idturma IS NOT NULL AND idturma <> 0 THEN idturma END)`
+    sql: `COUNT(DISTINCT CASE WHEN idturma IS NOT NULL AND idturma <> 0 THEN idturma END)`,
   },
   total_escolas: {
     label: 'Total de escolas',
-    sql: `COUNT(DISTINCT CASE WHEN idescola IS NOT NULL AND idescola <> 0 THEN idescola END)`
+    sql: `COUNT(DISTINCT CASE WHEN idescola IS NOT NULL AND idescola <> 0 THEN idescola END)`,
   },
   matriculas_ativas: {
     label: 'Matrículas ativas',
-    sql: `COUNT(DISTINCT CASE 
+    sql: `COUNT(DISTINCT CASE
       WHEN UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA') OR COALESCE(idsituacao,0)=0
-      THEN idmatricula END)`
+      THEN idmatricula END)`,
   },
   desistentes: {
     label: 'Desistentes',
-    sql: `COUNT(DISTINCT CASE WHEN COALESCE(idsituacao,0)=2 THEN idmatricula END)`
+    sql: `COUNT(DISTINCT CASE WHEN COALESCE(idsituacao,0)=2 THEN idmatricula END)`,
   },
   taxa_evasao: {
     label: 'Taxa de evasão (%)',
-    // taxa_evasao = desistentes / total * 100 (base sem idetapa 98/99)
     sql: `CASE WHEN COUNT(DISTINCT idmatricula) > 0
       THEN ROUND((COUNT(DISTINCT CASE WHEN COALESCE(idsituacao,0)=2 THEN idmatricula END) * 100.0) / COUNT(DISTINCT idmatricula), 2)
-      ELSE 0 END`
-  },
-  total_entradas: {
-    label: 'Total de entradas',
-    // coluna do dataset: entrada_mes_tipo (formato "MM-..." ou '-')
-    sql: `COUNT(DISTINCT idmatricula) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo <> '-')`
-  },
-  total_saidas: {
-    label: 'Total de saídas',
-    // coluna do dataset: saida_mes_situacao (formato "MM-..." ou '-')
-    sql: `COUNT(DISTINCT idmatricula) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao <> '-')`
+      ELSE 0 END`,
   },
 };
 
-// --- Helpers para comparativos (ano x ano) ---
-// Para manter segurança, NUNCA aceitamos SQL livre do usuário.
-// O LLM só escolhe métrica/dimensão/anos; o servidor monta SQL parametrizado.
+// =========================
+// Conversas (PostgreSQL)
+// =========================
 
-function metricSqlForYear(metricKey, yearParamRef) {
-  // yearParamRef deve ser algo como '$3' (parametro do ano)
-  const y = yearParamRef;
+let _aiTablesReady = false;
 
-  if (metricKey === 'total_matriculas') {
-    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} THEN idmatricula END)`;
+async function ensureAiTables() {
+  if (_aiTablesReady) return;
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_conversation (
+      id UUID PRIMARY KEY,
+      idcliente BIGINT NOT NULL,
+      user_id TEXT NULL,
+      user_name TEXT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_message (
+      id BIGSERIAL PRIMARY KEY,
+      conversation_id UUID NOT NULL REFERENCES ai_conversation(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+      content TEXT NOT NULL,
+      kind TEXT NULL,
+      spec_json JSONB NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_message_conv_created
+      ON ai_message(conversation_id, created_at DESC);
+  `);
+
+  _aiTablesReady = true;
+}
+
+function isUuid(v) {
+  const s = String(v || '').trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+
+function safeTrim(v, max = 80) {
+  return String(v || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, max);
+}
+
+/**
+ * Premium identity:
+ * - idcliente e userId SEMPRE do JWT (req.user)
+ * - userName preferencialmente do JWT (req.user.nome)
+ * - header/body apenas como fallback (nunca para segurança)
+ */
+function getIdentity(req) {
+  const idcliente = Number(req.user?.clientId || req.user?.idcliente || 0) || 0;
+  const userId = safeTrim(req.user?.id || '', 80) || null;
+
+  // ✅ preferir SEMPRE o nome do JWT (após você incluir "nome" no tokenPayload do login)
+  const jwtName = safeTrim(req.user?.nome || req.user?.name || '', 80);
+
+  // fallback opcional para compatibilidade (se token antigo ainda não tiver nome)
+  const headerName = safeTrim(req.header('x-user-name') || req.header('X-User-Name') || '', 80);
+  const bodyName = safeTrim(req.body?.clientUserName || req.body?.userName || req.body?.clientUser?.name || req.body?.clientUser?.nome || '', 80);
+
+  const userName = jwtName || bodyName || headerName || null;
+
+  return { idcliente, userId, userName };
+}
+
+async function getOrCreateConversation(conversationId, identity) {
+  const id = conversationId && isUuid(conversationId) ? conversationId : randomUUID();
+  const created = !(conversationId && isUuid(conversationId));
+
+  if (created) {
+    await pool.query(
+      `INSERT INTO ai_conversation (id, idcliente, user_id, user_name)
+       VALUES ($1,$2,$3,$4)`,
+      [id, identity.idcliente, identity.userId, identity.userName]
+    );
+    return { id, created: true };
   }
 
-  if (metricKey === 'total_turmas') {
-    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND idturma IS NOT NULL AND idturma <> 0 THEN idturma END)`;
+  // Confere se a conversa pertence ao mesmo cliente
+  const r = await pool.query(
+    `SELECT id FROM ai_conversation WHERE id=$1 AND idcliente=$2`,
+    [id, identity.idcliente]
+  );
+
+  if (r.rowCount === 0) {
+    // Conversa de outro cliente -> cria nova
+    const newId = randomUUID();
+    await pool.query(
+      `INSERT INTO ai_conversation (id, idcliente, user_id, user_name)
+       VALUES ($1,$2,$3,$4)`,
+      [newId, identity.idcliente, identity.userId, identity.userName]
+    );
+    return { id: newId, created: true };
   }
 
-  if (metricKey === 'total_escolas') {
-    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND idescola IS NOT NULL AND idescola <> 0 THEN idescola END)`;
+  // Atualiza nome se chegou agora (ou se mudou)
+  if (identity.userName) {
+    await pool.query(
+      `UPDATE ai_conversation
+       SET user_name = COALESCE(user_name, $2), updated_at=NOW()
+       WHERE id=$1 AND idcliente=$3`,
+      [id, identity.userName, identity.idcliente]
+    );
+  } else {
+    await pool.query(
+      `UPDATE ai_conversation SET updated_at=NOW() WHERE id=$1 AND idcliente=$2`,
+      [id, identity.idcliente]
+    );
   }
 
-  if (metricKey === 'matriculas_ativas') {
-    return `COUNT(DISTINCT CASE 
-      WHEN ano_letivo = ${y} AND (
-        UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA') OR COALESCE(idsituacao,0)=0
-      ) THEN idmatricula END)`;
-  }
+  return { id, created: false };
+}
 
-  if (metricKey === 'desistentes') {
-    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND COALESCE(idsituacao,0)=2 THEN idmatricula END)`;
-  }
+async function saveMessage(conversationId, role, content, kind = null, spec = null) {
+  await pool.query(
+    `INSERT INTO ai_message (conversation_id, role, content, kind, spec_json)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [conversationId, role, String(content || ''), kind, spec ? JSON.stringify(spec) : null]
+  );
+}
 
-  if (metricKey === 'taxa_evasao') {
-    const denom = `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} THEN idmatricula END)`;
-    const num = `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND COALESCE(idsituacao,0)=2 THEN idmatricula END)`;
-    return `CASE WHEN ${denom} > 0 THEN ROUND((${num} * 100.0) / ${denom}, 2) ELSE 0 END`;
-  }
+async function loadRecentMessages(conversationId, limit = 8) {
+  const r = await pool.query(
+    `SELECT role, content
+     FROM ai_message
+     WHERE conversation_id=$1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [conversationId, Math.min(Math.max(Number(limit) || 8, 1), 30)]
+  );
+  return (r.rows || []).reverse();
+}
 
-  if (metricKey === 'total_entradas') {
-    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo <> '-' THEN idmatricula END)`;
-  }
+function buildHistoryString(messages, maxPairs = 4) {
+  const rows = Array.isArray(messages) ? messages.slice(-maxPairs * 2) : [];
+  return rows
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').trim().slice(0, 400)}`)
+    .join('\n');
+}
 
-  if (metricKey === 'total_saidas') {
-    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao <> '-' THEN idmatricula END)`;
-  }
+// =========================
+// Helpers de domínio (evita alucinação)
+// =========================
 
+function formatDomainOptions(availableFilters) {
+  if (!availableFilters || typeof availableFilters !== 'object') return '';
+
+  const lines = [];
+  for (const dim of Object.keys(ALLOWED_DIMENSIONS)) {
+    const arr = availableFilters?.[dim];
+    if (!Array.isArray(arr) || arr.length === 0) continue;
+    const uniq = Array.from(new Set(arr.map((x) => String(x))));
+    const shown = uniq.slice(0, 25);
+    const suffix = uniq.length > shown.length ? ` ... (+${uniq.length - shown.length})` : '';
+    lines.push(`- ${dim}: [${shown.join(', ')}]${suffix}`);
+  }
+  return lines.join('\n');
+}
+
+function normalizeText(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inferEtapaAnoFromQuestion(q) {
+  const s = String(q || '').toLowerCase();
+  const m = s.match(/\b([1-9])\s*(?:o|º|°)?\s*ano\b|\b([1-9])\s*(?:o|º|°)\b/);
+  const n = Number(m?.[1] || m?.[2]);
+  if (Number.isFinite(n) && n >= 1 && n <= 9) return `${n}º ANO`;
+  if (/\bprimeir[oa]\s+ano\b/.test(s)) return '1º ANO';
+  if (/\bsegund[oa]\s+ano\b/.test(s)) return '2º ANO';
+  if (/\bterceir[oa]\s+ano\b/.test(s)) return '3º ANO';
+  if (/\bquart[oa]\s+ano\b/.test(s)) return '4º ANO';
+  if (/\bquint[oa]\s+ano\b/.test(s)) return '5º ANO';
+  if (/\bsext[oa]\s+ano\b/.test(s)) return '6º ANO';
+  if (/\bs[eé]tim[oa]\s+ano\b/.test(s)) return '7º ANO';
+  if (/\boitav[oa]\s+ano\b/.test(s)) return '8º ANO';
+  if (/\bnon[oa]\s+ano\b/.test(s)) return '9º ANO';
+  return null;
+}
+
+function inferMetricFromQuestion(q) {
+  const s = String(q || '').toLowerCase();
+  if (/\bturmas?\b/.test(s)) return 'total_turmas';
+  if (/\bquantas?\s+escolas?\b/.test(s) || /\btotal\s+de\s+escolas?\b/.test(s)) return 'total_escolas';
+  if (/evas[aã]o/.test(s)) return 'taxa_evasao';
+  if (/desistent|aband|evad/.test(s)) return 'desistentes';
+  if (/ativa|ativos/.test(s)) return 'matriculas_ativas';
+  return 'total_matriculas';
+}
+
+function inferGroupByFromQuestion(q) {
+  const s = String(q || '').toLowerCase();
+  if (/por\s+escola|quais\s+escolas|qual\s+escola|escolas|unidade/.test(s)) return 'escola';
+  if (/por\s+turno|turnos|manha|manhã|tarde|noite|integral/.test(s)) return 'turno';
+  if (/por\s+sexo|mascul|femin|sexo/.test(s)) return 'sexo';
+  if (/por\s+situ[aã]c|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(s)) return 'situacao_matricula';
+  if (/zona\s+escola|por\s+zona\s+da\s+escola/.test(s)) return 'zona_escola';
+  if (/zona\s+aluno|por\s+zona\s+do\s+aluno/.test(s)) return 'zona_aluno';
+  if (/etapa\s+turma|por\s+etapa\s+da\s+turma|por\s+etapa\s+turma/.test(s)) return 'etapa_turma';
+  if (/\betapa\b|por\s+etapa/.test(s)) return 'etapa_matricula';
+  if (/grupo\s+etapa|por\s+grupo\s+etapa/.test(s)) return 'grupo_etapa';
+  if (/tipo\s+matr[ií]cula|por\s+tipo\s+de\s+matr[ií]cula/.test(s)) return 'tipo_matricula';
+  if (/defici[eê]ncia|por\s+defici[eê]ncia/.test(s)) return 'deficiencia';
+  return null;
+}
+
+function parseLimitFromQuestion(question) {
+  const q = String(question || '').toLowerCase();
+  const m1 = q.match(/\btop\s*-?\s*(\d{1,2})\b/);
+  if (m1) return Math.min(Math.max(parseInt(m1[1], 10) || 10, 1), 50);
+  const m2 = q.match(/\b(\d{1,2})\s*(primeir|maior|menor)\w*\b/);
+  if (m2) return Math.min(Math.max(parseInt(m2[1], 10) || 10, 1), 50);
   return null;
 }
 
 function extractJsonMaybe(content) {
   const raw = String(content || '').trim();
   if (!raw) return null;
-  // tenta JSON puro
   try {
     return JSON.parse(raw);
   } catch (_) {}
 
-  // tenta extrair de ```json ... ```
   const m = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (m?.[1]) {
     try {
@@ -149,7 +319,6 @@ function extractJsonMaybe(content) {
     } catch (_) {}
   }
 
-  // tenta encontrar primeiro bloco { ... }
   const s = raw.indexOf('{');
   const e = raw.lastIndexOf('}');
   if (s >= 0 && e > s) {
@@ -162,328 +331,91 @@ function extractJsonMaybe(content) {
   return null;
 }
 
-// ============================================================
-// Domínio (valores válidos) — ajuda o LLM a NÃO alucinar filtros
-// ============================================================
-function formatDomainOptions(availableFilters) {
-  if (!availableFilters || typeof availableFilters !== 'object') return '';
-  const lines = [];
-  for (const dim of Object.keys(ALLOWED_DIMENSIONS)) {
-    const arr = availableFilters[dim];
-    if (!Array.isArray(arr) || !arr.length) continue;
-    // limita para não explodir tokens, mas preserva diversidade
-    const uniq = Array.from(new Set(arr.map((v) => String(v))));
-    const sample = uniq.slice(0, 60);
-    lines.push(`- ${dim}: [${sample.join(', ')}${uniq.length > sample.length ? ', ...' : ''}]`);
-  }
-  return lines.join('\n');
-}
-
-function parseLimitFromQuestion(question) {
+function chooseEtapaDimension(metricKey, question) {
   const q = String(question || '').toLowerCase();
-  // top 10, top10, top-10
-  const m1 = q.match(/\btop\s*-?\s*(\d{1,2})\b/);
-  if (m1) return Math.min(Math.max(parseInt(m1[1], 10) || 10, 1), 50);
-
-  // "10 primeiras", "5 maiores", "3 menores"
-  const m2 = q.match(/\b(\d{1,2})\s*(primeir|maior|menor)\w*\b/);
-  if (m2) return Math.min(Math.max(parseInt(m2[1], 10) || 10, 1), 50);
-
-  return null;
-}
-
-function inferMetricFromQuestion(q) {
-  const s = String(q || '').toLowerCase();
-  // movimentação
-  if (/\bsa[ií]da(s)?\b/.test(s) || /\btransferi(d|do|da)s?\b/.test(s) || /\bremanej(ad|ado|ada)s?\b/.test(s)) return 'total_saidas';
-  if (/\bentrada(s)?\b/.test(s) || /\bmatr[ií]cula(s)?\s+nova(s)?\b/.test(s) || /\bingresso(s)?\b/.test(s)) return 'total_entradas';
-  if (/\bturmas?\b/.test(s)) return 'total_turmas';
-  if (/\bquantas?\s+escolas?\b/.test(s) || /\btotal\s+de\s+escolas?\b/.test(s)) return 'total_escolas';
-  if (/evas[aã]o/.test(s)) return 'taxa_evasao';
-  if (/desistent|aband|evad/.test(s)) return 'desistentes';
-  if (/ativa|ativos/.test(s)) return 'matriculas_ativas';
-  return 'total_matriculas';
-}
-
-function inferGroupByFromQuestion(q) {
-  const s = String(q || '').toLowerCase();
-  if (/por\s+escola|quais\s+escolas|qual\s+escola|escolas|unidade/.test(s)) return 'escola';
-  if (/por\s+turno|turnos|manha|tarde|noite/.test(s)) return 'turno';
-  if (/por\s+sexo|mascul|femin|sexo/.test(s)) return 'sexo';
-  if (/por\s+situ[aã]c|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(s)) return 'situacao_matricula';
-  if (/por\s+zona\s+da\s+escola|zona\s+escola/.test(s)) return 'zona_escola';
-  if (/por\s+zona\s+do\s+aluno|zona\s+aluno/.test(s)) return 'zona_aluno';
-  if (/por\s+etapa\s+da\s+turma|por\s+etapa\s+turma|etapa\s+turma/.test(s)) return 'etapa_turma';
-  if (/por\s+etapa|etapa/.test(s)) return 'etapa_matricula';
-  if (/por\s+grupo\s+etapa|grupo\s+etapa/.test(s)) return 'grupo_etapa';
-  if (/por\s+tipo\s+de\s+matr[ií]cula|tipo\s+matr[ií]cula/.test(s)) return 'tipo_matricula';
-  if (/por\s+defici[eê]ncia|defici[eê]ncia/.test(s)) return 'deficiencia';
-  return null;
-}
-
-function inferEtapaAnoFromQuestion(q) {
-  // tenta inferir "1º ANO", "2º ANO", ... a partir de "1 ano", "1º", "primeiro ano" etc.
-  const s = String(q || '').toLowerCase();
-  // 1..9
-  const m = s.match(/\b([1-9])\s*(?:o|º|°)?\s*ano\b|\b([1-9])\s*(?:o|º|°)\b/);
-  const n = Number(m?.[1] || m?.[2]);
-  if (Number.isFinite(n) && n >= 1 && n <= 9) return `${n}º ANO`;
-
-  if (/\bprimeir[oa]\s+ano\b/.test(s)) return '1º ANO';
-  if (/\bsegund[oa]\s+ano\b/.test(s)) return '2º ANO';
-  if (/\bterceir[oa]\s+ano\b/.test(s)) return '3º ANO';
-  if (/\bquart[oa]\s+ano\b/.test(s)) return '4º ANO';
-  if (/\bquint[oa]\s+ano\b/.test(s)) return '5º ANO';
-  if (/\bsext[oa]\s+ano\b/.test(s)) return '6º ANO';
-  if (/\bs[eé]tim[oa]\s+ano\b/.test(s)) return '7º ANO';
-  if (/\boitav[oa]\s+ano\b/.test(s)) return '8º ANO';
-  if (/\bnon[oa]\s+ano\b/.test(s)) return '9º ANO';
-
-  return null;
-}
-
-
-// =========================
-// Disambiguação de etapa (1º ano, 2º ano, etc.) usando o catálogo vindo do frontend
-// - Turmas -> coluna etapa_turma
-// - Matrículas -> coluna etapa_matricula (pode divergir em multisserie)
-// Quando houver várias variações no banco, pede confirmação ao usuário e oferece
-// opções como "todas separadas" ou "somar todas".
-// =========================
-
-function normalizeLoose(str) {
-  const s = String(str ?? '').trim();
-  if (!s) return '';
-  return s
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .toUpperCase();
-}
-
-function detectSubject(question) {
-  const s = String(question || '').toLowerCase();
-  if (/\bturmas?\b/.test(s)) return 'turmas';
-  if (/matr[ií]cul/.test(s)) return 'matriculas';
-  return null;
-}
-
-function dimForSubject(subject) {
-  if (subject === 'turmas') return 'etapa_turma';
-  if (subject === 'matriculas') return 'etapa_matricula';
-  return null;
-}
-
-function metricForSubject(subject, question) {
-  if (subject === 'turmas') return 'total_turmas';
-  if (subject === 'matriculas') return inferMetricFromQuestion(question) || 'total_matriculas';
-  return inferMetricFromQuestion(question);
-}
-
-function matchEtapaOptions(availableFilters, dim, etapaBase) {
-  const arr = availableFilters && availableFilters[dim];
-  if (!Array.isArray(arr) || arr.length === 0) return [];
-
-  const baseN = normalizeLoose(etapaBase);
-  if (!baseN) return [];
-
-  const uniq = new Set();
-  for (const v of arr) {
-    const raw = String(v ?? '').trim();
-    if (!raw) continue;
-    const n = normalizeLoose(raw);
-    if (n.startsWith(baseN)) uniq.add(raw);
+  if (/\bturmas?\b/.test(q) || metricKey === 'total_turmas') return 'etapa_turma';
+  if (/matr[ií]cul/.test(q) || metricKey === 'total_matriculas' || metricKey === 'matriculas_ativas' || metricKey === 'desistentes') {
+    return 'etapa_matricula';
   }
-  return Array.from(uniq);
+  return metricKey === 'total_turmas' ? 'etapa_turma' : 'etapa_matricula';
 }
 
-function includesOneOf(question, options) {
-  const qn = normalizeLoose(question);
-  for (const o of options) {
-    if (qn.includes(normalizeLoose(o))) return o;
+function findMatchingOptions(options, baseToken) {
+  const base = normalizeText(baseToken);
+  const out = [];
+  for (const opt of options || []) {
+    const txt = normalizeText(opt);
+    if (txt.includes(base)) out.push(String(opt));
   }
-  return null;
+  return Array.from(new Set(out));
 }
 
-function buildEtapaClarify(subject, etapaBase, dim, options) {
-  const subjLabel = subject === 'turmas' ? 'Turmas' : 'Matrículas';
-  const baseLabel = etapaBase;
-  const safeOpts = options.slice(0, 10);
+function buildDisambiguationResponse({ identity, metricLabel, etapaBase, dimension, matches }) {
+  const namePrefix = identity?.userName ? `${identity.userName}, ` : '';
+  const dimHuman = dimension === 'etapa_turma' ? 'etapa da turma (etapa_turma)' : 'etapa da matrícula (etapa_matricula)';
+  const shown = matches.slice(0, 10);
+  const more = matches.length > shown.length ? `\n(+${matches.length - shown.length} opções)` : '';
 
-  const lines = safeOpts.map((o) => `• ${o}`).join('\n');
-  const msg =
-    `Encontrei ${options.length} opções no banco para "${baseLabel}" em ${dim}.\n` +
-    `Qual você quer?\n\n${lines}\n\n` +
-    `Você também pode pedir:\n` +
-    `• ${subjLabel} do ${baseLabel}: todas separadas\n` +
-    `• ${subjLabel} do ${baseLabel}: somar todas`;
-
+  const optionsText = shown.map((x, i) => `${i + 1}) ${x}`).join('\n');
   const suggestions = [
-    ...safeOpts.map((o) => `${subjLabel} do ${baseLabel}: ${o}`),
-    `${subjLabel} do ${baseLabel}: todas separadas`,
-    `${subjLabel} do ${baseLabel}: somar todas`,
-  ].slice(0, 12);
+    `Separar ${metricLabel.toLowerCase()} por opções do ${etapaBase}`,
+    `Somar todas as opções do ${etapaBase}`,
+    ...shown.map((x) => `Usar: ${x}`),
+  ].slice(0, 8);
 
   return {
     ok: false,
-    kind: 'clarify',
-    answer: msg,
+    kind: 'disambiguation',
+    answer:
+      `${namePrefix}encontrei mais de uma opção para **${etapaBase}** em **${dimHuman}**.\n\n` +
+      `Qual delas você quer usar?\n\n${optionsText}${more}`,
     suggestions,
-    spec: { type: 'clarify', subject, etapaBase, dim },
-  };
-}
-
-function tryEtapaDisambiguation(question, availableFilters) {
-  if (!availableFilters || typeof availableFilters !== 'object') return { handled: false };
-
-  const subject = detectSubject(question);
-  if (!subject) return { handled: false };
-
-  const dim = dimForSubject(subject);
-  if (!dim) return { handled: false };
-
-  const qStr = String(question || '');
-  const colonIdx = qStr.indexOf(':');
-  const afterColon = colonIdx >= 0 ? qStr.slice(colonIdx + 1).trim() : '';
-  const beforeColon = colonIdx >= 0 ? qStr.slice(0, colonIdx).trim() : qStr;
-
-  const etapaBase = inferEtapaAnoFromQuestion(beforeColon) || inferEtapaAnoFromQuestion(qStr);
-  if (!etapaBase) return { handled: false };
-
-  const options = matchEtapaOptions(availableFilters, dim, etapaBase);
-  if (!options.length) return { handled: false };
-
-  const chosenInline = includesOneOf(qStr, options);
-  const chosen = chosenInline || includesOneOf(afterColon, options);
-
-  const metric = metricForSubject(subject, qStr);
-
-  if (chosen) {
-    return {
-      handled: true,
-      spec: {
-        type: 'single',
-        metric,
-        where: { [dim]: chosen },
-      },
-    };
-  }
-
-  const action = normalizeLoose(afterColon || qStr);
-
-  if (action.includes('TODAS SEPARADAS') || action.includes('SEPARADAS')) {
-    return {
-      handled: true,
-      spec: {
-        type: 'breakdown',
-        metric,
-        groupBy: dim,
-        order: 'desc',
-        limit: Math.min(Math.max(options.length, 5), 50),
-        // array -> runQuery transforma em WHERE ... = ANY($n::text[])
-        where: { [dim]: options },
-      },
-    };
-  }
-
-  if (action.includes('SOMAR TODAS') || action.includes('SOMAR')) {
-    return {
-      handled: true,
-      spec: {
-        type: 'single',
-        metric,
-        // array -> runQuery transforma em WHERE ... = ANY($n::text[])
-        where: { [dim]: options },
-      },
-    };
-  }
-
-  if (options.length > 1) {
-    return {
-      handled: true,
-      response: buildEtapaClarify(subject, etapaBase, dim, options),
-    };
-  }
-
-  return {
-    handled: true,
-    spec: {
-      type: 'single',
-      metric,
-      where: { [dim]: options[0] },
+    options: shown,
+    clarify: {
+      type: 'choose_etapa',
+      base: etapaBase,
+      dimension,
+      matches: shown,
     },
   };
 }
 
+// =========================
+// Heurística (rápida) — sem LLM
+// =========================
+
 function heuristicSpec(question) {
   const q = String(question || '').toLowerCase();
-
-  // anos mencionados (um ou mais) — usado tanto em "turmas" quanto em outras métricas
   const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)]
     .map((m) => Number(m[1]))
     .filter(Boolean);
   const uniqYears = Array.from(new Set(years)).slice(0, 3);
-
   const wantsCompare = /(compar|comparativo|comparar|diferen[cç]a|varia[cç][aã]o|delta|evolu|cres|aument|redu[cç][aã]o|queda|diminui)/.test(q);
+  const yearWhere = (!wantsCompare && uniqYears.length === 1) ? { ano_letivo: uniqYears[0] } : {};
 
-  // se o usuário mencionar APENAS um ano (ex.: "em 2026"), aplicamos como filtro
-  // para as consultas não-comparativas.
-  const yearWhere = (!wantsCompare && uniqYears.length === 1)
-    ? { ano_letivo: uniqYears[0] }
-    : {};
-  // =========================
-  // TURMAS (métrica nova)
-  // =========================
+  // TURMAS
   if (/\bturmas?\b/.test(q)) {
     const metric = 'total_turmas';
     const groupBy = inferGroupByFromQuestion(q);
     const limit = Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50);
     const order = /(menor|menos|pior)/.test(q) ? 'asc' : 'desc';
 
-    // "comparar turmas 2026 e 2025" (não deixar cair no fluxo de turmas simples)
     if (wantsCompare && uniqYears.length >= 2) {
       const baseYear = Math.min(uniqYears[0], uniqYears[1]);
       const compareYear = Math.max(uniqYears[0], uniqYears[1]);
-      const direction = /(redu[cç][aã]o|queda|diminui)/.test(q)
-        ? 'decrease'
-        : (/(aument|cres|subiu)/.test(q) ? 'increase' : 'all');
-
-      return {
-        type: 'compare',
-        metric,
-        groupBy: groupBy || null,
-        where: {},
-        limit,
-        compare: { baseYear, compareYear, direction },
-      };
+      const direction = /(redu[cç][aã]o|queda|diminui)/.test(q) ? 'decrease' : (/(aument|cres|subiu)/.test(q) ? 'increase' : 'all');
+      return { type: 'compare', metric, groupBy: groupBy || null, where: {}, limit, compare: { baseYear, compareYear, direction } };
     }
 
-    // tenta aplicar "1º ANO" etc.
-    const etapa = inferEtapaAnoFromQuestion(q);
+    const etapaBase = inferEtapaAnoFromQuestion(q);
     const where = {};
+    if (!wantsCompare && uniqYears.length === 1) where.ano_letivo = uniqYears[0];
+    if (etapaBase) where.etapa_turma = etapaBase;
 
-    // se mencionar um ano específico (ex.: "turmas em 2026"), aplica como filtro
-    if (!wantsCompare && uniqYears.length === 1) {
-      where.ano_letivo = uniqYears[0];
-    }
-    if (etapa) {
-      // para TURMAS, etapa mais fiel costuma ser etapa_turma
-      where.etapa_turma = etapa;
-    }
-
-    // "turmas por etapa" -> breakdown em etapa_turma
     if (/por\s+etapa|por\s+ano|por\s+s[eé]rie/.test(q)) {
-      return {
-        type: 'breakdown',
-        metric,
-        groupBy: 'etapa_turma',
-        where,
-        limit,
-        order,
-      };
+      return { type: 'breakdown', metric, groupBy: 'etapa_turma', where, limit, order };
     }
 
-    // ranking (por escola) ou "qual escola tem mais turmas"
     const wantsRanking = /(top|ranking|maior|menor|mais|menos|qual\s+escola)/.test(q);
     if (wantsRanking) {
       const by = groupBy || 'escola';
@@ -498,62 +430,37 @@ function heuristicSpec(question) {
       };
     }
 
-    // default: single
     return { type: 'single', metric, groupBy: null, where, limit: 20 };
   }
 
+  // COMPARE (geral)
   if (wantsCompare && uniqYears.length >= 2) {
     const baseYear = Math.min(uniqYears[0], uniqYears[1]);
     const compareYear = Math.max(uniqYears[0], uniqYears[1]);
     const direction = /(redu[cç][aã]o|queda|diminui)/.test(q) ? 'decrease' : (/(aument|cres|subiu)/.test(q) ? 'increase' : 'all');
     const groupBy = inferGroupByFromQuestion(q);
     const metric = inferMetricFromQuestion(q);
-
-    return {
-      type: 'compare',
-      metric,
-      groupBy,
-      where: {},
-      limit: Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50),
-      compare: { baseYear, compareYear, direction },
-    };
+    return { type: 'compare', metric, groupBy, where: {}, limit: Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50), compare: { baseYear, compareYear, direction } };
   }
 
-  // pedidos "por X"
+  // BREAKDOWN
   const by = inferGroupByFromQuestion(q);
   if (/\bpor\b/.test(q) && by) {
-    return {
-      type: 'breakdown',
-      metric: inferMetricFromQuestion(q),
-      groupBy: by,
-      where: yearWhere,
-      limit: Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50),
-      order: 'desc',
-    };
+    return { type: 'breakdown', metric: inferMetricFromQuestion(q), groupBy: by, where: yearWhere, limit: Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50), order: 'desc' };
   }
 
-  // "qual escola tem mais", "top", "maior", "ranking"...
+  // RANKING
   const wantsRanking = /(top|ranking|maior|menor|mais\s+alun|menos\s+alun|lidera|pior|melhor)/.test(q);
   if (wantsRanking) {
     const metric = inferMetricFromQuestion(q);
     const groupBy = by || 'escola';
     const limit = Math.min(Math.max(parseLimitFromQuestion(q) || 10, 1), 50);
     const order = /(menor|menos|pior)/.test(q) ? 'asc' : 'desc';
-
-    // se for "qual" sem número, tende a ser 1 resultado
     const isSingle = /(\bqual\b|\bqual\s+é\b)/.test(q) && !/\btop\b/.test(q) && !/\b\d{1,2}\b/.test(q);
-
-    return {
-      type: 'breakdown',
-      metric,
-      groupBy,
-      where: yearWhere,
-      limit: isSingle ? 1 : limit,
-      order,
-    };
+    return { type: 'breakdown', metric, groupBy, where: yearWhere, limit: isSingle ? 1 : limit, order };
   }
 
-  // single (um número)
+  // SINGLE
   if (/taxa\s+de\s+evas[aã]o|evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: yearWhere, limit: 20 };
   if (/matr[ií]culas\s+ativas|ativas/.test(q)) return { type: 'single', metric: 'matriculas_ativas', groupBy: null, where: yearWhere, limit: 20 };
   if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas|quantas\s+matr[ií]culas/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: yearWhere, limit: 20 };
@@ -561,66 +468,59 @@ function heuristicSpec(question) {
   return null;
 }
 
-async function deepseekToSpec(question, context, history = '', domainOptions = '') {
-  // Cache pequeno por (pergunta+context) para economizar tokens
-  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, context, history, domainOptions })).toString('base64').slice(0, 120)}`;
+// =========================
+// DeepSeek: Text -> Spec (JSON)
+// =========================
+
+async function deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity) {
+  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, contextFilters, historyString, domainOptionsString })).toString('base64').slice(0, 160)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   if (!DEEPSEEK_API_KEY) {
-    return {
-      type: 'error',
-      message: 'DEEPSEEK_API_KEY não configurada no backend.'
-    };
+    return { type: 'error', message: 'DEEPSEEK_API_KEY não configurada no backend.' };
   }
 
-  const system = `Você é um tradutor de perguntas em linguagem natural para uma CONSULTA ESTRUTURADA (JSON) sobre dados do dashboard escolar (matrículas, turmas e escolas).
-Regras:
+  const userNameLine = identity?.userName
+    ? `O usuário se chama: ${identity.userName}. Seja humano, cordial e direto. Não repita o nome toda hora.`
+    : 'Seja humano, cordial e direto.';
+
+  const system = `Você é um tradutor de perguntas em linguagem natural para uma CONSULTA ESTRUTURADA (JSON) sobre dados do dashboard escolar.
+${userNameLine}
+
+Regras obrigatórias:
 - Responda SOMENTE com JSON válido (sem texto fora do JSON).
-- Nunca peça ou retorne dados pessoais (nome de aluno, CPF, etc.).
+- Nunca peça/retorne dados pessoais (nome de aluno, CPF, etc.).
 - Use apenas estas métricas: ${Object.keys(ALLOWED_METRICS).join(', ')}.
-- Use apenas estas dimensões para agrupamento: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
-- Use APENAS estes valores para os filtros no WHERE (quando aplicar filtros por dimensões). Se o valor pedido não existir na lista, peça clarificação:
-${domainOptions || '(domínio não informado)'}
-- Se a pergunta não puder ser atendida com segurança, retorne {"type":"unsupported","reason":"..."}.
+- Use apenas estas dimensões: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
+- Se não puder atender com segurança, retorne {"type":"unsupported","reason":"..."}.
 
-IMPORTANTE (domínio / valores válidos):
-Use APENAS os valores abaixo quando montar filtros no WHERE. Se o usuário pedir um valor genérico (ex.: "1º ano") e houver várias opções, prefira retornar uma consulta que peça clarificação (ou use "todas separadas").
-${domainOptions || '(catálogo não informado)'}
+Mapeamentos de negócio:
+- Quando a pergunta for sobre "turmas": use metric=total_turmas e, para filtrar por série/ano, use etapa_turma.
+- Quando a pergunta for sobre "matrículas": use total_matriculas/matriculas_ativas/desistentes e, para filtrar por série/ano, use etapa_matricula.
+- Multisseriado pode fazer etapa_matricula diferente de etapa_turma; siga a regra acima conforme o tipo de pergunta.
 
-Mapeamentos importantes:
-- "turma(s)" => métrica total_turmas (usa idturma distinto).
-- "quantas escolas" / "total de escolas" => métrica total_escolas.
-- "saída(s)", "transferidos", "remanejados" => métrica total_saidas.
-- "entrada(s)", "ingressos", "matrículas novas" => métrica total_entradas.
-- "1º ano", "1 ano", "primeiro ano" => normalmente corresponde a etapa_turma = "1º ANO" (para turmas) e/ou etapa_matricula (para matrículas).
+Domínio (valores existentes no banco) — Use APENAS estes valores para filtros no WHERE:
+${domainOptionsString || '(domínio não informado)'}
 
 Formato:
 {
   "type": "single" | "breakdown" | "compare" | "unsupported",
-  "metric": "total_matriculas" | "matriculas_ativas" | "desistentes" | "taxa_evasao" | "total_turmas" | "total_escolas" | "total_entradas" | "total_saidas",
+  "metric": "total_matriculas" | "matriculas_ativas" | "desistentes" | "taxa_evasao" | "total_turmas" | "total_escolas",
   "groupBy": "<dimension>" | null,
   "where": { "<dimension>": "<value>", ... },
   "limit": 20,
   "order": "desc" | "asc",
   "compare": { "baseYear": 2025, "compareYear": 2026, "direction": "decrease" | "increase" | "all" }
-}
+}`;
 
-Notas:
-- Se a pergunta pedir "por" alguma dimensão (ex.: por sexo/turno), use type="breakdown" e groupBy.
-- Se pedir "qual/onde tem mais/maior/top" para uma dimensão (ex.: "qual escola tem mais alunos"), use type="breakdown" com groupBy adequado, limit=1 (ou top N), e order="desc".
-- Se pedir "menor/menos", use order="asc".
-- Se pedir apenas um número, use type="single" e groupBy=null.
-- Se pedir comparativo entre anos (ex.: "2026 vs 2025"), use type="compare" e preencha compare.baseYear e compare.compareYear.
-- Em comparativos, groupBy pode ser null (comparativo geral) OU uma dimensão (ex.: por escola) para encontrar onde aumentou/reduziu.
-- where deve incluir apenas filtros adicionais; o contexto já traz filtros selecionados.`;
+  const user = `Pergunta: ${question}
 
-  const user = `${history ? `Histórico recente (para continuidade):\n${history}\n\n` : ''}Pergunta: ${question}
-\nContexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(context || {})}`;
+Histórico recente (para perguntas de continuação):
+${historyString || '(sem histórico)'}
 
-  // DeepSeek às vezes pode retornar body vazio em cenários de erro/timeout.
-  // Se a gente chamar resp.json() diretamente, pode estourar:
-  // "Unexpected end of JSON input".
+Contexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(contextFilters || {})}`;
+
   const controller = new AbortController();
   const timeoutMs = Number(process.env.DEEPSEEK_TIMEOUT_MS || 25000);
   const t = setTimeout(() => controller.abort(), timeoutMs);
@@ -646,32 +546,24 @@ Notas:
       signal: controller.signal,
     });
 
-    // sempre lê como texto primeiro para tratar body vazio
     text = await resp.text();
   } catch (e) {
-    if (e?.name === 'AbortError') {
-      throw new Error(`Timeout ao chamar DeepSeek (>${timeoutMs}ms).`);
-    }
+    if (e?.name === 'AbortError') throw new Error(`Timeout ao chamar DeepSeek (>${timeoutMs}ms).`);
     throw e;
   } finally {
     clearTimeout(t);
   }
 
-  // tratamento consistente de erros de upstream
   if (!resp?.ok) {
     let details = text;
-    // tenta extrair mensagem de erro caso venha JSON
     try {
       const j = text ? JSON.parse(text) : null;
       details = j?.error?.message || j?.message || j?.error || details;
     } catch (_) {}
-    const msg = `DeepSeek respondeu HTTP ${resp?.status || '???'}${details ? `: ${String(details).slice(0, 300)}` : ''}`;
-    throw new Error(msg);
+    throw new Error(`DeepSeek respondeu HTTP ${resp?.status || '???'}${details ? `: ${String(details).slice(0, 300)}` : ''}`);
   }
 
-  if (!text || !String(text).trim()) {
-    throw new Error('DeepSeek retornou resposta vazia.');
-  }
+  if (!text || !String(text).trim()) throw new Error('DeepSeek retornou resposta vazia.');
 
   let json;
   try {
@@ -681,7 +573,6 @@ Notas:
   }
 
   const content = json?.choices?.[0]?.message?.content;
-
   let spec = extractJsonMaybe(content);
   if (!spec) spec = { type: 'unsupported', reason: 'A IA não retornou JSON válido.' };
 
@@ -689,7 +580,39 @@ Notas:
   return spec;
 }
 
-// (removido: havia uma segunda heuristicSpec duplicada que sobrescrevia a primeira)
+// =========================
+// Execução SQL segura
+// =========================
+
+function metricSqlForYear(metricKey, yearParamRef) {
+  const y = yearParamRef;
+
+  if (metricKey === 'total_matriculas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} THEN idmatricula END)`;
+  }
+  if (metricKey === 'total_turmas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND idturma IS NOT NULL AND idturma <> 0 THEN idturma END)`;
+  }
+  if (metricKey === 'total_escolas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND idescola IS NOT NULL AND idescola <> 0 THEN idescola END)`;
+  }
+  if (metricKey === 'matriculas_ativas') {
+    return `COUNT(DISTINCT CASE
+      WHEN ano_letivo = ${y} AND (
+        UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA') OR COALESCE(idsituacao,0)=0
+      ) THEN idmatricula END)`;
+  }
+  if (metricKey === 'desistentes') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND COALESCE(idsituacao,0)=2 THEN idmatricula END)`;
+  }
+  if (metricKey === 'taxa_evasao') {
+    const denom = `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} THEN idmatricula END)`;
+    const num = `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND COALESCE(idsituacao,0)=2 THEN idmatricula END)`;
+    return `CASE WHEN ${denom} > 0 THEN ROUND((${num} * 100.0) / ${denom}, 2) ELSE 0 END`;
+  }
+
+  return null;
+}
 
 function mergeFilters(contextFilters, whereFromLLM) {
   const merged = { ...(contextFilters || {}) };
@@ -698,7 +621,6 @@ function mergeFilters(contextFilters, whereFromLLM) {
   for (const [k, v] of Object.entries(where)) {
     if (!ALLOWED_DIMENSIONS[k]) continue;
     if (v === undefined || v === null || v === '') continue;
-    // mapeamento snake_case (LLM) -> camelCase (filtros do dashboard)
     const key =
       k === 'ano_letivo' ? 'anoLetivo' :
       k === 'situacao_matricula' ? 'situacaoMatricula' :
@@ -720,59 +642,21 @@ async function runQuery(spec, contextFilters, user) {
   if (!metricDef) return { ok: false, message: 'Métrica não suportada.' };
 
   const mergedFilters = mergeFilters(contextFilters, spec.where);
-
-  // Converte nomes para o padrão do buildWhereClause
   const normalizedFilters = {
     ...mergedFilters,
-    // compatibilidade com o controller existente
     anoLetivo: mergedFilters.anoLetivo ?? mergedFilters.ano_letivo,
     situacaoMatricula: mergedFilters.situacaoMatricula ?? mergedFilters.situacao_matricula,
   };
 
-  // Em comparativos por ano, a gente NÃO prende o WHERE a um único ano_letivo.
   const normalizedForWhere = { ...normalizedFilters };
-
-  // ARRAY_FILTER_SUPPORT_ETAPA
-  // Suporte a filtro IN (ANY) para etapa_turma / etapa_matricula (usado no fluxo "somar todas" / "todas separadas")
-  // Mantém SQL seguro: sempre parametrizado.
-  const arrayFilters = {};
-  if (Array.isArray(normalizedForWhere.etapaTurma)) {
-    arrayFilters.etapa_turma = normalizedForWhere.etapaTurma;
-    delete normalizedForWhere.etapaTurma;
-  }
-  if (Array.isArray(normalizedForWhere.etapa_turma)) {
-    arrayFilters.etapa_turma = normalizedForWhere.etapa_turma;
-    delete normalizedForWhere.etapa_turma;
-  }
-  if (Array.isArray(normalizedForWhere.etapaMatricula)) {
-    arrayFilters.etapa_matricula = normalizedForWhere.etapaMatricula;
-    delete normalizedForWhere.etapaMatricula;
-  }
-  if (Array.isArray(normalizedForWhere.etapa_matricula)) {
-    arrayFilters.etapa_matricula = normalizedForWhere.etapa_matricula;
-    delete normalizedForWhere.etapa_matricula;
-  }
-
   if (spec.type === 'compare') {
     delete normalizedForWhere.anoLetivo;
     delete normalizedForWhere.ano_letivo;
   }
 
   const { clause, params } = buildWhereClause(normalizedForWhere, user);
-
-  // ARRAY_FILTER_APPLIED_ETAPA
-  let finalClause = clause;
-  if (arrayFilters.etapa_turma && Array.isArray(arrayFilters.etapa_turma) && arrayFilters.etapa_turma.length) {
-    params.push(arrayFilters.etapa_turma.map((x) => String(x)));
-    finalClause += ` AND etapa_turma = ANY($${params.length}::text[])`;
-  }
-  if (arrayFilters.etapa_matricula && Array.isArray(arrayFilters.etapa_matricula) && arrayFilters.etapa_matricula.length) {
-    params.push(arrayFilters.etapa_matricula.map((x) => String(x)));
-    finalClause += ` AND etapa_matricula = ANY($${params.length}::text[])`;
-  }
-
   const base = `WITH base AS (
-    SELECT * FROM dados_matriculas WHERE ${finalClause}
+    SELECT * FROM dados_matriculas WHERE ${clause}
   ), base_sem_especiais AS (
     SELECT * FROM base WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
   )`;
@@ -781,7 +665,6 @@ async function runQuery(spec, contextFilters, user) {
     const sql = `${base}
       SELECT ${metricDef.sql} AS value
       FROM base_sem_especiais;`;
-
     const result = await pool.query(sql, params);
     const value = result.rows?.[0]?.value ?? 0;
     return { ok: true, kind: 'single', value };
@@ -790,17 +673,14 @@ async function runQuery(spec, contextFilters, user) {
   if (spec.type === 'breakdown') {
     const dim = ALLOWED_DIMENSIONS[spec.groupBy];
     if (!dim) return { ok: false, message: 'Dimensão de agrupamento não suportada.' };
-
     const labelExpr = `COALESCE(${dim.col}::text, 'Sem informação')`;
     const limit = Math.min(Math.max(Number(spec.limit || 20), 1), 50);
-
     const sql = `${base}
       SELECT ${labelExpr} AS label, ${metricDef.sql} AS value
       FROM base_sem_especiais
       GROUP BY ${labelExpr}
       ORDER BY value ${spec.order === 'asc' ? 'ASC' : 'DESC'}
       LIMIT ${limit};`;
-
     const result = await pool.query(sql, params);
     return { ok: true, kind: 'breakdown', rows: result.rows || [], groupBy: spec.groupBy };
   }
@@ -809,7 +689,6 @@ async function runQuery(spec, contextFilters, user) {
     const baseYear = Number(spec?.compare?.baseYear);
     const compareYear = Number(spec?.compare?.compareYear);
     const direction = String(spec?.compare?.direction || 'all');
-
     if (!Number.isFinite(baseYear) || !Number.isFinite(compareYear)) {
       return { ok: false, message: 'Para comparar, preciso de dois anos (ex.: 2025 e 2026).' };
     }
@@ -821,14 +700,10 @@ async function runQuery(spec, contextFilters, user) {
 
     const sqlBase = metricSqlForYear(spec.metric, pBase);
     const sqlComp = metricSqlForYear(spec.metric, pComp);
-    if (!sqlBase || !sqlComp) {
-      return { ok: false, message: 'Métrica não suportada para comparativo.' };
-    }
+    if (!sqlBase || !sqlComp) return { ok: false, message: 'Métrica não suportada para comparativo.' };
 
     const deltaExpr = `(${sqlComp}) - (${sqlBase})`;
     const pctExpr = `CASE WHEN (${sqlBase}) > 0 THEN ROUND((${deltaExpr}) * 100.0 / NULLIF((${sqlBase}),0), 2) ELSE NULL END`;
-
-    // Evita depender de alias em ORDER BY (alguns cenários/versões podem falhar)
     const orderBy =
       direction === 'decrease' ? `(${deltaExpr}) ASC` :
       direction === 'increase' ? `(${deltaExpr}) DESC` :
@@ -842,28 +717,24 @@ async function runQuery(spec, contextFilters, user) {
           (${deltaExpr}) AS delta,
           (${pctExpr}) AS pct_change
         FROM base_sem_especiais;`;
-
       const result = await pool.query(sql, newParams);
       const row = result.rows?.[0] || {};
       return {
         ok: true,
         kind: 'compare',
         compare: { baseYear, compareYear, direction },
-        rows: [
-          {
-            label: 'Geral',
-            base_value: Number(row.base_value) || 0,
-            compare_value: Number(row.compare_value) || 0,
-            delta: Number(row.delta) || 0,
-            pct_change: row.pct_change === null ? null : Number(row.pct_change),
-          },
-        ],
+        rows: [{
+          label: 'Geral',
+          base_value: Number(row.base_value) || 0,
+          compare_value: Number(row.compare_value) || 0,
+          delta: Number(row.delta) || 0,
+          pct_change: row.pct_change === null ? null : Number(row.pct_change),
+        }],
       };
     }
 
     const dim = ALLOWED_DIMENSIONS[spec.groupBy];
     if (!dim) return { ok: false, message: 'Dimensão de agrupamento não suportada.' };
-
     const labelExpr = `COALESCE(${dim.col}::text, 'Sem informação')`;
     const sql = `${base}
       SELECT
@@ -876,7 +747,6 @@ async function runQuery(spec, contextFilters, user) {
       GROUP BY ${labelExpr}
       ORDER BY ${orderBy}
       LIMIT ${limit};`;
-
     const result = await pool.query(sql, newParams);
     const rows = (result.rows || []).map((r) => ({
       label: r.label,
@@ -885,12 +755,15 @@ async function runQuery(spec, contextFilters, user) {
       delta: Number(r.delta) || 0,
       pct_change: r.pct_change === null ? null : Number(r.pct_change),
     }));
-
     return { ok: true, kind: 'compare', compare: { baseYear, compareYear, direction }, groupBy: spec.groupBy, rows };
   }
 
   return { ok: false, message: 'Consulta não suportada.' };
 }
+
+// =========================
+// Respostas rápidas via snapshot do dashboard
+// =========================
 
 function formatPtBRNumber(x) {
   const n = Number(x);
@@ -905,13 +778,10 @@ function formatPtBRPercent(x) {
 }
 
 function isSameActiveFilters(a, b) {
-  // compara apenas chaves presentes em ambos; usado para evitar usar um snapshot
-  // que não corresponde aos filtros enviados.
   const A = a || {};
   const B = b || {};
   const keys = new Set([...Object.keys(A), ...Object.keys(B)]);
   for (const k of keys) {
-    // normaliza undefined/null/'' como ''
     const va = A[k] ?? '';
     const vb = B[k] ?? '';
     if (String(va) !== String(vb)) return false;
@@ -931,153 +801,71 @@ function answerFromDashboardContext(question, dashboardContext) {
   const ctx = dashboardContext || {};
   const totals = ctx.totals || null;
   const available = ctx.availableFilters || null;
-  const active = ctx.activeFilters || {};
 
   if (!totals) return null;
 
-  // --- perguntas sobre catálogo de filtros ---
   if (available && /(quais|lista|mostrar).*(anos?|ano\s+letivo)/.test(q)) {
     const anos = Array.isArray(available?.ano_letivo) ? available.ano_letivo : [];
     if (anos.length) {
-      return {
-        ok: true,
-        kind: 'ok',
-        answer: `Anos letivos disponíveis: ${anos.join(', ')}.`,
-        data: { years: anos },
-        spec: { type: 'info', topic: 'ano_letivo' },
-      };
+      return { ok: true, kind: 'ok', answer: `Anos letivos disponíveis: ${anos.join(', ')}.`, data: { years: anos }, spec: { type: 'info', topic: 'ano_letivo' } };
     }
   }
 
-  // --- última atualização ---
   if (/atuali[sz]a/.test(q) && /ultima|última|data|hora/.test(q)) {
     if (totals.ultimaAtualizacao) {
-      return {
-        ok: true,
-        answer: `Última atualização: ${new Date(totals.ultimaAtualizacao).toLocaleString('pt-BR')}`,
-        data: { ultimaAtualizacao: totals.ultimaAtualizacao },
-        spec: { type: 'single', metric: 'ultimaAtualizacao' },
-      };
+      return { ok: true, answer: `Última atualização: ${new Date(totals.ultimaAtualizacao).toLocaleString('pt-BR')}`, data: { ultimaAtualizacao: totals.ultimaAtualizacao }, spec: { type: 'single', metric: 'ultimaAtualizacao' } };
     }
   }
 
-  // --- respostas diretas (totais) ---
   if (/\bturmas?\b/.test(q) && !/por\s+escola|por\s+etapa|detalh|rank|top|lista/.test(q)) {
     const v = totals.totalTurmas ?? totals.total_turmas;
-    if (v !== undefined && v !== null) {
-      return {
-        ok: true,
-        answer: `Total de turmas: ${formatPtBRNumber(v)}`,
-        data: { value: Number(v) || 0 },
-        spec: { type: 'single', metric: 'total_turmas' },
-      };
-    }
+    if (v !== undefined && v !== null) return { ok: true, answer: `Total de turmas: ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'total_turmas' } };
   }
 
   if (/\bescolas?\b/.test(q) && !/por\s+zona|por\s+escola|rank|top|lista/.test(q)) {
     const v = totals.totalEscolas ?? totals.total_escolas;
-    if (v !== undefined && v !== null) {
-      return {
-        ok: true,
-        answer: `Total de escolas: ${formatPtBRNumber(v)}`,
-        data: { value: Number(v) || 0 },
-        spec: { type: 'single', metric: 'total_escolas' },
-      };
-    }
+    if (v !== undefined && v !== null) return { ok: true, answer: `Total de escolas: ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'total_escolas' } };
   }
 
   if (/matr[ií]cul/.test(q) && !/por\s+/.test(q) && !/rank|top|lista/.test(q)) {
-    // tenta diferenciar ativas
     const wantsAtivas = /ativas|ativos|ativo|ativa/.test(q);
-    const v = wantsAtivas
-      ? (totals.totalMatriculasAtivas ?? totals.matriculasAtivas ?? totals.totalMatriculas)
-      : (totals.totalMatriculas ?? totals.total_matriculas);
+    const v = wantsAtivas ? (totals.totalMatriculasAtivas ?? totals.matriculasAtivas ?? totals.totalMatriculas) : (totals.totalMatriculas ?? totals.total_matriculas);
     if (v !== undefined && v !== null) {
       const label = wantsAtivas ? 'Matrículas ativas' : 'Total de matrículas';
-      return {
-        ok: true,
-        answer: `${label}: ${formatPtBRNumber(v)}`,
-        data: { value: Number(v) || 0 },
-        spec: { type: 'single', metric: wantsAtivas ? 'matriculas_ativas' : 'total_matriculas' },
-      };
+      return { ok: true, answer: `${label}: ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: wantsAtivas ? 'matriculas_ativas' : 'total_matriculas' } };
     }
   }
 
-  // --- breakdowns que já existem no payload do dashboard ---
   if (/por\s+sexo|sexo/.test(q)) {
     const rows = toRowsFromObject(totals.matriculasPorSexo);
-    if (rows.length) {
-      return {
-        ok: true,
-        answer: 'Matrículas por sexo',
-        data: { rows, groupBy: 'sexo', metric: 'total_matriculas' },
-        spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'sexo' },
-      };
-    }
+    if (rows.length) return { ok: true, answer: 'Matrículas por sexo', data: { rows, groupBy: 'sexo', metric: 'total_matriculas' }, spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'sexo' } };
   }
 
   if (/por\s+turno|turno|manha|manhã|tarde|noite|integral/.test(q)) {
     const rows = toRowsFromObject(totals.matriculasPorTurno);
-    if (rows.length) {
-      return {
-        ok: true,
-        answer: 'Matrículas por turno',
-        data: { rows, groupBy: 'turno', metric: 'total_matriculas' },
-        spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'turno' },
-      };
-    }
+    if (rows.length) return { ok: true, answer: 'Matrículas por turno', data: { rows, groupBy: 'turno', metric: 'total_matriculas' }, spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'turno' } };
   }
 
   if (/por\s+situa|situa[cç][aã]o\s+da\s+matr[ií]cula|ativos|cancel|desistent|transfer/.test(q)) {
     const rows = toRowsFromObject(totals.matriculasPorSituacao);
-    if (rows.length) {
-      return {
-        ok: true,
-        answer: 'Matrículas por situação',
-        data: { rows, groupBy: 'situacao_matricula', metric: 'total_matriculas' },
-        spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'situacao_matricula' },
-      };
-    }
+    if (rows.length) return { ok: true, answer: 'Matrículas por situação', data: { rows, groupBy: 'situacao_matricula', metric: 'total_matriculas' }, spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'situacao_matricula' } };
   }
 
   if (/por\s+zona|zona\s+urb|zona\s+rur|urbana|rural/.test(q)) {
-    // tenta descobrir se o usuário quer turmas, escolas, vagas/capacidade ou matrículas
     if (/\bturmas?\b/.test(q) && totals.turmasPorZona) {
       const rows = toRowsFromObject(totals.turmasPorZona);
-      if (rows.length) {
-        return {
-          ok: true,
-          answer: 'Turmas por zona',
-          data: { rows, groupBy: 'zona_escola', metric: 'total_turmas' },
-          spec: { type: 'breakdown', metric: 'total_turmas', groupBy: 'zona_escola' },
-        };
-      }
+      if (rows.length) return { ok: true, answer: 'Turmas por zona', data: { rows, groupBy: 'zona_escola', metric: 'total_turmas' }, spec: { type: 'breakdown', metric: 'total_turmas', groupBy: 'zona_escola' } };
     }
     if (/\bescolas?\b/.test(q) && totals.escolasPorZona) {
       const rows = toRowsFromObject(totals.escolasPorZona);
-      if (rows.length) {
-        return {
-          ok: true,
-          answer: 'Escolas por zona',
-          data: { rows, groupBy: 'zona_escola', metric: 'total_escolas' },
-          spec: { type: 'breakdown', metric: 'total_escolas', groupBy: 'zona_escola' },
-        };
-      }
+      if (rows.length) return { ok: true, answer: 'Escolas por zona', data: { rows, groupBy: 'zona_escola', metric: 'total_escolas' }, spec: { type: 'breakdown', metric: 'total_escolas', groupBy: 'zona_escola' } };
     }
     if (totals.matriculasPorZona) {
       const rows = toRowsFromObject(totals.matriculasPorZona);
-      if (rows.length) {
-        return {
-          ok: true,
-          answer: 'Matrículas por zona',
-          data: { rows, groupBy: 'zona_aluno', metric: 'total_matriculas' },
-          spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'zona_aluno' },
-        };
-      }
+      if (rows.length) return { ok: true, answer: 'Matrículas por zona', data: { rows, groupBy: 'zona_aluno', metric: 'total_matriculas' }, spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'zona_aluno' } };
     }
   }
 
-  // --- ranking por escola (com base no snapshot do mapa) ---
   if ((/qual\s+escola|quais\s+escolas|top\s*\d+\s+escolas|escolas\s+com\s+mais/.test(q)) && Array.isArray(totals.escolas)) {
     const wantsAtivos = /ativas|ativos|ativo|ativa/.test(q);
     const field = wantsAtivos ? 'ativos' : 'total';
@@ -1093,83 +881,90 @@ function answerFromDashboardContext(question, dashboardContext) {
         ? `Maior ${wantsAtivos ? 'nº de matrículas ativas' : 'nº de matrículas'}: ${rows[0].label} (${formatPtBRNumber(rows[0].value)})`
         : `${wantsAtivos ? 'Matrículas ativas' : 'Matrículas'} por escola (Top ${rows.length})`;
 
-      return {
-        ok: true,
-        answer,
-        data: { rows, groupBy: 'escola', metric },
-        spec: { type: 'breakdown', metric, groupBy: 'escola', limit: rows.length, order: 'desc' },
-      };
+      return { ok: true, answer, data: { rows, groupBy: 'escola', metric }, spec: { type: 'breakdown', metric, groupBy: 'escola', limit: rows.length, order: 'desc' } };
     }
   }
 
-  // não consegui responder só com o snapshot
   return null;
 }
 
+// =========================
+// Handler
+// =========================
+
 const query = async (req, res) => {
+  let conversationIdForError = null;
+
   try {
+    await ensureAiTables();
+
+    const identity = getIdentity(req);
     const question = sanitizeQuestion(req.body?.question);
     const contextFilters = req.body?.filters || {};
     const dashboardContext = req.body?.dashboardContext || null;
-    const history = req.body?.history || '';
-    const domainOptions = formatDomainOptions(dashboardContext?.availableFilters);
+    const availableFilters = dashboardContext?.availableFilters || null;
 
-    if (!question) {
-      return res.status(400).json({ error: 'Informe uma pergunta.' });
+    if (!question) return res.status(400).json({ error: 'Informe uma pergunta.' });
+
+    // Conversa persistida
+    const { id: conversationId, created } = await getOrCreateConversation(req.body?.conversationId, identity);
+    conversationIdForError = conversationId;
+
+    // Histórico
+    const recent = await loadRecentMessages(conversationId, 8);
+    const historyString = buildHistoryString(recent, 4);
+
+    // Salva msg do usuário
+    await saveMessage(conversationId, 'user', question);
+
+    // 1) Desambiguação de etapa
+    const metricGuess = inferMetricFromQuestion(question);
+    const etapaBase = inferEtapaAnoFromQuestion(question);
+    const selection = req.body?.selection || null;
+
+    if (availableFilters && etapaBase && !selection) {
+      const dim = chooseEtapaDimension(metricGuess, question);
+      const options = Array.isArray(availableFilters?.[dim]) ? availableFilters[dim] : [];
+      const matches = findMatchingOptions(options, etapaBase);
+
+      if (matches.length > 1) {
+        const resp = buildDisambiguationResponse({
+          identity,
+          metricLabel: ALLOWED_METRICS[metricGuess]?.label || 'resultado',
+          etapaBase,
+          dimension: dim,
+          matches,
+        });
+        await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, resp.clarify);
+        return res.json({ ...resp, conversationId });
+      }
     }
 
-    let spec = null;
-
-    // 0) Se o frontend mandou o snapshot do dashboard (totais + catálogo de filtros),
-    // tentamos responder DIRETO pelo que o usuário está vendo (mais rápido e mais preciso
-    // para perguntas sobre os cards/gráficos já carregados).
+    // 2) Snapshot rápido
     if (dashboardContext?.totals && isSameActiveFilters(dashboardContext?.activeFilters, contextFilters)) {
       const ctxAnswer = answerFromDashboardContext(question, dashboardContext);
       if (ctxAnswer) {
-        return res.json(ctxAnswer);
+        const answer = identity.userName && created
+          ? `${identity.userName}, ${ctxAnswer.answer}`
+          : ctxAnswer.answer;
+
+        const payload = { ...ctxAnswer, answer, conversationId };
+        await saveMessage(conversationId, 'assistant', payload.answer, payload.kind || 'ok', payload.spec || null);
+        return res.json(payload);
       }
     }
 
-    // ETAPA_DISAMBIGUATION_FLOW
-    // Se o usuário pedir algo como "turmas do 1º ano" e existirem várias variações no banco,
-    // pedimos para ele escolher (ou executar: todas separadas / somar todas).
-    if (dashboardContext?.availableFilters) {
-      const etapaFlow = tryEtapaDisambiguation(question, dashboardContext.availableFilters);
-      if (etapaFlow?.handled) {
-        if (etapaFlow.response) {
-          return res.json(etapaFlow.response);
-        }
-        if (etapaFlow.spec) {
-          spec = etapaFlow.spec;
-        }
-      }
-    }
-
-
-    // 1) heurística para comparativos (evita frustração e diminui dependência do LLM)
+    // 3) Heurística + LLM
     const heur = heuristicSpec(question);
-    if (heur?.type === 'compare' && (!heur.compare?.compareYear || !heur.compare?.baseYear)) {
-      return res.json({
-        ok: false,
-        kind: 'clarify',
-        answer: 'Para comparar, me diga os dois anos. Ex.: "Comparar matrículas 2026 e 2025".',
-        suggestions: [
-          'Comparar matrículas 2026 e 2025',
-          'Comparar matrículas ativas 2026 e 2025 por escola',
-        ],
-      });
-    }
-
-    // 2) se já temos spec (ex.: via disambiguação), mantemos.
-    // 3) senão, tenta heurística.
-    // 4) senão, chama o LLM com histórico e domínio.
-    spec = spec || heur || (await deepseekToSpec(question, contextFilters, history, domainOptions));
+    const domainOptionsString = formatDomainOptions(availableFilters);
+    const spec = heur || (await deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity));
 
     if (spec?.type === 'error') {
-      return res.status(500).json({ error: spec.message });
+      await saveMessage(conversationId, 'assistant', spec.message, 'error', spec);
+      return res.status(500).json({ error: spec.message, conversationId });
     }
+
     if (!spec || spec.type === 'unsupported') {
-      const q = String(question || '').toLowerCase();
       const suggestions = [
         'Total de matrículas ativas',
         'Quantas turmas existem?',
@@ -1180,99 +975,94 @@ const query = async (req, res) => {
         'Comparar matrículas 2026 e 2025 por escola',
         'Comparar desistentes 2026 e 2025 por zona_escola',
       ];
-      if (/escola|unidade|inep/.test(q)) {
-        suggestions.unshift('Qual escola tem mais alunos ativos?', 'Top 10 escolas com mais matrículas');
-      }
-      if (/\bturmas?\b/.test(q)) {
-        suggestions.unshift('Top 10 escolas com mais turmas', 'Quantas turmas do 1º ANO?');
-      }
-      if (/etapa|1º|2º|3º|4º|5º|6º|7º|8º|9º|ano\b/.test(q)) {
-        suggestions.unshift('Matrículas ativas na etapa 1º ANO');
-      }
-      if (/\bturmas?\b/.test(q)) {
-        suggestions.unshift('Quantas turmas do 1º ANO?', 'Top 10 escolas com mais turmas');
-      }
-      if (/situa|ativo|ativa|desistent|cancel/.test(q)) {
-        suggestions.unshift('Matrículas ativas por situação de matrícula');
-      }
-
-      return res.json({
+      const namePrefix = identity.userName ? `${identity.userName}, ` : '';
+      const resp = {
         ok: false,
         kind: 'clarify',
-        answer: `Ainda não entendi totalmente, mas eu consigo responder agregados, rankings (ex.: qual escola tem mais alunos) e comparativos por ano — sempre sem dados pessoais.
-      
-      Me diga a métrica e como quer ver. Exemplos:
-      - "Qual escola tem mais alunos ativos?"
-      - "Top 10 escolas com mais matrículas"
-      - "Matrículas por turno"
-      - "Comparar matrículas 2026 e 2025 por escola"`,
+        answer:
+          `${namePrefix}ainda não entendi totalmente, mas eu consigo responder agregados, rankings e comparativos por ano — sempre sem dados pessoais.\n\n` +
+          `Me diga a métrica e como quer ver. Exemplos:\n` +
+          `- "Qual escola tem mais alunos ativos?"\n` +
+          `- "Top 10 escolas com mais matrículas"\n` +
+          `- "Matrículas por turno"\n` +
+          `- "Comparar matrículas 2026 e 2025 por escola"`,
         suggestions: Array.from(new Set(suggestions)).slice(0, 8),
         spec,
-      });
-    
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, spec);
+      return res.json(resp);
     }
 
-    // validações finais
+    // Aplica seleção (quando usuário escolhe uma opção)
+    if (selection?.dimension && selection?.value && ALLOWED_DIMENSIONS[selection.dimension]) {
+      spec.where = { ...(spec.where || {}), [selection.dimension]: String(selection.value) };
+    }
+
+    // Validações finais
     if (!ALLOWED_METRICS[spec.metric]) {
-      return res.json({ ok: false, answer: 'Métrica não suportada nessa versão.' });
+      const resp = { ok: false, answer: 'Métrica não suportada nessa versão.', conversationId };
+      await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
+      return res.json(resp);
     }
-    if (spec.type === 'breakdown' && !ALLOWED_DIMENSIONS[spec.groupBy]) {
-      return res.json({ ok: false, answer: 'Dimensão de agrupamento não suportada nessa versão.' });
+    if (spec.type === 'breakdown' && spec.groupBy && !ALLOWED_DIMENSIONS[spec.groupBy]) {
+      const resp = { ok: false, answer: 'Dimensão de agrupamento não suportada nessa versão.', conversationId };
+      await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
+      return res.json(resp);
     }
+    if (spec?.order && !['asc', 'desc'].includes(String(spec.order))) delete spec.order;
 
-    // sanity: order só é aceito em breakdown e apenas asc/desc
-    if (spec?.order && !['asc','desc'].includes(String(spec.order))) {
-      delete spec.order;
-    }
-    if (spec.type === 'compare') {
-      const by = spec.groupBy;
-      if (by && !ALLOWED_DIMENSIONS[by]) {
-        return res.json({ ok: false, answer: 'Dimensão de agrupamento não suportada nessa versão.' });
-      }
-      if (!spec?.compare?.baseYear || !spec?.compare?.compareYear) {
-        return res.json({
-          ok: false,
-          kind: 'clarify',
-          answer: 'Para um comparativo, preciso dos dois anos. Ex.: "Comparar matrículas 2026 e 2025".',
-          suggestions: [
-            'Comparar matrículas 2026 e 2025',
-            'Comparar matrículas 2026 e 2025 por escola',
-          ],
-        });
+    // Desambiguação pós-spec
+    if (availableFilters) {
+      const dim = chooseEtapaDimension(spec.metric, question);
+      const etapaKey = dim === 'etapa_turma' ? 'etapa_turma' : 'etapa_matricula';
+      const etapaValue = spec?.where?.[etapaKey];
+      const base = etapaValue && /\b\dº\s+ANO\b/i.test(String(etapaValue)) ? String(etapaValue) : inferEtapaAnoFromQuestion(question);
+      if (base && (!selection || !selection.value)) {
+        const options = Array.isArray(availableFilters?.[dim]) ? availableFilters[dim] : [];
+        const matches = findMatchingOptions(options, base);
+
+        if (matches.length > 1 && (!etapaValue || normalizeText(etapaValue) === normalizeText(base))) {
+          const resp = buildDisambiguationResponse({
+            identity,
+            metricLabel: ALLOWED_METRICS[spec.metric]?.label || 'resultado',
+            etapaBase: base,
+            dimension: dim,
+            matches,
+          });
+          await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, resp.clarify);
+          return res.json({ ...resp, conversationId });
+        }
+
+        if (matches.length === 1 && ALLOWED_DIMENSIONS[etapaKey]) {
+          spec.where = { ...(spec.where || {}), [etapaKey]: matches[0] };
+        }
       }
     }
 
     const result = await runQuery(spec, contextFilters, req.user);
-
     if (!result.ok) {
-      return res.json({ ok: false, answer: result.message || 'Não consegui executar essa consulta.' });
+      const resp = { ok: false, answer: result.message || 'Não consegui executar essa consulta.', conversationId };
+      await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
+      return res.json(resp);
     }
 
     const metricLabel = ALLOWED_METRICS[spec.metric].label;
 
     if (result.kind === 'single') {
-      const valueFmt = spec.metric === 'taxa_evasao'
-        ? `${formatPtBRPercent(result.value)}%`
-        : formatPtBRNumber(result.value);
-
-      return res.json({
-        ok: true,
-        answer: `${metricLabel}: ${valueFmt}`,
-        data: { value: result.value },
-        spec,
-      });
+      const valueFmt = spec.metric === 'taxa_evasao' ? `${formatPtBRPercent(result.value)}%` : formatPtBRNumber(result.value);
+      const answer = (identity.userName && created)
+        ? `${identity.userName}, ${metricLabel}: ${valueFmt}`
+        : `${metricLabel}: ${valueFmt}`;
+      const payload = { ok: true, answer, data: { value: result.value }, spec, conversationId };
+      await saveMessage(conversationId, 'assistant', payload.answer, 'single', spec);
+      return res.json(payload);
     }
 
     if (result.kind === 'breakdown') {
-      const rows = (result.rows || []).map((r) => ({
-        label: r.label,
-        value: Number(r.value) || 0,
-      }));
-
+      const rows = (result.rows || []).map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
       const groupTxt = result.groupBy.replace('_', ' ');
       let answer = `${metricLabel} por ${groupTxt}`;
-
-      // Se for um "top 1" (ex.: "qual escola tem mais alunos"), devolve uma frase mais humana.
       if (rows.length === 1 && spec?.groupBy) {
         const v = rows[0].value;
         const vFmt = spec.metric === 'taxa_evasao' ? `${formatPtBRPercent(v)}%` : formatPtBRNumber(v);
@@ -1280,41 +1070,43 @@ const query = async (req, res) => {
         const lead = isAsc ? 'Menor' : 'Maior';
         answer = `${lead} ${metricLabel.toLowerCase()} em ${groupTxt}: ${rows[0].label} (${vFmt})`;
       }
+      if (identity.userName && created) answer = `${identity.userName}, ${answer}`;
 
-      return res.json({
-        ok: true,
-        answer,
-        data: { rows, groupBy: result.groupBy, metric: spec.metric },
-        spec,
-      });
+      const payload = { ok: true, answer, kind: 'breakdown', data: { rows, groupBy: result.groupBy, metric: spec.metric }, spec, conversationId };
+      await saveMessage(conversationId, 'assistant', payload.answer, 'breakdown', spec);
+      return res.json(payload);
     }
 
     if (result.kind === 'compare') {
       const baseYear = result.compare?.baseYear;
       const compareYear = result.compare?.compareYear;
-      const metricLabel = ALLOWED_METRICS[spec.metric].label;
       const groupLabel = spec.groupBy ? ` por ${spec.groupBy.replace('_', ' ')}` : '';
       const dir = String(result.compare?.direction || 'all');
       const dirTxt = dir === 'decrease' ? 'redução' : dir === 'increase' ? 'aumento' : 'variação';
-
-      return res.json({
+      let answer = `${metricLabel}${groupLabel} — comparativo ${compareYear} vs ${baseYear} (${dirTxt})`;
+      if (identity.userName && created) answer = `${identity.userName}, ${answer}`;
+      const payload = {
         ok: true,
         kind: 'compare',
-        answer: `${metricLabel}${groupLabel} — comparativo ${compareYear} vs ${baseYear} (${dirTxt})`,
-        data: {
-          rows: result.rows,
-          groupBy: spec.groupBy || null,
-          metric: spec.metric,
-          compare: result.compare,
-        },
+        answer,
+        data: { rows: result.rows, groupBy: spec.groupBy || null, metric: spec.metric, compare: result.compare },
         spec,
-      });
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', payload.answer, 'compare', spec);
+      return res.json(payload);
     }
 
-    return res.json({ ok: false, answer: 'Consulta não suportada.' });
+    const fallback = { ok: false, answer: 'Consulta não suportada.', conversationId };
+    await saveMessage(conversationId, 'assistant', fallback.answer, 'error', spec);
+    return res.json(fallback);
   } catch (err) {
     console.error('[aiController] Erro:', err);
-    res.status(500).json({ error: 'Erro ao executar consulta IA', details: err.message });
+    return res.status(500).json({
+      error: 'Erro ao executar consulta IA',
+      details: err.message,
+      conversationId: conversationIdForError,
+    });
   }
 };
 
