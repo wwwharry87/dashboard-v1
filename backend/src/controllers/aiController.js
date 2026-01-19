@@ -23,6 +23,33 @@ function sanitizeQuestion(q) {
   return String(q || '').trim().slice(0, 800);
 }
 
+function sanitizeHistory(h) {
+  // histórico vem do frontend; limitamos tamanho para evitar prompt huge
+  const s = String(h || '').trim();
+  return s.slice(0, 2000);
+}
+
+// (2) Injeção de Domínio: formata os valores existentes no banco (catálogo de filtros)
+// para reduzir alucinação de WHERE.
+function formatDomainOptions(availableFilters) {
+  const f = availableFilters && typeof availableFilters === 'object' ? availableFilters : {};
+  const lines = [];
+
+  // preferimos apenas dims que existem na allow-list, mas aceitamos catálogo parcial
+  const dimKeys = Object.keys(ALLOWED_DIMENSIONS);
+  for (const k of dimKeys) {
+    const v = f[k];
+    if (!Array.isArray(v) || v.length === 0) continue;
+
+    const uniq = Array.from(new Set(v.map((x) => String(x).trim()).filter(Boolean)));
+    const preview = uniq.slice(0, 30).join(', ');
+    const suffix = uniq.length > 30 ? ', ...' : '';
+    lines.push(`- ${k}: [${preview}${suffix}]`);
+  }
+
+  return lines.length ? lines.join('\n') : '';
+}
+
 const ALLOWED_DIMENSIONS = {
   ano_letivo: { col: 'ano_letivo', type: 'int' },
   escola: { col: 'escola', type: 'text' },
@@ -204,6 +231,183 @@ function inferEtapaAnoFromQuestion(q) {
   return null;
 }
 
+
+// =========================
+// Disambiguação de etapa (1º ano, 2º ano, etc.) usando o catálogo vindo do frontend
+// - Turmas -> coluna etapa_turma
+// - Matrículas -> coluna etapa_matricula (pode divergir em multisserie)
+// Quando houver várias variações no banco, pede confirmação ao usuário e oferece
+// opções como "todas separadas" ou "somar todas".
+// =========================
+
+function normalizeLoose(str) {
+  const s = String(str ?? '').trim();
+  if (!s) return '';
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .toUpperCase();
+}
+
+function detectSubject(question) {
+  const s = String(question || '').toLowerCase();
+  if (/\bturmas?\b/.test(s)) return 'turmas';
+  if (/matr[ií]cul/.test(s)) return 'matriculas';
+  return null;
+}
+
+function dimForSubject(subject) {
+  if (subject === 'turmas') return 'etapa_turma';
+  if (subject === 'matriculas') return 'etapa_matricula';
+  return null;
+}
+
+function metricForSubject(subject, question) {
+  if (subject === 'turmas') return 'total_turmas';
+  if (subject === 'matriculas') return inferMetricFromQuestion(question) || 'total_matriculas';
+  return inferMetricFromQuestion(question);
+}
+
+function matchEtapaOptions(availableFilters, dim, etapaBase) {
+  const arr = availableFilters && availableFilters[dim];
+  if (!Array.isArray(arr) || arr.length === 0) return [];
+
+  const baseN = normalizeLoose(etapaBase);
+  if (!baseN) return [];
+
+  const uniq = new Set();
+  for (const v of arr) {
+    const raw = String(v ?? '').trim();
+    if (!raw) continue;
+    const n = normalizeLoose(raw);
+    if (n.startsWith(baseN)) uniq.add(raw);
+  }
+  return Array.from(uniq);
+}
+
+function includesOneOf(question, options) {
+  const qn = normalizeLoose(question);
+  for (const o of options) {
+    if (qn.includes(normalizeLoose(o))) return o;
+  }
+  return null;
+}
+
+function buildEtapaClarify(subject, etapaBase, dim, options) {
+  const subjLabel = subject === 'turmas' ? 'Turmas' : 'Matrículas';
+  const baseLabel = etapaBase;
+  const safeOpts = options.slice(0, 10);
+
+  const lines = safeOpts.map((o) => `• ${o}`).join('\n');
+  const msg =
+    `Encontrei ${options.length} opções no banco para "${baseLabel}" em ${dim}.\n` +
+    `Qual você quer?\n\n${lines}\n\n` +
+    `Você também pode pedir:\n` +
+    `• ${subjLabel} do ${baseLabel}: todas separadas\n` +
+    `• ${subjLabel} do ${baseLabel}: somar todas`;
+
+  const suggestions = [
+    ...safeOpts.map((o) => `${subjLabel} do ${baseLabel}: ${o}`),
+    `${subjLabel} do ${baseLabel}: todas separadas`,
+    `${subjLabel} do ${baseLabel}: somar todas`,
+  ].slice(0, 12);
+
+  return {
+    ok: false,
+    kind: 'clarify',
+    answer: msg,
+    suggestions,
+    spec: { type: 'clarify', subject, etapaBase, dim },
+  };
+}
+
+function tryEtapaDisambiguation(question, availableFilters) {
+  if (!availableFilters || typeof availableFilters !== 'object') return { handled: false };
+
+  const subject = detectSubject(question);
+  if (!subject) return { handled: false };
+
+  const dim = dimForSubject(subject);
+  if (!dim) return { handled: false };
+
+  const qStr = String(question || '');
+  const colonIdx = qStr.indexOf(':');
+  const afterColon = colonIdx >= 0 ? qStr.slice(colonIdx + 1).trim() : '';
+  const beforeColon = colonIdx >= 0 ? qStr.slice(0, colonIdx).trim() : qStr;
+
+  const etapaBase = inferEtapaAnoFromQuestion(beforeColon) || inferEtapaAnoFromQuestion(qStr);
+  if (!etapaBase) return { handled: false };
+
+  const options = matchEtapaOptions(availableFilters, dim, etapaBase);
+  if (!options.length) return { handled: false };
+
+  const chosenInline = includesOneOf(qStr, options);
+  const chosen = chosenInline || includesOneOf(afterColon, options);
+
+  const metric = metricForSubject(subject, qStr);
+
+  // 1) Se o usuário já citou explicitamente uma opção
+  if (chosen) {
+    return {
+      handled: true,
+      spec: {
+        type: 'single',
+        metric,
+        where: { [dim]: chosen },
+      },
+    };
+  }
+
+  // 2) Ações (vindas por chip): "todas separadas" / "somar todas"
+  const action = normalizeLoose(afterColon || qStr);
+
+  if (action.includes('TODAS SEPARADAS') || action.includes('SEPARADAS')) {
+    return {
+      handled: true,
+      spec: {
+        type: 'breakdown',
+        metric,
+        groupBy: dim,
+        order: 'desc',
+        limit: Math.min(Math.max(options.length, 5), 50),
+        // array -> runQuery transforma em WHERE ... = ANY($n::text[])
+        where: { [dim]: options },
+      },
+    };
+  }
+
+  if (action.includes('SOMAR TODAS') || action.includes('SOMAR')) {
+    return {
+      handled: true,
+      spec: {
+        type: 'single',
+        metric,
+        // array -> runQuery transforma em WHERE ... = ANY($n::text[])
+        where: { [dim]: options },
+      },
+    };
+  }
+
+  // 3) Se houver mais de 1 opção e nenhuma foi escolhida, pede clarificação
+  if (options.length > 1) {
+    return {
+      handled: true,
+      response: buildEtapaClarify(subject, etapaBase, dim, options),
+    };
+  }
+
+  // 4) Apenas 1 opção: escolhe automaticamente
+  return {
+    handled: true,
+    spec: {
+      type: 'single',
+      metric,
+      where: { [dim]: options[0] },
+    },
+  };
+}
+
 function heuristicSpec(question) {
   const q = String(question || '').toLowerCase();
 
@@ -350,9 +554,9 @@ function heuristicSpec(question) {
   return null;
 }
 
-async function deepseekToSpec(question, context) {
+async function deepseekToSpec(question, context, history, domainOptions) {
   // Cache pequeno por (pergunta+context) para economizar tokens
-  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, context })).toString('base64').slice(0, 120)}`;
+  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, context, history: String(history || '').slice(0, 400), domainOptions: String(domainOptions || '').slice(0, 400) })).toString('base64').slice(0, 120)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
@@ -369,6 +573,9 @@ Regras:
 - Nunca peça ou retorne dados pessoais (nome de aluno, CPF, etc.).
 - Use apenas estas métricas: ${Object.keys(ALLOWED_METRICS).join(', ')}.
 - Use apenas estas dimensões para agrupamento: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
+- Valores permitidos (domínio) para filtros no WHERE (quando você usar where):
+${domainOptions ? domainOptions : '- (não informado)'}
+- Use APENAS estes valores para os filtros no WHERE. Se o usuário pedir um valor que não exista na lista acima, retorne {"type":"unsupported","reason":"valor de filtro fora do domínio"}.
 - Se a pergunta não puder ser atendida com segurança, retorne {"type":"unsupported","reason":"..."}.
 
 Mapeamentos importantes:
@@ -396,8 +603,11 @@ Notas:
 - Em comparativos, groupBy pode ser null (comparativo geral) OU uma dimensão (ex.: por escola) para encontrar onde aumentou/reduziu.
 - where deve incluir apenas filtros adicionais; o contexto já traz filtros selecionados.`;
 
-  const user = `Pergunta: ${question}
-\nContexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(context || {})}`;
+  const user = `Histórico recente (últimas mensagens):\n${history ? history : '(sem histórico)'}
+
+Pergunta atual: ${question}
+
+Contexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(context || {})}`;
 
   // DeepSeek às vezes pode retornar body vazio em cenários de erro/timeout.
   // Se a gente chamar resp.json() diretamente, pode estourar:
@@ -512,6 +722,27 @@ async function runQuery(spec, contextFilters, user) {
 
   // Em comparativos por ano, a gente NÃO prende o WHERE a um único ano_letivo.
   const normalizedForWhere = { ...normalizedFilters };
+
+  // ARRAY_FILTER_SUPPORT_ETAPA
+  // Suporte a filtro IN (ANY) para etapa_turma / etapa_matricula (usado no fluxo 'somar todas' / 'todas separadas')
+  // Mantém SQL seguro: sempre parametrizado.
+  const arrayFilters = {};
+  if (Array.isArray(normalizedForWhere.etapaTurma)) {
+    arrayFilters.etapa_turma = normalizedForWhere.etapaTurma;
+    delete normalizedForWhere.etapaTurma;
+  }
+  if (Array.isArray(normalizedForWhere.etapa_turma)) {
+    arrayFilters.etapa_turma = normalizedForWhere.etapa_turma;
+    delete normalizedForWhere.etapa_turma;
+  }
+  if (Array.isArray(normalizedForWhere.etapaMatricula)) {
+    arrayFilters.etapa_matricula = normalizedForWhere.etapaMatricula;
+    delete normalizedForWhere.etapaMatricula;
+  }
+  if (Array.isArray(normalizedForWhere.etapa_matricula)) {
+    arrayFilters.etapa_matricula = normalizedForWhere.etapa_matricula;
+    delete normalizedForWhere.etapa_matricula;
+  }
   if (spec.type === 'compare') {
     delete normalizedForWhere.anoLetivo;
     delete normalizedForWhere.ano_letivo;
@@ -519,8 +750,21 @@ async function runQuery(spec, contextFilters, user) {
 
   const { clause, params } = buildWhereClause(normalizedForWhere, user);
 
+  // ARRAY_FILTER_APPLIED_ETAPA
+  let finalClause = clause;
+  // etapa_turma IN (...)
+  if (arrayFilters.etapa_turma && Array.isArray(arrayFilters.etapa_turma) && arrayFilters.etapa_turma.length) {
+    params.push(arrayFilters.etapa_turma.map((x) => String(x)));
+    finalClause += ` AND etapa_turma = ANY($${params.length}::text[])`;
+  }
+  // etapa_matricula IN (...)
+  if (arrayFilters.etapa_matricula && Array.isArray(arrayFilters.etapa_matricula) && arrayFilters.etapa_matricula.length) {
+    params.push(arrayFilters.etapa_matricula.map((x) => String(x)));
+    finalClause += ` AND etapa_matricula = ANY($${params.length}::text[])`;
+  }
+
   const base = `WITH base AS (
-    SELECT * FROM dados_matriculas WHERE ${clause}
+    SELECT * FROM dados_matriculas WHERE ${finalClause}
   ), base_sem_especiais AS (
     SELECT * FROM base WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
   )`;
@@ -859,10 +1103,14 @@ const query = async (req, res) => {
     const question = sanitizeQuestion(req.body?.question);
     const contextFilters = req.body?.filters || {};
     const dashboardContext = req.body?.dashboardContext || null;
+    const history = sanitizeHistory(req.body?.history);
+    const domainOptions = formatDomainOptions(dashboardContext?.availableFilters);
 
     if (!question) {
       return res.status(400).json({ error: 'Informe uma pergunta.' });
     }
+
+    let spec = null;
 
     // 0) Se o frontend mandou o snapshot do dashboard (totais + catálogo de filtros),
     // tentamos responder DIRETO pelo que o usuário está vendo (mais rápido e mais preciso
@@ -873,14 +1121,13 @@ const query = async (req, res) => {
         return res.json(ctxAnswer);
       }
     }
-
     // 1) heurística para comparativos (evita frustração e diminui dependência do LLM)
     const heur = heuristicSpec(question);
     if (heur?.type === 'compare' && (!heur.compare?.compareYear || !heur.compare?.baseYear)) {
       return res.json({
         ok: false,
         kind: 'clarify',
-        answer: 'Para comparar, me diga os dois anos. Ex.: "Comparar matrículas 2026 e 2025".',
+        answer: 'Para comparar, me diga os dois anos. Ex.: \"Comparar matrículas 2026 e 2025\".',
         suggestions: [
           'Comparar matrículas 2026 e 2025',
           'Comparar matrículas ativas 2026 e 2025 por escola',
@@ -888,7 +1135,20 @@ const query = async (req, res) => {
       });
     }
 
-    const spec = heur || (await deepseekToSpec(question, contextFilters));
+    // ETAPA_DISAMBIGUATION_FLOW
+    if (!spec && dashboardContext?.availableFilters) {
+      const etapaFlow = tryEtapaDisambiguation(question, dashboardContext.availableFilters);
+      if (etapaFlow?.handled) {
+        if (etapaFlow.response) {
+          return res.json(etapaFlow.response);
+        }
+        if (etapaFlow.spec) {
+          spec = etapaFlow.spec;
+        }
+      }
+    }
+
+    spec = spec || heur || (await deepseekToSpec(question, contextFilters, history, domainOptions));
 
     if (spec?.type === 'error') {
       return res.status(500).json({ error: spec.message });

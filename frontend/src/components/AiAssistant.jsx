@@ -1,6 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from './api';
 
+// Charts (recharts)
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LabelList,
+} from 'recharts';
+
 /**
  * AiAssistant.jsx
  *
@@ -62,6 +74,92 @@ function Table({ columns, rows }) {
   );
 }
 
+// Resiliência: se o Recharts falhar por qualquer motivo, caímos de volta para a tabela.
+class ChartErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(err) {
+    // Mantém log apenas em console para diagnóstico; UX faz fallback.
+    // eslint-disable-next-line no-console
+    console.warn('[AiAssistant] Chart render failed:', err);
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback || null;
+    return this.props.children;
+  }
+}
+
+function BreakdownBarChart({ rows, metric, groupBy }) {
+  const chartData = Array.isArray(rows)
+    ? rows
+        .filter((r) => r && (r.label !== undefined) && (r.value !== undefined))
+        .map((r) => ({ name: String(r.label), value: Number(r.value) || 0 }))
+    : [];
+
+  // Recharts costuma sofrer com labels gigantes. Mantemos um label curto no eixo,
+  // mas o tooltip mostra completo.
+  const short = (s) => {
+    const str = String(s || '');
+    return str.length > 26 ? `${str.slice(0, 24)}…` : str;
+  };
+
+  if (!chartData.length) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-gray-200 bg-white p-2">
+      <div className="mb-2 text-xs text-gray-600">
+        {groupBy ? `Detalhamento por ${groupBy}` : 'Detalhamento'}
+      </div>
+      <div style={{ width: '100%', height: Math.min(380, Math.max(220, chartData.length * 28)) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis
+              type="number"
+              tickFormatter={(v) => (metric === 'taxa_evasao' ? `${Number(v).toFixed(2).replace('.', ',')}%` : formatPtBRNumber(v))}
+            />
+            <YAxis type="category" dataKey="name" width={140} tickFormatter={short} />
+            <Tooltip
+              formatter={(value) => [formatPercentMaybe(metric, value), metric || 'valor']}
+              labelFormatter={(label) => `${groupBy || 'Grupo'}: ${label}`}
+            />
+            <Bar dataKey="value" radius={[6, 6, 6, 6]}>
+              <LabelList
+                dataKey="value"
+                position="right"
+                formatter={(v) => formatPercentMaybe(metric, v)}
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function buildHistoryString(messages, pendingUserText) {
+  const base = Array.isArray(messages) ? messages : [];
+  const withPending = pendingUserText
+    ? [...base, { role: 'user', content: String(pendingUserText) }]
+    : base;
+
+  const last4 = withPending
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-4);
+
+  return last4
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content).replace(/\s+$/g, '')}`)
+    .join('\n');
+}
+
 export default function AiAssistant({ filters, totals, filtersCatalog }) {
   const [messages, setMessages] = useState(() => ([
     {
@@ -104,6 +202,7 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     setLoading(true);
 
     try {
+      const history = buildHistoryString(messages, trimmed);
       // IMPORTANT:
       // - usa baseURL via REACT_APP_API_URL
       // - envia token automaticamente (interceptor)
@@ -113,6 +212,8 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       const { data: json } = await api.post('/ai/query', {
         question: trimmed,
         filters: filters || {},
+        // (1) contexto rico p/ perguntas de continuação
+        history,
         dashboardContext: {
           // filtros disponíveis (valores possíveis) — sem dados pessoais
           availableFilters: filtersCatalog || null,
@@ -126,10 +227,14 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       // evita loop de mensagem igual
       setMessages((prev) => {
         const last = [...prev].reverse().find((m) => m.role === 'assistant');
+        const inferredKind =
+          json?.kind ||
+          (Array.isArray(json?.data?.rows) && json?.data?.rows?.length ? 'breakdown' : (json?.ok ? 'ok' : 'error'));
+
         const next = {
           role: 'assistant',
           content: json?.answer || json?.error || 'Não consegui processar agora.',
-          kind: json?.kind || (json?.ok ? 'ok' : 'error'),
+          kind: inferredKind,
           data: json?.data,
           spec: json?.spec,
           suggestions: json?.suggestions || [],
@@ -164,7 +269,7 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     // chips
     const suggestions = (m?.suggestions || []).filter(Boolean);
 
-    // breakdown
+    // breakdown / compare
     if (data?.rows && Array.isArray(data.rows) && data.rows.length) {
       if (m.kind === 'compare') {
         // compare table
@@ -203,7 +308,7 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         );
       }
 
-      // breakdown default
+      // breakdown -> renderiza gráfico (recharts). Se falhar, cai para tabela.
       const metric = data.metric || spec?.metric;
       const groupBy = data.groupBy || spec?.groupBy;
       const cols = [
@@ -215,9 +320,18 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         value: formatPercentMaybe(metric, r.value),
       }));
 
+      const fallbackTable = <Table columns={cols} rows={rows} />;
+
       return (
         <>
-          <Table columns={cols} rows={rows} />
+          {m.kind === 'breakdown' ? (
+            <ChartErrorBoundary fallback={fallbackTable}>
+              {/* Se não houver dados suficientes, ou o recharts der erro, a tabela aparece. */}
+              <BreakdownBarChart rows={data.rows} metric={metric} groupBy={groupBy} />
+            </ChartErrorBoundary>
+          ) : (
+            fallbackTable
+          )}
           {suggestions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {suggestions.map((s, i) => (
