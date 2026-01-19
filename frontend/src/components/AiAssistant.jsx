@@ -1,292 +1,318 @@
-import React, { useMemo, useState } from 'react';
-import api from './api';
-import { FaPaperPlane, FaRobot, FaTrash, FaLightbulb } from 'react-icons/fa';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const formatNumber = (num) => {
-  const n = Number(num);
-  if (!Number.isFinite(n)) return String(num ?? '0');
+/**
+ * AiAssistant.jsx
+ *
+ * Chat simples para "Pergunte ao Dashboard".
+ * - Mostra sugestões (chips) quando o backend retorna kind=clarify
+ * - Renderiza tabelas para breakdown/compare
+ * - Evita repetir a mesma mensagem de clarificação em loop
+ */
+
+function formatPtBRNumber(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return String(x ?? '0');
   return n.toLocaleString('pt-BR');
-};
+}
+
+function formatPercentMaybe(metric, value) {
+  if (metric === 'taxa_evasao') {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '0,00%';
+    return `${n.toFixed(2).replace('.', ',')}%`;
+  }
+  return formatPtBRNumber(value);
+}
+
+function Badge({ children }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-xs">
+      {children}
+    </span>
+  );
+}
+
+function Table({ columns, rows }) {
+  return (
+    <div className="mt-3 overflow-auto rounded-lg border border-gray-200">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50">
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key} className="text-left font-semibold text-gray-700 px-3 py-2 whitespace-nowrap">
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, idx) => (
+            <tr key={idx} className={idx % 2 ? 'bg-white' : 'bg-gray-50/40'}>
+              {columns.map((c) => (
+                <td key={c.key} className="px-3 py-2 text-gray-800 whitespace-nowrap">
+                  {r[c.key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function AiAssistant({ filters }) {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState(() => ([
     {
       role: 'assistant',
+      kind: 'intro',
       content:
-        'Me pergunte algo sobre os dados (sem dados pessoais). Ex.: "Total de matrículas ativas" ou "Matrículas por turno".',
+        'Oi! Eu sou sua IA do Dashboard. Me pergunte coisas como:\n' +
+        '• "Qual escola tem mais alunos ativos?"\n' +
+        '• "Top 10 escolas com mais matrículas"\n' +
+        '• "Matrículas por turno"\n' +
+        '• "Comparar matrículas 2026 e 2025 por escola"\n\n' +
+        'Eu respondo só com números agregados (sem dados pessoais).',
+      suggestions: [
+        'Qual escola tem mais alunos ativos?',
+        'Top 10 escolas com mais matrículas',
+        'Matrículas por turno',
+        'Comparar matrículas 2026 e 2025 por escola',
+      ],
     },
-  ]);
-  const [input, setInput] = useState('');
+  ]));
+  const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const examples = useMemo(
-    () => [
-      'Total de matrículas',
-      'Total de matrículas ativas',
-      'Matrículas por sexo',
-      'Matrículas por turno',
-      'Taxa de evasão',
-      'Desistentes por zona_escola',
-    ],
-    []
-  );
+  const bottomRef = useRef(null);
 
-  const send = async (q) => {
-    const question = String(q ?? input).trim();
-    if (!question) return;
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
 
-    setMessages((prev) => [...prev, { role: 'user', content: question }]);
-    setInput('');
+  const canSend = useMemo(() => !!question.trim() && !loading, [question, loading]);
+
+  async function send(q) {
+    const trimmed = String(q || '').trim();
+    if (!trimmed || loading) return;
+
+    setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
+    setQuestion('');
     setLoading(true);
 
     try {
-      const resp = await api.post('/ai/query', {
-        question,
-        filters,
+      const resp = await fetch('/api/ai/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: trimmed, filters: filters || {} }),
       });
+      const json = await resp.json();
 
-      const payload = resp?.data;
-
-      if (!payload?.ok) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: payload?.answer || 'Não consegui responder essa consulta.',
-            suggestions: Array.isArray(payload?.suggestions) ? payload.suggestions : null,
-          },
-        ]);
-        return;
-      }
-
-      const extra = payload?.data;
-      setMessages((prev) => [
-        ...prev,
-        {
+      // evita loop de mensagem igual
+      setMessages((prev) => {
+        const last = [...prev].reverse().find((m) => m.role === 'assistant');
+        const next = {
           role: 'assistant',
-          content: payload.answer,
-          data: extra || null,
-        },
-      ]);
-    } catch (err) {
-      console.error('Erro IA:', err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content:
-            'Erro ao consultar a IA. Verifique se o backend está com DEEPSEEK_API_KEY configurada e se a rota /ai/query está acessível.',
-          suggestions: ['Total de matrículas ativas', 'Matrículas por turno'],
-        },
-      ]);
+          content: json?.answer || json?.error || 'Não consegui processar agora.',
+          kind: json?.kind || (json?.ok ? 'ok' : 'error'),
+          data: json?.data,
+          spec: json?.spec,
+          suggestions: json?.suggestions || [],
+        };
+
+        if (last && last.content === next.content && next.kind === 'clarify') {
+          // se repetiu, só atualiza sugestões
+          const merged = Array.from(new Set([...(last.suggestions || []), ...(next.suggestions || [])])).slice(0, 8);
+          const updatedLast = { ...last, suggestions: merged };
+          const out = prev.slice();
+          const idx = out.lastIndexOf(last);
+          if (idx >= 0) out[idx] = updatedLast;
+          return out;
+        }
+
+        return [...prev, next];
+      });
+    } catch (e) {
+      setMessages((prev) => [...prev, { role: 'assistant', kind: 'error', content: `Erro ao consultar IA: ${e?.message || 'erro desconhecido'}` }]);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const clear = () => {
-    setMessages([
-      {
-        role: 'assistant',
-        content:
-          'Histórico limpo. Manda a próxima pergunta 🙂',
-      },
-    ]);
-  };
+  function renderAssistantExtras(m) {
+    const data = m?.data;
+    const spec = m?.spec;
+
+    // chips
+    const suggestions = (m?.suggestions || []).filter(Boolean);
+
+    // breakdown
+    if (data?.rows && Array.isArray(data.rows) && data.rows.length) {
+      if (m.kind === 'compare') {
+        // compare table
+        const cols = [
+          { key: 'label', label: spec?.groupBy ? `Grupo (${spec.groupBy})` : 'Grupo' },
+          { key: 'base', label: `${data.compare?.baseYear ?? 'Base'}` },
+          { key: 'comp', label: `${data.compare?.compareYear ?? 'Comparação'}` },
+          { key: 'delta', label: 'Δ' },
+          { key: 'pct', label: '% Δ' },
+        ];
+        const rows = data.rows.map((r) => ({
+          label: r.label,
+          base: formatPercentMaybe(data.metric, r.base_value),
+          comp: formatPercentMaybe(data.metric, r.compare_value),
+          delta: formatPercentMaybe(data.metric, r.delta),
+          pct: r.pct_change === null || r.pct_change === undefined ? '—' : `${Number(r.pct_change).toFixed(2).replace('.', ',')}%`,
+        }));
+
+        return (
+          <>
+            <Table columns={cols} rows={rows} />
+            {suggestions.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => send(s)}
+                    className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      }
+
+      // breakdown default
+      const metric = data.metric || spec?.metric;
+      const groupBy = data.groupBy || spec?.groupBy;
+      const cols = [
+        { key: 'label', label: groupBy ? `Grupo (${groupBy})` : 'Grupo' },
+        { key: 'value', label: 'Valor' },
+      ];
+      const rows = data.rows.map((r) => ({
+        label: r.label,
+        value: formatPercentMaybe(metric, r.value),
+      }));
+
+      return (
+        <>
+          <Table columns={cols} rows={rows} />
+          {suggestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => send(s)}
+                  className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      );
+    }
+
+    // clarify chips even sem data
+    if (m.kind === 'clarify' && suggestions.length > 0) {
+      return (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => send(s)}
+              className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    return null;
+  }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-      <div className="lg:col-span-2 bg-white rounded-2xl shadow p-3 sm:p-4 flex flex-col min-h-[420px]">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center">
-              <FaRobot />
-            </div>
-            <div>
-              <div className="font-bold text-gray-900">Assistente IA</div>
-              <div className="text-xs text-gray-500">Perguntas agregadas (sem dados pessoais)</div>
-            </div>
+    <div className="w-full rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <div className="h-9 w-9 rounded-xl bg-violet-600/10 flex items-center justify-center">
+            <span className="text-violet-700 font-bold">AI</span>
           </div>
-
-          <button
-            onClick={clear}
-            className="text-sm px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center gap-2"
-            title="Limpar chat"
-          >
-            <FaTrash />
-            Limpar
-          </button>
+          <div>
+            <div className="font-semibold text-gray-900">Assistente do Dashboard</div>
+            <div className="text-xs text-gray-500">Pergunte, compare e descubra — sem dados pessoais</div>
+          </div>
         </div>
+        <Badge>Beta</Badge>
+      </div>
 
-        <div className="flex-1 overflow-auto space-y-2 pr-1">
+      <div className="px-4 py-3 h-[360px] overflow-auto">
+        <div className="space-y-3">
           {messages.map((m, idx) => (
-            <div
-              key={idx}
-              className={
-                m.role === 'user'
-                  ? 'flex justify-end'
-                  : 'flex justify-start'
-              }
-            >
+            <div key={idx} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
               <div
                 className={
                   m.role === 'user'
-                    ? 'max-w-[90%] rounded-2xl px-3 py-2 bg-violet-600 text-white shadow'
-                    : 'max-w-[90%] rounded-2xl px-3 py-2 bg-gray-100 text-gray-900'
+                    ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-violet-600 text-white px-3 py-2 text-sm'
+                    : 'max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100'
                 }
               >
-                <div className="text-sm leading-relaxed">{m.content}</div>
-
-                {/* Resultado em tabela quando vier breakdown */}
-                {m?.data?.rows?.length && !m?.data?.compare ? (
-                  <div className="mt-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="px-3 py-2 text-xs font-bold text-gray-600 bg-gray-50">
-                      Top resultados
-                    </div>
-                    <div className="max-h-64 overflow-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs text-gray-500">
-                            <th className="px-3 py-2">Label</th>
-                            <th className="px-3 py-2">Valor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {m.data.rows.map((r, i) => (
-                            <tr key={i} className="border-t">
-                              <td className="px-3 py-2">{r.label}</td>
-                              <td className="px-3 py-2 font-semibold">
-                                {formatNumber(r.value)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Comparativo ano x ano */}
-                {m?.data?.rows?.length && m?.data?.compare ? (
-                  <div className="mt-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="px-3 py-2 text-xs font-bold text-gray-600 bg-gray-50">
-                      Comparativo {m.data.compare.compareYear} vs {m.data.compare.baseYear}
-                      {m.data.groupBy ? ` (por ${String(m.data.groupBy).replace('_', ' ')})` : ''}
-                    </div>
-                    <div className="max-h-64 overflow-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs text-gray-500">
-                            <th className="px-3 py-2">Label</th>
-                            <th className="px-3 py-2">{m.data.compare.baseYear}</th>
-                            <th className="px-3 py-2">{m.data.compare.compareYear}</th>
-                            <th className="px-3 py-2">Δ</th>
-                            <th className="px-3 py-2">%</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {m.data.rows.map((r, i) => (
-                            <tr key={i} className="border-t">
-                              <td className="px-3 py-2">{r.label}</td>
-                              <td className="px-3 py-2 font-semibold">{formatNumber(r.base_value)}</td>
-                              <td className="px-3 py-2 font-semibold">{formatNumber(r.compare_value)}</td>
-                              <td className={`px-3 py-2 font-bold ${Number(r.delta) < 0 ? 'text-red-600' : Number(r.delta) > 0 ? 'text-emerald-600' : 'text-gray-700'}`}>
-                                {formatNumber(r.delta)}
-                              </td>
-                              <td className="px-3 py-2">
-                                {r.pct_change === null || r.pct_change === undefined
-                                  ? '—'
-                                  : `${Number(r.pct_change).toFixed(2).replace('.', ',')}%`}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Sugestões de continuação (quando a IA pedir clarificação) */}
-                {Array.isArray(m?.suggestions) && m.suggestions.length ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {m.suggestions.slice(0, 6).map((sug) => (
-                      <button
-                        key={sug}
-                        onClick={() => send(sug)}
-                        className="px-3 py-1.5 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 text-xs font-semibold"
-                      >
-                        {sug}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                <div className="whitespace-pre-line leading-relaxed">{m.content}</div>
+                {m.role === 'assistant' && renderAssistantExtras(m)}
               </div>
             </div>
           ))}
 
           {loading && (
             <div className="flex justify-start">
-              <div className="max-w-[90%] rounded-2xl px-3 py-2 bg-gray-100 text-gray-900">
-                <div className="text-sm flex items-center gap-2">
-                  <span className="animate-spin inline-block h-4 w-4 border-b-2 border-violet-600 rounded-full" />
-                  Pensando...
+              <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-50 text-gray-900 px-3 py-2 text-sm border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
+                  <span className="text-gray-600">Pensando...</span>
                 </div>
               </div>
             </div>
           )}
-        </div>
 
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') send();
-            }}
-            placeholder='Ex.: "Matrículas por sexo"'
-            className="flex-1 px-3 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-violet-300"
-          />
-          <button
-            onClick={() => send()}
-            disabled={loading}
-            className="px-4 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold flex items-center gap-2 disabled:opacity-60"
-          >
-            <FaPaperPlane />
-            Enviar
-          </button>
+          <div ref={bottomRef} />
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow p-3 sm:p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="h-9 w-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
-            <FaLightbulb />
-          </div>
-          <div>
-            <div className="font-bold text-gray-900">Sugestões</div>
-            <div className="text-xs text-gray-500">Clique para inserir</div>
-          </div>
-        </div>
+      <div className="px-4 py-3 border-t border-gray-100">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(question);
+          }}
+          className="flex items-center gap-2"
+        >
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder='Ex.: "Qual escola tem mais alunos ativos?"'
+            className="flex-1 h-11 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-violet-200"
+          />
+          <button
+            type="submit"
+            disabled={!canSend}
+            className={
+              canSend
+                ? 'h-11 px-4 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700'
+                : 'h-11 px-4 rounded-xl bg-gray-200 text-gray-500 font-semibold cursor-not-allowed'
+            }
+          >
+            Enviar
+          </button>
+        </form>
 
-        <div className="space-y-2">
-          {examples.map((ex) => (
-            <button
-              key={ex}
-              onClick={() => send(ex)}
-              className="w-full text-left px-3 py-2 rounded-xl bg-gray-50 hover:bg-gray-100 border border-gray-200 text-sm"
-            >
-              {ex}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 text-xs text-gray-500">
-          <div className="font-semibold mb-1">Dicas</div>
-          <ul className="list-disc ml-4 space-y-1">
-            <li>Use <b>por</b> para quebrar: "Matrículas por turno"</li>
-            <li>Dimensões suportadas: sexo, turno, zona_escola, zona_aluno, situacao_matricula, etc.</li>
-            <li>Respeita os filtros já aplicados no dashboard.</li>
-          </ul>
+        <div className="mt-2 text-[11px] text-gray-500">
+          Dica: você pode usar os filtros do dashboard (ano, etapa, turno, etc.) e depois perguntar aqui.
         </div>
       </div>
     </div>

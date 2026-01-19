@@ -125,60 +125,105 @@ function extractJsonMaybe(content) {
   return null;
 }
 
+function parseLimitFromQuestion(question) {
+  const q = String(question || '').toLowerCase();
+  // top 10, top10, top-10
+  const m1 = q.match(/\btop\s*-?\s*(\d{1,2})\b/);
+  if (m1) return Math.min(Math.max(parseInt(m1[1], 10) || 10, 1), 50);
+
+  // "10 primeiras", "5 maiores", "3 menores"
+  const m2 = q.match(/\b(\d{1,2})\s*(primeir|maior|menor)\w*\b/);
+  if (m2) return Math.min(Math.max(parseInt(m2[1], 10) || 10, 1), 50);
+
+  return null;
+}
+
+function inferMetricFromQuestion(q) {
+  const s = String(q || '').toLowerCase();
+  if (/evas[aã]o/.test(s)) return 'taxa_evasao';
+  if (/desistent|aband|evad/.test(s)) return 'desistentes';
+  if (/ativa|ativos/.test(s)) return 'matriculas_ativas';
+  return 'total_matriculas';
+}
+
+function inferGroupByFromQuestion(q) {
+  const s = String(q || '').toLowerCase();
+  if (/por\s+escola|quais\s+escolas|qual\s+escola|escolas|unidade/.test(s)) return 'escola';
+  if (/por\s+turno|turnos|manha|tarde|noite/.test(s)) return 'turno';
+  if (/por\s+sexo|mascul|femin|sexo/.test(s)) return 'sexo';
+  if (/por\s+situ[aã]c|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(s)) return 'situacao_matricula';
+  if (/por\s+zona\s+da\s+escola|zona\s+escola/.test(s)) return 'zona_escola';
+  if (/por\s+zona\s+do\s+aluno|zona\s+aluno/.test(s)) return 'zona_aluno';
+  if (/por\s+etapa|etapa/.test(s)) return 'etapa_matricula';
+  if (/por\s+grupo\s+etapa|grupo\s+etapa/.test(s)) return 'grupo_etapa';
+  if (/por\s+tipo\s+de\s+matr[ií]cula|tipo\s+matr[ií]cula/.test(s)) return 'tipo_matricula';
+  if (/por\s+defici[eê]ncia|defici[eê]ncia/.test(s)) return 'deficiencia';
+  return null;
+}
+
 function heuristicSpec(question) {
   const q = String(question || '').toLowerCase();
-  const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)].map((m) => Number(m[1]));
+
+  // anos mencionados
+  const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)].map((m) => Number(m[1])).filter(Boolean);
   const uniqYears = Array.from(new Set(years)).slice(0, 3);
 
-  const wantsCompare = /(compar|comparativo|comparar|diferen[cç]a|varia[cç][aã]o|cres|aument|redu[cç][aã]o|queda|dimin)/.test(q);
+  const wantsCompare = /(compar|comparativo|comparar|diferen[cç]a|varia[cç][aã]o|delta|evolu|cres|aument|redu[cç][aã]o|queda|diminui)/.test(q);
   if (wantsCompare && uniqYears.length >= 2) {
-    const [yearA, yearB] = uniqYears;
-
-    const direction =
-      /(redu[cç][aã]o|queda|dimin)/.test(q) ? 'decrease' :
-      /(aument|cresceu|subiu|cres)/.test(q) ? 'increase' :
-      'all';
-
-    // tenta inferir groupBy
-    let groupBy = null;
-    if (/(por\s+escola|escolas|onde)/.test(q)) groupBy = 'escola';
-    else if (/\bpor\s+turno\b/.test(q)) groupBy = 'turno';
-    else if (/\bpor\s+sexo\b/.test(q)) groupBy = 'sexo';
-    else if (/\bpor\s+zona\b/.test(q) && q.includes('escola')) groupBy = 'zona_escola';
-    else if (/\bpor\s+zona\b/.test(q) && q.includes('aluno')) groupBy = 'zona_aluno';
-
-    // decide métrica
-    let metric = 'total_matriculas';
-    if (/evas[aã]o/.test(q)) metric = 'taxa_evasao';
-    else if (/desistent/.test(q)) metric = 'desistentes';
-    else if (/ativa/.test(q)) metric = 'matriculas_ativas';
+    const baseYear = Math.min(uniqYears[0], uniqYears[1]);
+    const compareYear = Math.max(uniqYears[0], uniqYears[1]);
+    const direction = /(redu[cç][aã]o|queda|diminui)/.test(q) ? 'decrease' : (/(aument|cres|subiu)/.test(q) ? 'increase' : 'all');
+    const groupBy = inferGroupByFromQuestion(q);
+    const metric = inferMetricFromQuestion(q);
 
     return {
       type: 'compare',
       metric,
       groupBy,
       where: {},
-      limit: 20,
-      compare: {
-        baseYear: Math.min(yearA, yearB),
-        compareYear: Math.max(yearA, yearB),
-        direction,
-      },
+      limit: Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50),
+      compare: { baseYear, compareYear, direction },
     };
   }
 
-  // breakdown heurístico
-  if (/\bpor\s+sexo\b/.test(q)) return { type: 'breakdown', metric: 'total_matriculas', groupBy: 'sexo', where: {}, limit: 20 };
-  if (/\bpor\s+turno\b/.test(q)) return { type: 'breakdown', metric: 'total_matriculas', groupBy: 'turno', where: {}, limit: 20 };
-  if (/\bpor\s+situ(a[cç][aã]o|acao)\b/.test(q) || /situa[cç][aã]o\s+da\s+matr[ií]cula/.test(q)) {
-    return { type: 'breakdown', metric: 'total_matriculas', groupBy: 'situacao_matricula', where: {}, limit: 20 };
+  // pedidos "por X"
+  const by = inferGroupByFromQuestion(q);
+  if (/\bpor\b/.test(q) && by) {
+    return {
+      type: 'breakdown',
+      metric: inferMetricFromQuestion(q),
+      groupBy: by,
+      where: {},
+      limit: Math.min(Math.max(parseLimitFromQuestion(q) || 20, 1), 50),
+      order: 'desc',
+    };
   }
 
-  // single heurístico
-  if (/taxa\s+de\s+evas[aã]o/.test(q) || /evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: {}, limit: 20 };
+  // "qual escola tem mais", "top", "maior", "ranking"...
+  const wantsRanking = /(top|ranking|maior|menor|mais\s+alun|menos\s+alun|lidera|pior|melhor)/.test(q);
+  if (wantsRanking) {
+    const metric = inferMetricFromQuestion(q);
+    const groupBy = by || 'escola';
+    const limit = Math.min(Math.max(parseLimitFromQuestion(q) || 10, 1), 50);
+    const order = /(menor|menos|pior)/.test(q) ? 'asc' : 'desc';
+
+    // se for "qual" sem número, tende a ser 1 resultado
+    const isSingle = /(\bqual\b|\bqual\s+é\b)/.test(q) && !/\btop\b/.test(q) && !/\b\d{1,2}\b/.test(q);
+
+    return {
+      type: 'breakdown',
+      metric,
+      groupBy,
+      where: {},
+      limit: isSingle ? 1 : limit,
+      order,
+    };
+  }
+
+  // single (um número)
+  if (/taxa\s+de\s+evas[aã]o|evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: {}, limit: 20 };
   if (/matr[ií]culas\s+ativas|ativas/.test(q)) return { type: 'single', metric: 'matriculas_ativas', groupBy: null, where: {}, limit: 20 };
-  if (/desistent/.test(q)) return { type: 'single', metric: 'desistentes', groupBy: null, where: {}, limit: 20 };
-  if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: {}, limit: 20 };
+  if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas|quantas\s+matr[ií]culas/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: {}, limit: 20 };
 
   return null;
 }
@@ -211,11 +256,14 @@ Formato:
   "groupBy": "<dimension>" | null,
   "where": { "<dimension>": "<value>", ... },
   "limit": 20,
+  "order": "desc" | "asc",
   "compare": { "baseYear": 2025, "compareYear": 2026, "direction": "decrease" | "increase" | "all" }
 }
 
 Notas:
 - Se a pergunta pedir "por" alguma dimensão (ex.: por sexo/turno), use type="breakdown" e groupBy.
+- Se pedir "qual/onde tem mais/maior/top" para uma dimensão (ex.: "qual escola tem mais alunos"), use type="breakdown" com groupBy adequado, limit=1 (ou top N), e order="desc".
+- Se pedir "menor/menos", use order="asc".
 - Se pedir apenas um número, use type="single" e groupBy=null.
 - Se pedir comparativo entre anos (ex.: "2026 vs 2025"), use type="compare" e preencha compare.baseYear e compare.compareYear.
 - Em comparativos, groupBy pode ser null (comparativo geral) OU uma dimensão (ex.: por escola) para encontrar onde aumentou/reduziu.
@@ -316,7 +364,7 @@ async function runQuery(spec, contextFilters, user) {
       SELECT ${labelExpr} AS label, ${metricDef.sql} AS value
       FROM base_sem_especiais
       GROUP BY ${labelExpr}
-      ORDER BY value DESC
+      ORDER BY value ${spec.order === 'asc' ? 'ASC' : 'DESC'}
       LIMIT ${limit};`;
 
     const result = await pool.query(sql, params);
@@ -450,21 +498,39 @@ const query = async (req, res) => {
     if (spec?.type === 'error') {
       return res.status(500).json({ error: spec.message });
     }
-
     if (!spec || spec.type === 'unsupported') {
+      const q = String(question || '').toLowerCase();
+      const suggestions = [
+        'Total de matrículas ativas',
+        'Matrículas por turno',
+        'Matrículas por sexo',
+        'Comparar matrículas 2026 e 2025 por escola',
+        'Comparar desistentes 2026 e 2025 por zona_escola',
+      ];
+      if (/escola|unidade|inep/.test(q)) {
+        suggestions.unshift('Qual escola tem mais alunos ativos?', 'Top 10 escolas com mais matrículas');
+      }
+      if (/etapa|1º|2º|3º|4º|5º|6º|7º|8º|9º|ano\b/.test(q)) {
+        suggestions.unshift('Matrículas ativas na etapa 1º ANO');
+      }
+      if (/situa|ativo|ativa|desistent|cancel/.test(q)) {
+        suggestions.unshift('Matrículas ativas por situação de matrícula');
+      }
+
       return res.json({
         ok: false,
         kind: 'clarify',
-        answer:
-          'Ainda não entendi totalmente. Eu consigo responder consultas agregadas e comparativos por ano (sem dados pessoais).\n\nDiga a métrica + como quer quebrar. Ex.:\n- "Total de matrículas ativas"\n- "Matrículas por turno"\n- "Comparar matrículas 2026 e 2025 por escola"',
-        suggestions: [
-          'Total de matrículas ativas',
-          'Matrículas por turno',
-          'Comparar matrículas 2026 e 2025 por escola',
-          'Comparar desistentes 2026 e 2025 por zona_escola',
-        ],
+        answer: `Ainda não entendi totalmente, mas eu consigo responder agregados, rankings (ex.: qual escola tem mais alunos) e comparativos por ano — sempre sem dados pessoais.
+      
+      Me diga a métrica e como quer ver. Exemplos:
+      - "Qual escola tem mais alunos ativos?"
+      - "Top 10 escolas com mais matrículas"
+      - "Matrículas por turno"
+      - "Comparar matrículas 2026 e 2025 por escola"`,
+        suggestions: Array.from(new Set(suggestions)).slice(0, 8),
         spec,
       });
+    
     }
 
     // validações finais
@@ -473,6 +539,11 @@ const query = async (req, res) => {
     }
     if (spec.type === 'breakdown' && !ALLOWED_DIMENSIONS[spec.groupBy]) {
       return res.json({ ok: false, answer: 'Dimensão de agrupamento não suportada nessa versão.' });
+    }
+
+    // sanity: order só é aceito em breakdown e apenas asc/desc
+    if (spec?.order && !['asc','desc'].includes(String(spec.order))) {
+      delete spec.order;
     }
     if (spec.type === 'compare') {
       const by = spec.groupBy;
@@ -519,9 +590,21 @@ const query = async (req, res) => {
         value: Number(r.value) || 0,
       }));
 
+      const groupTxt = result.groupBy.replace('_', ' ');
+      let answer = `${metricLabel} por ${groupTxt}`;
+
+      // Se for um "top 1" (ex.: "qual escola tem mais alunos"), devolve uma frase mais humana.
+      if (rows.length === 1 && spec?.groupBy) {
+        const v = rows[0].value;
+        const vFmt = spec.metric === 'taxa_evasao' ? `${formatPtBRPercent(v)}%` : formatPtBRNumber(v);
+        const isAsc = String(spec.order || 'desc') === 'asc';
+        const lead = isAsc ? 'Menor' : 'Maior';
+        answer = `${lead} ${metricLabel.toLowerCase()} em ${groupTxt}: ${rows[0].label} (${vFmt})`;
+      }
+
       return res.json({
         ok: true,
-        answer: `${metricLabel} por ${result.groupBy.replace('_', ' ')}`,
+        answer,
         data: { rows, groupBy: result.groupBy, metric: spec.metric },
         spec,
       });

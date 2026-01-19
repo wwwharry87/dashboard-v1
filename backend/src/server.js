@@ -35,6 +35,7 @@ app.use((req, res, next) => {
 app.use('/api', authRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api/client', clientRoutes);
+app.use('/api', require('./routes/geoRoutes'));
 
 // Rota health check
 app.get('/health', (req, res) => {
