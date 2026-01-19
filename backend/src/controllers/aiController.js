@@ -23,33 +23,6 @@ function sanitizeQuestion(q) {
   return String(q || '').trim().slice(0, 800);
 }
 
-function sanitizeHistory(h) {
-  // histórico vem do frontend; limitamos tamanho para evitar prompt huge
-  const s = String(h || '').trim();
-  return s.slice(0, 2000);
-}
-
-// (2) Injeção de Domínio: formata os valores existentes no banco (catálogo de filtros)
-// para reduzir alucinação de WHERE.
-function formatDomainOptions(availableFilters) {
-  const f = availableFilters && typeof availableFilters === 'object' ? availableFilters : {};
-  const lines = [];
-
-  // preferimos apenas dims que existem na allow-list, mas aceitamos catálogo parcial
-  const dimKeys = Object.keys(ALLOWED_DIMENSIONS);
-  for (const k of dimKeys) {
-    const v = f[k];
-    if (!Array.isArray(v) || v.length === 0) continue;
-
-    const uniq = Array.from(new Set(v.map((x) => String(x).trim()).filter(Boolean)));
-    const preview = uniq.slice(0, 30).join(', ');
-    const suffix = uniq.length > 30 ? ', ...' : '';
-    lines.push(`- ${k}: [${preview}${suffix}]`);
-  }
-
-  return lines.length ? lines.join('\n') : '';
-}
-
 const ALLOWED_DIMENSIONS = {
   ano_letivo: { col: 'ano_letivo', type: 'int' },
   escola: { col: 'escola', type: 'text' },
@@ -100,6 +73,16 @@ const ALLOWED_METRICS = {
       THEN ROUND((COUNT(DISTINCT CASE WHEN COALESCE(idsituacao,0)=2 THEN idmatricula END) * 100.0) / COUNT(DISTINCT idmatricula), 2)
       ELSE 0 END`
   },
+  total_entradas: {
+    label: 'Total de entradas',
+    // coluna do dataset: entrada_mes_tipo (formato "MM-..." ou '-')
+    sql: `COUNT(DISTINCT idmatricula) FILTER (WHERE entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo <> '-')`
+  },
+  total_saidas: {
+    label: 'Total de saídas',
+    // coluna do dataset: saida_mes_situacao (formato "MM-..." ou '-')
+    sql: `COUNT(DISTINCT idmatricula) FILTER (WHERE saida_mes_situacao IS NOT NULL AND saida_mes_situacao <> '-')`
+  },
 };
 
 // --- Helpers para comparativos (ano x ano) ---
@@ -139,6 +122,14 @@ function metricSqlForYear(metricKey, yearParamRef) {
     return `CASE WHEN ${denom} > 0 THEN ROUND((${num} * 100.0) / ${denom}, 2) ELSE 0 END`;
   }
 
+  if (metricKey === 'total_entradas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND entrada_mes_tipo IS NOT NULL AND entrada_mes_tipo <> '-' THEN idmatricula END)`;
+  }
+
+  if (metricKey === 'total_saidas') {
+    return `COUNT(DISTINCT CASE WHEN ano_letivo = ${y} AND saida_mes_situacao IS NOT NULL AND saida_mes_situacao <> '-' THEN idmatricula END)`;
+  }
+
   return null;
 }
 
@@ -171,6 +162,23 @@ function extractJsonMaybe(content) {
   return null;
 }
 
+// ============================================================
+// Domínio (valores válidos) — ajuda o LLM a NÃO alucinar filtros
+// ============================================================
+function formatDomainOptions(availableFilters) {
+  if (!availableFilters || typeof availableFilters !== 'object') return '';
+  const lines = [];
+  for (const dim of Object.keys(ALLOWED_DIMENSIONS)) {
+    const arr = availableFilters[dim];
+    if (!Array.isArray(arr) || !arr.length) continue;
+    // limita para não explodir tokens, mas preserva diversidade
+    const uniq = Array.from(new Set(arr.map((v) => String(v))));
+    const sample = uniq.slice(0, 60);
+    lines.push(`- ${dim}: [${sample.join(', ')}${uniq.length > sample.length ? ', ...' : ''}]`);
+  }
+  return lines.join('\n');
+}
+
 function parseLimitFromQuestion(question) {
   const q = String(question || '').toLowerCase();
   // top 10, top10, top-10
@@ -186,6 +194,9 @@ function parseLimitFromQuestion(question) {
 
 function inferMetricFromQuestion(q) {
   const s = String(q || '').toLowerCase();
+  // movimentação
+  if (/\bsa[ií]da(s)?\b/.test(s) || /\btransferi(d|do|da)s?\b/.test(s) || /\bremanej(ad|ado|ada)s?\b/.test(s)) return 'total_saidas';
+  if (/\bentrada(s)?\b/.test(s) || /\bmatr[ií]cula(s)?\s+nova(s)?\b/.test(s) || /\bingresso(s)?\b/.test(s)) return 'total_entradas';
   if (/\bturmas?\b/.test(s)) return 'total_turmas';
   if (/\bquantas?\s+escolas?\b/.test(s) || /\btotal\s+de\s+escolas?\b/.test(s)) return 'total_escolas';
   if (/evas[aã]o/.test(s)) return 'taxa_evasao';
@@ -347,7 +358,6 @@ function tryEtapaDisambiguation(question, availableFilters) {
 
   const metric = metricForSubject(subject, qStr);
 
-  // 1) Se o usuário já citou explicitamente uma opção
   if (chosen) {
     return {
       handled: true,
@@ -359,7 +369,6 @@ function tryEtapaDisambiguation(question, availableFilters) {
     };
   }
 
-  // 2) Ações (vindas por chip): "todas separadas" / "somar todas"
   const action = normalizeLoose(afterColon || qStr);
 
   if (action.includes('TODAS SEPARADAS') || action.includes('SEPARADAS')) {
@@ -389,7 +398,6 @@ function tryEtapaDisambiguation(question, availableFilters) {
     };
   }
 
-  // 3) Se houver mais de 1 opção e nenhuma foi escolhida, pede clarificação
   if (options.length > 1) {
     return {
       handled: true,
@@ -397,7 +405,6 @@ function tryEtapaDisambiguation(question, availableFilters) {
     };
   }
 
-  // 4) Apenas 1 opção: escolhe automaticamente
   return {
     handled: true,
     spec: {
@@ -554,9 +561,9 @@ function heuristicSpec(question) {
   return null;
 }
 
-async function deepseekToSpec(question, context, history, domainOptions) {
+async function deepseekToSpec(question, context, history = '', domainOptions = '') {
   // Cache pequeno por (pergunta+context) para economizar tokens
-  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, context, history: String(history || '').slice(0, 400), domainOptions: String(domainOptions || '').slice(0, 400) })).toString('base64').slice(0, 120)}`;
+  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, context, history, domainOptions })).toString('base64').slice(0, 120)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
@@ -573,20 +580,25 @@ Regras:
 - Nunca peça ou retorne dados pessoais (nome de aluno, CPF, etc.).
 - Use apenas estas métricas: ${Object.keys(ALLOWED_METRICS).join(', ')}.
 - Use apenas estas dimensões para agrupamento: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
-- Valores permitidos (domínio) para filtros no WHERE (quando você usar where):
-${domainOptions ? domainOptions : '- (não informado)'}
-- Use APENAS estes valores para os filtros no WHERE. Se o usuário pedir um valor que não exista na lista acima, retorne {"type":"unsupported","reason":"valor de filtro fora do domínio"}.
+- Use APENAS estes valores para os filtros no WHERE (quando aplicar filtros por dimensões). Se o valor pedido não existir na lista, peça clarificação:
+${domainOptions || '(domínio não informado)'}
 - Se a pergunta não puder ser atendida com segurança, retorne {"type":"unsupported","reason":"..."}.
+
+IMPORTANTE (domínio / valores válidos):
+Use APENAS os valores abaixo quando montar filtros no WHERE. Se o usuário pedir um valor genérico (ex.: "1º ano") e houver várias opções, prefira retornar uma consulta que peça clarificação (ou use "todas separadas").
+${domainOptions || '(catálogo não informado)'}
 
 Mapeamentos importantes:
 - "turma(s)" => métrica total_turmas (usa idturma distinto).
 - "quantas escolas" / "total de escolas" => métrica total_escolas.
+- "saída(s)", "transferidos", "remanejados" => métrica total_saidas.
+- "entrada(s)", "ingressos", "matrículas novas" => métrica total_entradas.
 - "1º ano", "1 ano", "primeiro ano" => normalmente corresponde a etapa_turma = "1º ANO" (para turmas) e/ou etapa_matricula (para matrículas).
 
 Formato:
 {
   "type": "single" | "breakdown" | "compare" | "unsupported",
-  "metric": "total_matriculas" | "matriculas_ativas" | "desistentes" | "taxa_evasao" | "total_turmas" | "total_escolas",
+  "metric": "total_matriculas" | "matriculas_ativas" | "desistentes" | "taxa_evasao" | "total_turmas" | "total_escolas" | "total_entradas" | "total_saidas",
   "groupBy": "<dimension>" | null,
   "where": { "<dimension>": "<value>", ... },
   "limit": 20,
@@ -603,11 +615,8 @@ Notas:
 - Em comparativos, groupBy pode ser null (comparativo geral) OU uma dimensão (ex.: por escola) para encontrar onde aumentou/reduziu.
 - where deve incluir apenas filtros adicionais; o contexto já traz filtros selecionados.`;
 
-  const user = `Histórico recente (últimas mensagens):\n${history ? history : '(sem histórico)'}
-
-Pergunta atual: ${question}
-
-Contexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(context || {})}`;
+  const user = `${history ? `Histórico recente (para continuidade):\n${history}\n\n` : ''}Pergunta: ${question}
+\nContexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(context || {})}`;
 
   // DeepSeek às vezes pode retornar body vazio em cenários de erro/timeout.
   // Se a gente chamar resp.json() diretamente, pode estourar:
@@ -724,7 +733,7 @@ async function runQuery(spec, contextFilters, user) {
   const normalizedForWhere = { ...normalizedFilters };
 
   // ARRAY_FILTER_SUPPORT_ETAPA
-  // Suporte a filtro IN (ANY) para etapa_turma / etapa_matricula (usado no fluxo 'somar todas' / 'todas separadas')
+  // Suporte a filtro IN (ANY) para etapa_turma / etapa_matricula (usado no fluxo "somar todas" / "todas separadas")
   // Mantém SQL seguro: sempre parametrizado.
   const arrayFilters = {};
   if (Array.isArray(normalizedForWhere.etapaTurma)) {
@@ -743,6 +752,7 @@ async function runQuery(spec, contextFilters, user) {
     arrayFilters.etapa_matricula = normalizedForWhere.etapa_matricula;
     delete normalizedForWhere.etapa_matricula;
   }
+
   if (spec.type === 'compare') {
     delete normalizedForWhere.anoLetivo;
     delete normalizedForWhere.ano_letivo;
@@ -752,12 +762,10 @@ async function runQuery(spec, contextFilters, user) {
 
   // ARRAY_FILTER_APPLIED_ETAPA
   let finalClause = clause;
-  // etapa_turma IN (...)
   if (arrayFilters.etapa_turma && Array.isArray(arrayFilters.etapa_turma) && arrayFilters.etapa_turma.length) {
     params.push(arrayFilters.etapa_turma.map((x) => String(x)));
     finalClause += ` AND etapa_turma = ANY($${params.length}::text[])`;
   }
-  // etapa_matricula IN (...)
   if (arrayFilters.etapa_matricula && Array.isArray(arrayFilters.etapa_matricula) && arrayFilters.etapa_matricula.length) {
     params.push(arrayFilters.etapa_matricula.map((x) => String(x)));
     finalClause += ` AND etapa_matricula = ANY($${params.length}::text[])`;
@@ -1103,7 +1111,7 @@ const query = async (req, res) => {
     const question = sanitizeQuestion(req.body?.question);
     const contextFilters = req.body?.filters || {};
     const dashboardContext = req.body?.dashboardContext || null;
-    const history = sanitizeHistory(req.body?.history);
+    const history = req.body?.history || '';
     const domainOptions = formatDomainOptions(dashboardContext?.availableFilters);
 
     if (!question) {
@@ -1121,22 +1129,11 @@ const query = async (req, res) => {
         return res.json(ctxAnswer);
       }
     }
-    // 1) heurística para comparativos (evita frustração e diminui dependência do LLM)
-    const heur = heuristicSpec(question);
-    if (heur?.type === 'compare' && (!heur.compare?.compareYear || !heur.compare?.baseYear)) {
-      return res.json({
-        ok: false,
-        kind: 'clarify',
-        answer: 'Para comparar, me diga os dois anos. Ex.: \"Comparar matrículas 2026 e 2025\".',
-        suggestions: [
-          'Comparar matrículas 2026 e 2025',
-          'Comparar matrículas ativas 2026 e 2025 por escola',
-        ],
-      });
-    }
 
     // ETAPA_DISAMBIGUATION_FLOW
-    if (!spec && dashboardContext?.availableFilters) {
+    // Se o usuário pedir algo como "turmas do 1º ano" e existirem várias variações no banco,
+    // pedimos para ele escolher (ou executar: todas separadas / somar todas).
+    if (dashboardContext?.availableFilters) {
       const etapaFlow = tryEtapaDisambiguation(question, dashboardContext.availableFilters);
       if (etapaFlow?.handled) {
         if (etapaFlow.response) {
@@ -1148,6 +1145,24 @@ const query = async (req, res) => {
       }
     }
 
+
+    // 1) heurística para comparativos (evita frustração e diminui dependência do LLM)
+    const heur = heuristicSpec(question);
+    if (heur?.type === 'compare' && (!heur.compare?.compareYear || !heur.compare?.baseYear)) {
+      return res.json({
+        ok: false,
+        kind: 'clarify',
+        answer: 'Para comparar, me diga os dois anos. Ex.: "Comparar matrículas 2026 e 2025".',
+        suggestions: [
+          'Comparar matrículas 2026 e 2025',
+          'Comparar matrículas ativas 2026 e 2025 por escola',
+        ],
+      });
+    }
+
+    // 2) se já temos spec (ex.: via disambiguação), mantemos.
+    // 3) senão, tenta heurística.
+    // 4) senão, chama o LLM com histórico e domínio.
     spec = spec || heur || (await deepseekToSpec(question, contextFilters, history, domainOptions));
 
     if (spec?.type === 'error') {
