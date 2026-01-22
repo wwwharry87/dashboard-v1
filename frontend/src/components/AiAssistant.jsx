@@ -270,10 +270,24 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
   function sendDisambiguationChoice(choice) {
     const pending = pendingDisambiguation;
+    const clarifyType = pending?.clarify?.type;
+
+    // Caso 1: desambiguação de "turmas cheias / sem vagas" — resolvemos reenviando a mesma pergunta
+    // com um sufixo que deixa a intenção inequívoca (sem precisar de selection estruturado).
+    if (clarifyType === 'choose_turmas_vagas' && pending?.question) {
+      const suffix =
+        choice === 'sem_vagas' ? ' sem vagas' :
+        choice === 'excedidas' ? ' excedidas (acima da capacidade)' :
+        ' quase cheias (até 5 vagas)';
+
+      send(`${pending.question}${suffix}`, { silentUser: true });
+      return;
+    }
+
+    // Caso 2: desambiguação de etapa (fluxo antigo)
     const dim = pending?.clarify?.dimension;
     if (!pending?.question || !dim) return;
 
-    // reenviar a pergunta original com selection
     send(pending.question, {
       silentUser: true,
       selection: { dimension: dim, value: choice },
@@ -300,6 +314,34 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
     // Desambiguação
     if (m.kind === 'disambiguation' && Array.isArray(m.options) && m.options.length) {
+      const clarifyType = m?.clarify?.type;
+
+      // Turmas cheias/sem vagas: apenas botões simples
+      if (clarifyType === 'choose_turmas_vagas') {
+        const labelMap = {
+          sem_vagas: 'Sem vagas',
+          excedidas: 'Excedidas',
+          quase_sem_vagas: 'Quase cheias',
+        };
+        return (
+          <div className="mt-3 space-y-2">
+            <div className="text-xs text-gray-500">Escolha uma opção:</div>
+            <div className="flex flex-wrap gap-2">
+              {m.options.map((opt, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendDisambiguationChoice(opt)}
+                  className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+                >
+                  {labelMap[opt] || opt}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      // Etapa: mantém fluxo com "somar"/"separar"
       return (
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap gap-2">
@@ -399,6 +441,50 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
             fallback
           )}
 
+          {suggestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendSuggestion(s)}
+                  className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      );
+    }
+
+    // Lista (ex.: turmas sem vagas)
+    if (data?.rows && Array.isArray(data.rows) && data.rows.length && m.kind === 'list') {
+      const cols = [
+        { key: 'escola', label: 'Escola' },
+        { key: 'turma', label: 'Turma' },
+        { key: 'etapa_turma', label: 'Etapa' },
+        { key: 'turno', label: 'Turno' },
+        { key: 'capacidade', label: 'Capacidade' },
+        { key: 'matriculas_ativas', label: 'Ativos' },
+        { key: 'vagas_disponiveis', label: 'Vagas' },
+        { key: 'taxa_ocupacao', label: '% Ocup.' },
+      ];
+
+      const rows = data.rows.map((r) => ({
+        escola: clampText(r.escola, 36),
+        turma: clampText(r.turma, 26),
+        etapa_turma: clampText(r.etapa_turma, 20),
+        turno: r.turno,
+        capacidade: formatPtBRNumber(r.capacidade),
+        matriculas_ativas: formatPtBRNumber(r.matriculas_ativas),
+        vagas_disponiveis: formatPtBRNumber(r.vagas_disponiveis),
+        taxa_ocupacao: r.taxa_ocupacao === null || r.taxa_ocupacao === undefined ? '—' : `${Number(r.taxa_ocupacao).toFixed(2).replace('.', ',')}%`,
+      }));
+
+      return (
+        <>
+          <Table columns={cols} rows={rows} />
           {suggestions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {suggestions.map((s, i) => (

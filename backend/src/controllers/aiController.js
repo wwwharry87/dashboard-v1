@@ -427,6 +427,341 @@ function isListSchoolsQuestion(question) {
 }
 
 // =========================
+// Intenção: turmas cheias / sem vagas (capacidade)
+// =========================
+
+function wantsList(question) {
+  const q = String(question || '').toLowerCase();
+  return /(\bquais\b|\blista\b|\bmostrar\b|\bme\s+mostra\b|\bme\s+traz\b|\bme\s+passa\b|\bnomes\b|\bqual\s+sao\b)/.test(q);
+}
+
+function wantsCount(question) {
+  const q = String(question || '').toLowerCase();
+  return /(\bquantas\b|\bquantos\b|\btotal\b|\bn[uú]mero\b|\bqtd\b|\bconta\b|\bcontagem\b)/.test(q);
+}
+
+function detectTurmasVagasIntent(question) {
+  const q = String(question || '').toLowerCase();
+  if (!/\bturmas?\b/.test(q)) return null;
+
+  const hasNoVagas = /(sem\s+vagas?|nao\s+tem\s+mais\s+vagas|n[aã]o\s+tem\s+vagas|0\s*vagas?|vagas?\s+zerad|esgotad|lotad[aо]?(?:\s+de\s+vagas)?)/.test(q);
+  const hasCheia = /(chei[ao]|lotad[ao]|superlotad[ao])/.test(q);
+  const hasExcedida = /(excedid|acima\s+da\s+capacidade|mais\s+alunos\s+que\s+a\s+capacidade|ocupac[aã]o\s*\>\s*100|\b100%\b)/.test(q);
+  const hasQuase = /(quase\s+chei|poucas?\s+vagas|ultim(as|os)\s+vagas|restam\s+poucas?\s+vagas|at[eé]\s*\d+\s*vagas?)/.test(q);
+  const mThreshold = q.match(/at[eé]\s*(\d{1,2})\s*vagas?/);
+  const threshold = mThreshold ? Math.min(Math.max(parseInt(mThreshold[1], 10) || 1, 1), 20) : 5;
+
+  // Alta confiança
+  if (hasExcedida) return { kind: 'excedidas', confidence: 1.0 };
+  if (hasNoVagas && !hasQuase) return { kind: 'sem_vagas', confidence: 1.0 };
+  if (hasNoVagas && hasQuase) return { kind: 'quase_sem_vagas', threshold, confidence: 0.95 };
+  if (hasQuase) return { kind: 'quase_sem_vagas', threshold, confidence: 0.9 };
+
+  // Ambíguo: "turma cheia" pode significar sem vagas (=capacidade atingida) OU excedida (>capacidade)
+  if (hasCheia) return { kind: 'ambiguous_cheia', confidence: 0.6 };
+
+  return null;
+}
+
+function buildTurmasVagasDisambiguationResponse({ identity, question }) {
+  const namePrefix = identity?.userName ? `${identity.userName}, ` : '';
+  return {
+    ok: false,
+    kind: 'disambiguation',
+    options: ['sem_vagas', 'excedidas', 'quase_sem_vagas'],
+    answer:
+      `${namePrefix}quando você diz **"turmas cheias"**, você quis dizer qual dessas opções?\n\n` +
+      `1) **Sem vagas disponíveis** (vagas_disponiveis = 0 / capacidade atingida)\n` +
+      `2) **Excedidas** (matrículas acima do limite / ocupação > 100%)\n` +
+      `3) **Quase cheias** (ex.: até 5 vagas restantes)\n\n` +
+      `Responda com **1**, **2** ou **3** (ou escreva: "sem vagas", "excedidas" ou "quase cheias").`,
+    suggestions: [
+      '1 (sem vagas)',
+      '2 (excedidas)',
+      '3 (quase cheias)',
+      'Quais turmas sem vagas por escola?',
+      'Quantas turmas sem vagas no ano 2026?',
+    ],
+    clarify: {
+      type: 'choose_turmas_vagas',
+      question: String(question || '').slice(0, 200),
+      options: ['sem_vagas', 'excedidas', 'quase_sem_vagas'],
+      defaultThreshold: 5,
+    },
+  };
+}
+
+async function runTurmasVagasQuery(spec, contextFilters, user) {
+  // Segurança: allowlist de filtros e valores
+  const allowedKinds = new Set(['sem_vagas', 'excedidas', 'quase_sem_vagas']);
+  const kind = String(spec?.vagasKind || '').trim();
+  if (!allowedKinds.has(kind)) return { ok: false, message: 'Filtro de vagas inválido.' };
+
+  const threshold = Math.min(Math.max(Number(spec?.threshold ?? 5) || 5, 1), 20);
+  const action = String(spec?.action || 'list');
+  const limit = Math.min(Math.max(Number(spec?.limit ?? 30) || 30, 1), 100);
+
+  const mergedFilters = mergeFilters(contextFilters, spec.where);
+  const normalizedFilters = {
+    ...mergedFilters,
+    anoLetivo: mergedFilters.anoLetivo ?? mergedFilters.ano_letivo,
+    situacaoMatricula: mergedFilters.situacaoMatricula ?? mergedFilters.situacao_matricula,
+  };
+
+  const { clause, params } = buildWhereClause(normalizedFilters, user);
+
+  const base = `WITH base AS (
+    SELECT * FROM dados_matriculas WHERE ${clause}
+  ), base_sem_especiais AS (
+    SELECT * FROM base WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
+  ), turmas_agg AS (
+    SELECT
+      idturma,
+      MIN(COALESCE(turma::text, 'Sem informação')) AS turma,
+      MIN(COALESCE(escola::text, 'Sem informação')) AS escola,
+      MIN(COALESCE(idescola, 0)) AS idescola,
+      MIN(COALESCE(etapa_turma::text, 'Sem informação')) AS etapa_turma,
+      MIN(COALESCE(turno::text, 'Sem informação')) AS turno,
+      MIN(COALESCE(zona_escola::text, 'Sem informação')) AS zona_escola,
+      MAX(COALESCE(limite_maximo_aluno, 0)) AS capacidade,
+      COUNT(DISTINCT CASE
+        WHEN (UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA') OR COALESCE(idsituacao,0)=0)
+        THEN idmatricula END
+      ) AS matriculas_ativas
+    FROM base_sem_especiais
+    WHERE idturma IS NOT NULL AND idturma <> 0
+    GROUP BY idturma
+  ), turmas_calc AS (
+    SELECT
+      *,
+      GREATEST(capacidade - matriculas_ativas, 0) AS vagas_disponiveis,
+      CASE WHEN capacidade > 0 THEN ROUND((matriculas_ativas * 100.0) / capacidade, 2) ELSE NULL END AS taxa_ocupacao
+    FROM turmas_agg
+  )`;
+
+  const whereFilter =
+    kind === 'sem_vagas'
+      ? `capacidade > 0 AND matriculas_ativas >= capacidade`
+      : kind === 'excedidas'
+        ? `capacidade > 0 AND matriculas_ativas > capacidade`
+        : `capacidade > 0 AND vagas_disponiveis <= ${threshold}`;
+
+  if (action === 'count') {
+    const sql = `${base}
+      SELECT COUNT(*)::int AS total
+      FROM turmas_calc
+      WHERE ${whereFilter};`;
+    const r = await pool.query(sql, params);
+    return { ok: true, kind: 'count', total: Number(r.rows?.[0]?.total) || 0 };
+  }
+
+  const sql = `${base}
+    SELECT
+      idturma,
+      turma,
+      escola,
+      idescola,
+      etapa_turma,
+      turno,
+      zona_escola,
+      capacidade,
+      matriculas_ativas,
+      vagas_disponiveis,
+      taxa_ocupacao
+    FROM turmas_calc
+    WHERE ${whereFilter}
+    ORDER BY taxa_ocupacao DESC NULLS LAST, matriculas_ativas DESC
+    LIMIT ${limit};`;
+
+  const r = await pool.query(sql, params);
+  const rows = (r.rows || []).map((x) => ({
+    idturma: x.idturma,
+    turma: x.turma,
+    escola: x.escola,
+    idescola: Number(x.idescola) || 0,
+    etapa_turma: x.etapa_turma,
+    turno: x.turno,
+    zona_escola: x.zona_escola,
+    capacidade: Number(x.capacidade) || 0,
+    matriculas_ativas: Number(x.matriculas_ativas) || 0,
+    vagas_disponiveis: Number(x.vagas_disponiveis) || 0,
+    taxa_ocupacao: x.taxa_ocupacao === null ? null : Number(x.taxa_ocupacao),
+  }));
+
+  return { ok: true, kind: 'list', rows };
+}
+
+
+
+// =========================
+// Intenção: escolas cheias / sem vagas (capacidade)
+// =========================
+
+function detectEscolasVagasIntent(question) {
+  const q = String(question || '').toLowerCase();
+  if (!/\bescolas?\b/.test(q)) return null;
+
+  const hasNoVagas = /(sem\s+vagas?|nao\s+tem\s+mais\s+vagas|n[aã]o\s+tem\s+vagas|0\s*vagas?|vagas?\s+zerad|esgotad|lotad[aо]?(?:\s+de\s+vagas)?)/.test(q);
+  const hasCheia = /(chei[ao]|lotad[ao]|superlotad[ao])/.test(q);
+  const hasExcedida = /(excedid|acima\s+da\s+capacidade|ocupac[aã]o\s*\>\s*100|\b100%\b)/.test(q);
+  const hasQuase = /(quase\s+chei|poucas?\s+vagas|ultim(as|os)\s+vagas|restam\s+poucas?\s+vagas|at[eé]\s*\d+\s*vagas?)/.test(q);
+  const mThreshold = q.match(/at[eé]\s*(\d{1,2})\s*vagas?/);
+  const threshold = mThreshold ? Math.min(Math.max(parseInt(mThreshold[1], 10) || 1, 1), 20) : 5;
+
+  if (hasExcedida) return { kind: 'excedidas', confidence: 1.0 };
+  if (hasNoVagas && !hasQuase) return { kind: 'sem_vagas', confidence: 1.0 };
+  if (hasNoVagas && hasQuase) return { kind: 'quase_sem_vagas', threshold, confidence: 0.95 };
+  if (hasQuase) return { kind: 'quase_sem_vagas', threshold, confidence: 0.9 };
+  if (hasCheia) return { kind: 'ambiguous_cheia', confidence: 0.6 };
+  return null;
+}
+
+function buildEscolasVagasDisambiguationResponse({ identity, question }) {
+  const namePrefix = identity?.userName ? `${identity.userName}, ` : '';
+  return {
+    ok: false,
+    kind: 'disambiguation',
+    options: ['sem_vagas', 'excedidas', 'quase_sem_vagas'],
+    answer:
+      `${namePrefix}quando você diz **"escolas cheias"**, você quis dizer qual dessas opções?\n\n` +
+      `1) **Sem vagas disponíveis** (soma das vagas = 0 / capacidade atingida)\n` +
+      `2) **Excedidas** (matrículas acima do limite / ocupação > 100%)\n` +
+      `3) **Quase cheias** (ex.: até 5 vagas restantes)\n\n` +
+      `Responda com **1**, **2** ou **3** (ou escreva: "sem vagas", "excedidas" ou "quase cheias").`,
+    suggestions: [
+      '1 (sem vagas)',
+      '2 (excedidas)',
+      '3 (quase cheias)',
+      'Quais escolas sem vagas no ano 2026?',
+      'Top 10 escolas com mais vagas disponíveis',
+    ],
+    clarify: {
+      type: 'choose_escolas_vagas',
+      question: String(question || '').slice(0, 200),
+      options: ['sem_vagas', 'excedidas', 'quase_sem_vagas'],
+      defaultThreshold: 5,
+    },
+  };
+}
+
+async function runEscolasVagasQuery(spec, contextFilters, user) {
+  const allowedKinds = new Set(['sem_vagas', 'excedidas', 'quase_sem_vagas']);
+  const kind = String(spec?.vagasKind || '').trim();
+  if (!allowedKinds.has(kind)) return { ok: false, message: 'Filtro de vagas inválido.' };
+
+  const threshold = Math.min(Math.max(Number(spec?.threshold ?? 5) || 5, 1), 20);
+  const action = String(spec?.action || 'list');
+  const limit = Math.min(Math.max(Number(spec?.limit ?? 30) || 30, 1), 100);
+
+  const mergedFilters = mergeFilters(contextFilters, spec.where);
+  const normalizedFilters = {
+    ...mergedFilters,
+    anoLetivo: mergedFilters.anoLetivo ?? mergedFilters.ano_letivo,
+    situacaoMatricula: mergedFilters.situacaoMatricula ?? mergedFilters.situacao_matricula,
+  };
+
+  const { clause, params } = buildWhereClause(normalizedFilters, user);
+
+  const base = `WITH base AS (
+    SELECT * FROM dados_matriculas WHERE ${clause}
+  ), base_sem_especiais AS (
+    SELECT * FROM base WHERE COALESCE(idetapa_matricula,0) NOT IN (98,99)
+  ), turmas_dist AS (
+    SELECT DISTINCT ON (idescola, idturma)
+      idescola,
+      COALESCE(escola::text, 'Sem informação') AS escola,
+      COALESCE(zona_escola::text, 'Sem informação') AS zona_escola,
+      idturma,
+      MAX(COALESCE(limite_maximo_aluno, 0)) OVER (PARTITION BY idescola, idturma) AS capacidade_turma
+    FROM base_sem_especiais
+    WHERE idescola IS NOT NULL AND idescola <> 0 AND idturma IS NOT NULL AND idturma <> 0
+    ORDER BY idescola, idturma
+  ), escolas_cap AS (
+    SELECT
+      idescola,
+      MIN(escola) AS escola,
+      MIN(zona_escola) AS zona_escola,
+      COUNT(DISTINCT idturma) AS total_turmas,
+      COALESCE(SUM(capacidade_turma), 0) AS capacidade_total
+    FROM turmas_dist
+    GROUP BY idescola
+  ), escolas_mat AS (
+    SELECT
+      idescola,
+      COUNT(DISTINCT CASE
+        WHEN (UPPER(COALESCE(situacao_matricula,'')) IN ('ATIVO','ATIVA') OR COALESCE(idsituacao,0)=0)
+        THEN idmatricula END
+      ) AS matriculas_ativas
+    FROM base_sem_especiais
+    WHERE idescola IS NOT NULL AND idescola <> 0
+    GROUP BY idescola
+  ), escolas_calc AS (
+    SELECT
+      c.idescola,
+      c.escola,
+      c.zona_escola,
+      c.total_turmas,
+      c.capacidade_total,
+      COALESCE(m.matriculas_ativas, 0) AS matriculas_ativas,
+      GREATEST(c.capacidade_total - COALESCE(m.matriculas_ativas, 0), 0) AS vagas_disponiveis,
+      CASE WHEN c.capacidade_total > 0 THEN ROUND((COALESCE(m.matriculas_ativas, 0) * 100.0) / c.capacidade_total, 2) ELSE NULL END AS taxa_ocupacao
+    FROM escolas_cap c
+    LEFT JOIN escolas_mat m ON m.idescola = c.idescola
+  )`;
+
+  const whereFilter =
+    kind === 'sem_vagas'
+      ? `capacidade_total > 0 AND matriculas_ativas >= capacidade_total`
+      : kind === 'excedidas'
+        ? `capacidade_total > 0 AND matriculas_ativas > capacidade_total`
+        : `capacidade_total > 0 AND vagas_disponiveis <= ${threshold}`;
+
+  if (action === 'count') {
+    const sql = `${base}
+      SELECT COUNT(*)::int AS total
+      FROM escolas_calc
+      WHERE ${whereFilter};`;
+    const r = await pool.query(sql, params);
+    return { ok: true, kind: 'count', total: Number(r.rows?.[0]?.total) || 0 };
+  }
+
+  const order = String(spec?.order || '').toLowerCase();
+  const orderBy = order === 'vagas_asc'
+    ? `vagas_disponiveis ASC, taxa_ocupacao DESC NULLS LAST`
+    : order === 'vagas_desc'
+      ? `vagas_disponiveis DESC, taxa_ocupacao ASC NULLS LAST`
+      : `taxa_ocupacao DESC NULLS LAST, matriculas_ativas DESC`;
+
+  const sql = `${base}
+    SELECT
+      idescola,
+      escola,
+      zona_escola,
+      total_turmas,
+      capacidade_total,
+      matriculas_ativas,
+      vagas_disponiveis,
+      taxa_ocupacao
+    FROM escolas_calc
+    WHERE ${whereFilter}
+    ORDER BY ${orderBy}
+    LIMIT ${limit};`;
+
+  const r = await pool.query(sql, params);
+  const rows = (r.rows || []).map((x) => ({
+    idescola: Number(x.idescola) || 0,
+    escola: x.escola,
+    zona_escola: x.zona_escola,
+    total_turmas: Number(x.total_turmas) || 0,
+    capacidade_total: Number(x.capacidade_total) || 0,
+    matriculas_ativas: Number(x.matriculas_ativas) || 0,
+    vagas_disponiveis: Number(x.vagas_disponiveis) || 0,
+    taxa_ocupacao: x.taxa_ocupacao === null ? null : Number(x.taxa_ocupacao),
+  }));
+
+  return { ok: true, kind: 'list', rows };
+}
+// =========================
 // Heurística (rápida) — sem LLM
 // =========================
 
@@ -861,9 +1196,25 @@ function answerFromDashboardContext(question, dashboardContext) {
     }
   }
 
-  if (/\bturmas?\b/.test(q) && !/por\s+escola|por\s+etapa|detalh|rank|top|lista/.test(q)) {
+  // IMPORTANTE: não "chutar" total quando o usuário pede lista/filtra (ex.: "quais turmas cheias").
+  // Só responde com "total de turmas" se a pergunta for claramente de contagem.
+  const vagasIntent = detectTurmasVagasIntent(question);
+  if (
+    /\bturmas?\b/.test(q) &&
+    wantsCount(question) &&
+    !wantsList(question) &&
+    !vagasIntent &&
+    !/por\s+escola|por\s+etapa|detalh|rank|top|lista/.test(q)
+  ) {
     const v = totals.totalTurmas ?? totals.total_turmas;
-    if (v !== undefined && v !== null) return { ok: true, answer: `Total de turmas: ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'total_turmas' } };
+    if (v !== undefined && v !== null) {
+      return {
+        ok: true,
+        answer: `Total de turmas: ${formatPtBRNumber(v)}`,
+        data: { value: Number(v) || 0 },
+        spec: { type: 'single', metric: 'total_turmas' },
+      };
+    }
   }
 
   if (/\bescolas?\b/.test(q) && !/por\s+zona|por\s+escola|rank|top|lista/.test(q)) {
@@ -930,7 +1281,68 @@ function answerFromDashboardContext(question, dashboardContext) {
     }
   }
 
-  return null;
+
+
+  // Capacidade / vagas (totais)
+  if (/\bvagas?\b/.test(q) && wantsCount(question) && !wantsList(question) && !/por\s+/.test(q) && !/rank|top|lista/.test(q)) {
+    const v = totals.totalVagas ?? totals.total_vagas;
+    if (v !== undefined && v !== null) {
+      return { ok: true, answer: `Vagas disponíveis (total): ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'total_vagas' } };
+    }
+  }
+
+  if (/capacidade\s+total|total\s+de\s+capacidade/.test(q) && wantsCount(question) && !wantsList(question)) {
+    const v = totals.capacidadeTotal ?? totals.capacidade_total;
+    if (v !== undefined && v !== null) {
+      return { ok: true, answer: `Capacidade total: ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'capacidade_total' } };
+    }
+  }
+
+  if (/taxa\s+de\s+ocupa[cç][aã]o|%\s*ocupa|ocupac[aã]o/.test(q) && !/por\s+/.test(q) && !/rank|top|lista/.test(q)) {
+    const v = totals.taxaOcupacao ?? totals.taxa_ocupacao;
+    if (v !== undefined && v !== null) {
+      const n = Number(v);
+      const fmt = Number.isFinite(n) ? `${n.toFixed(2).replace('.', ',')}%` : String(v);
+      return { ok: true, answer: `Taxa de ocupação: ${fmt}`, data: { value: n }, spec: { type: 'single', metric: 'taxa_ocupacao' } };
+    }
+  }
+
+  if (/por\s+zona/.test(q) && (/(vagas?|capacidade|ocupa[cç][aã]o)/.test(q)) && totals.capacidadePorZona) {
+    const capZona = totals.capacidadePorZona || {};
+    const rows = Object.keys(capZona).map((k) => ({
+      label: k,
+      value: /capacidade/.test(q) ? (Number(capZona[k]?.capacidade) || 0) : /vagas/.test(q) ? (Number(capZona[k]?.vagas) || 0) : (Number(capZona[k]?.matriculas_ativas) || 0),
+    }));
+    if (rows.length) {
+      const metric = /capacidade/.test(q) ? 'capacidade_total' : /vagas/.test(q) ? 'total_vagas' : 'matriculas_ativas';
+      return { ok: true, answer: /capacidade/.test(q) ? 'Capacidade por zona' : /vagas/.test(q) ? 'Vagas por zona' : 'Matrículas ativas por zona', data: { rows, groupBy: 'zona_escola', metric }, spec: { type: 'breakdown', metric, groupBy: 'zona_escola' } };
+    }
+  }
+  
+
+  // Capacidade/Vagas (totais do dashboard)
+  if (/vagas?/.test(q) && wantsCount(question) && !wantsList(question) && !/por\s+/.test(q) && !/top|rank|lista/.test(q)) {
+    const v = totals.totalVagas ?? totals.total_vagas;
+    if (v !== undefined && v !== null) {
+      return { ok: true, answer: `Total de vagas disponíveis: ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'total_vagas' } };
+    }
+  }
+
+  if (/capacidade/.test(q) && wantsCount(question) && !wantsList(question) && !/por\s+/.test(q) && !/top|rank|lista/.test(q)) {
+    const v = totals.capacidadeTotal ?? totals.capacidade_total;
+    if (v !== undefined && v !== null) {
+      return { ok: true, answer: `Capacidade total (somatório das turmas): ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'capacidade_total' } };
+    }
+  }
+
+  if ((/taxa\s+de\s+ocupa|taxa\s+ocup|ocupac[aã]o/.test(q)) && !wantsList(question) && !/por\s+/.test(q) && !/top|rank|lista/.test(q)) {
+    const v = totals.taxaOcupacao ?? totals.taxa_ocupacao;
+    if (v !== undefined && v !== null) {
+      const n = Number(v);
+      return { ok: true, answer: `Taxa de ocupação (geral): ${Number(n).toFixed(2).replace('.', ',')}%`, data: { value: n }, spec: { type: 'single', metric: 'taxa_ocupacao' } };
+    }
+  }
+return null;
 }
 
 // =========================
@@ -1134,6 +1546,140 @@ const query = async (req, res) => {
       }
     }
 
+    // 3.1) Turmas cheias / sem vagas (antes do snapshot)
+    // Evita responder com "Total de turmas" quando o usuário quer filtrar por capacidade.
+    const vagasIntent = detectTurmasVagasIntent(question);
+    if (vagasIntent) {
+      // Ambiguidade: "cheia" pode ser sem vagas OU excedida.
+      if (vagasIntent.kind === 'ambiguous_cheia') {
+        const resp = buildTurmasVagasDisambiguationResponse({ identity, question });
+        await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, resp.clarify);
+        return res.json({ ...resp, conversationId });
+      }
+
+      const action = wantsCount(question) && !wantsList(question) ? 'count' : 'list';
+      const limit = Math.min(Math.max(parseLimitFromQuestion(question) || 30, 1), 100);
+      const yearsSingle = extractYears(question);
+      const where = {};
+      if (Array.isArray(yearsSingle) && yearsSingle.length === 1) where.ano_letivo = yearsSingle[0];
+      const etapaFromText = inferEtapaAnoFromQuestion(question);
+      if (etapaFromText) where.etapa_turma = etapaFromText;
+
+      const spec = {
+        type: 'turmas_vagas',
+        action,
+        vagasKind: vagasIntent.kind,
+        threshold: vagasIntent.threshold,
+        where,
+        limit,
+      };
+
+      const result = await runTurmasVagasQuery(spec, contextFilters, req.user);
+      if (!result.ok) {
+        const resp = { ok: false, answer: result.message || 'Não consegui calcular vagas por turma.', conversationId };
+        await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
+        return res.json(resp);
+      }
+
+      const namePrefix = identity.userName ? `${identity.userName}, ` : '';
+      const label =
+        vagasIntent.kind === 'sem_vagas' ? 'turmas sem vagas' :
+        vagasIntent.kind === 'excedidas' ? 'turmas excedidas' :
+        `turmas quase cheias (até ${Math.min(Math.max(Number(vagasIntent.threshold ?? 5) || 5, 1), 20)} vagas)`;
+
+      if (result.kind === 'count') {
+        const answer = `${namePrefix}${label}: ${formatPtBRNumber(result.total)}`;
+        const payload = { ok: true, kind: 'single', answer, data: { value: result.total }, spec, conversationId };
+        await saveMessage(conversationId, 'assistant', payload.answer, 'single', spec);
+        return res.json(payload);
+      }
+
+      const rows = result.rows || [];
+      const answer =
+        `${namePrefix}encontrei **${formatPtBRNumber(rows.length)}** ${label}` +
+        (action === 'list' && rows.length >= limit ? ` (mostrando até ${limit}).` : '.') +
+        ` Quer que eu filtre por **escola**, **etapa** ou **turno**?`;
+
+      const payload = {
+        ok: true,
+        kind: 'list',
+        answer,
+        data: { rows, vagasKind: vagasIntent.kind, threshold: vagasIntent.threshold ?? 5 },
+        spec,
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', payload.answer, 'list', spec);
+      return res.json(payload);
+    }
+
+
+
+    // 3.2) Escolas cheias / sem vagas (antes do snapshot)
+    const escolasVagasIntent = detectEscolasVagasIntent(question);
+    if (escolasVagasIntent) {
+      if (escolasVagasIntent.kind === 'ambiguous_cheia') {
+        const resp = buildEscolasVagasDisambiguationResponse({ identity, question });
+        await saveMessage(conversationId, 'assistant', resp.answer, resp.kind, resp.clarify);
+        return res.json({ ...resp, conversationId });
+      }
+
+      const action = wantsCount(question) && !wantsList(question) ? 'count' : 'list';
+      const limit = Math.min(Math.max(parseLimitFromQuestion(question) || 30, 1), 100);
+      const yearsSingle = extractYears(question);
+      const where = {};
+      if (Array.isArray(yearsSingle) && yearsSingle.length === 1) where.ano_letivo = yearsSingle[0];
+
+      const order = /mais\s+vagas|maior\s+vagas|top/.test(String(question||'').toLowerCase()) ? 'vagas_desc'
+        : /menos\s+vagas|menor\s+vagas/.test(String(question||'').toLowerCase()) ? 'vagas_asc'
+        : undefined;
+
+      const spec = {
+        type: 'escolas_vagas',
+        action,
+        vagasKind: escolasVagasIntent.kind,
+        threshold: escolasVagasIntent.threshold,
+        where,
+        limit,
+        order,
+      };
+
+      const result = await runEscolasVagasQuery(spec, contextFilters, req.user);
+      if (!result.ok) {
+        const resp = { ok: false, answer: result.message || 'Não consegui calcular vagas por escola.', conversationId };
+        await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
+        return res.json(resp);
+      }
+
+      const namePrefix = identity.userName ? `${identity.userName}, ` : '';
+      const label =
+        escolasVagasIntent.kind === 'sem_vagas' ? 'escolas sem vagas' :
+        escolasVagasIntent.kind === 'excedidas' ? 'escolas excedidas' :
+        `escolas quase cheias (até ${Math.min(Math.max(Number(escolasVagasIntent.threshold ?? 5) || 5, 1), 20)} vagas)`;
+
+      if (result.kind === 'count') {
+        const answer = `${namePrefix}${label}: ${formatPtBRNumber(result.total)}`;
+        const payload = { ok: true, kind: 'single', answer, data: { value: result.total }, spec, conversationId };
+        await saveMessage(conversationId, 'assistant', payload.answer, 'single', spec);
+        return res.json(payload);
+      }
+
+      const rows = result.rows || [];
+      const answer =
+        `${namePrefix}encontrei **${formatPtBRNumber(rows.length)}** ${label}` +
+        (action === 'list' && rows.length >= limit ? ` (mostrando até ${limit}).` : '.') +
+        ` Quer que eu filtre por **zona**, **etapa** ou **turno**?`;
+
+      const payload = {
+        ok: true,
+        kind: 'list',
+        answer,
+        data: { rows, scope: 'escola', vagasKind: escolasVagasIntent.kind, threshold: escolasVagasIntent.threshold ?? 5 },
+        spec,
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', payload.answer, 'list', spec);
+      return res.json(payload);
+    }
     // 4) Snapshot (somente quando não é compare/list/why)
     if (
       dashboardContext?.totals &&
