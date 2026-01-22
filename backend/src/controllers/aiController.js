@@ -411,6 +411,79 @@ function extractYears(question) {
   return Array.from(new Set(years)).slice(0, 3);
 }
 
+function getBaseAnoLetivoFromContext(contextFilters) {
+  // Base para expressões relativas ("ano passado", "este ano", etc.)
+  // Prioridade: filtro já aplicado no dashboard (anoLetivo/ano_letivo) -> senão ano do sistema.
+  const ctx = contextFilters || {};
+  const raw = ctx.anoLetivo ?? ctx.ano_letivo;
+  const n = raw !== undefined && raw !== null && raw !== '' ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n > 1900 && n < 3000) return Math.trunc(n);
+  return new Date().getFullYear();
+}
+
+function inferRelativeAnoLetivo(question, contextFilters) {
+  const q = String(question || '').toLowerCase();
+
+  // Não aplica em comparativos explícitos (ex.: "2026 vs 2025")
+  if (isCompareIntent(question)) return null;
+
+  const base = getBaseAnoLetivoFromContext(contextFilters);
+
+  // "ano passado" / "ano anterior"
+  if (/(ano\s+passad|ano\s+anterio|no\s+passad|no\s+ano\s+anterior)/.test(q)) return base - 1;
+
+  // "ano retrasado" / "dois anos atrás"
+  if (/(ano\s+retrasad|dois\s+anos\s+atr[aá]s|2\s+anos\s+atr[aá]s)/.test(q)) return base - 2;
+
+  // "este ano" / "ano atual"
+  if (/(este\s+ano|ano\s+atual|no\s+ano\s+atual)/.test(q)) return base;
+
+  // "ano que vem" / "próximo ano"
+  if (/(ano\s+que\s+vem|pr[oó]ximo\s+ano|ano\s+seguinte)/.test(q)) return base + 1;
+
+  return null;
+}
+
+function shouldIgnoreSituacaoContext(question) {
+  const q = String(question || '').toLowerCase();
+  // Quando o usuário pede agrupamento por situação, a IA não pode carregar um filtro padrão (ex.: ATIVO)
+  if (/por\s+situ[aã]c|relat[oó]rio\s+por\s+situ|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(q)) return true;
+
+  // Quando a pergunta é sobre desistência/abandono/evasão, filtrar "ATIVO" por padrão quebra a lógica.
+  if (/desistent|desist[eê]n|aband|evad/.test(q)) return true;
+
+  return false;
+}
+
+function postProcessSpecWithQuestion(spec, question, contextFilters) {
+  const q = String(question || '').toLowerCase();
+  const out = { ...(spec || {}) };
+
+  // 1) Ano relativo (ex.: "ano passado" -> base-1)
+  const relYear = inferRelativeAnoLetivo(question, contextFilters);
+  const hasExplicitYear = !!(out?.where && (Object.prototype.hasOwnProperty.call(out.where, 'ano_letivo') || Object.prototype.hasOwnProperty.call(out.where, 'anoLetivo')));
+  if (relYear && !hasExplicitYear && out?.type && out.type !== 'compare') {
+    out.where = { ...(out.where || {}), ano_letivo: relYear };
+  }
+
+  // 2) Prioridade: desistência/abandono -> desistentes (evita cair no "total geral" ou "ativos")
+  const mentionsDropout = /desistent|desist[eê]n|aband|evad/.test(q);
+  const wantsSituacaoBreakdown = /por\s+situ[aã]c|relat[oó]rio\s+por\s+situ|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(q);
+
+  if (mentionsDropout && !wantsSituacaoBreakdown && out?.metric && out.metric !== 'desistentes' && out.type !== 'compare') {
+    out.metric = 'desistentes';
+  }
+
+  // Se o usuário falou em "desistência" e a IA veio com métrica inválida, corrige.
+  if (mentionsDropout && !wantsSituacaoBreakdown && (!out?.metric || !ALLOWED_METRICS[out.metric])) {
+    out.metric = 'desistentes';
+  }
+
+  return out;
+}
+
+
+
 function isCompareIntent(question) {
   const q = String(question || '').toLowerCase();
   return /(compar|comparativo|versus|\bvs\b|em\s+rela[cç][aã]o|rela[cç][aã]o\s+a|diferen[cç]a)/.test(q);
@@ -765,14 +838,17 @@ async function runEscolasVagasQuery(spec, contextFilters, user) {
 // Heurística (rápida) — sem LLM
 // =========================
 
-function heuristicSpec(question) {
+function heuristicSpec(question, contextFilters) {
   const q = String(question || '').toLowerCase();
   const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)]
     .map((m) => Number(m[1]))
     .filter(Boolean);
   const uniqYears = Array.from(new Set(years)).slice(0, 3);
   const wantsCompare = isCompareIntent(question);
-  const yearWhere = (!wantsCompare && uniqYears.length === 1) ? { ano_letivo: uniqYears[0] } : {};
+  const relYear = inferRelativeAnoLetivo(question, contextFilters);
+  const yearWhere = (!wantsCompare && (uniqYears.length === 1 || relYear))
+    ? { ano_letivo: (uniqYears.length === 1 ? uniqYears[0] : relYear) }
+    : {};
 
   // TURMAS
   if (/\bturmas?\b/.test(q)) {
@@ -852,7 +928,7 @@ function heuristicSpec(question) {
 // DeepSeek: Text -> Spec (JSON)
 // =========================
 
-async function deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity) {
+async function deepseekToSpec(question, effectiveContextFilters, historyString, domainOptionsString, identity) {
   const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, contextFilters, historyString, domainOptionsString })).toString('base64').slice(0, 160)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
@@ -1028,6 +1104,22 @@ async function runQuery(spec, contextFilters, user) {
   };
 
   const normalizedForWhere = { ...normalizedFilters };
+
+  // ⚠️ Correção: não herdar filtro padrão de situação (ex.: ATIVO) quando isso distorce a análise
+  // - Se o usuário quer "por situação", não faz sentido filtrar previamente por uma situação só.
+  // - Se a métrica já é "desistentes" ou "taxa_evasao", filtrar por ATIVO por padrão mata o resultado.
+  const explicitWhere = spec?.where || {};
+  const hasExplicitSituacao =
+    Object.prototype.hasOwnProperty.call(explicitWhere, 'situacao_matricula') ||
+    Object.prototype.hasOwnProperty.call(explicitWhere, 'situacaoMatricula');
+
+  const groupingBySituacao = spec?.type === 'breakdown' && String(spec?.groupBy || '') === 'situacao_matricula';
+  const metricNeedsAllSituacoes = ['desistentes', 'taxa_evasao'].includes(String(spec?.metric || ''));
+
+  if ((groupingBySituacao || metricNeedsAllSituacoes) && !hasExplicitSituacao) {
+    delete normalizedForWhere.situacaoMatricula;
+    delete normalizedForWhere.situacao_matricula;
+  }
   if (spec.type === 'compare') {
     delete normalizedForWhere.anoLetivo;
     delete normalizedForWhere.ano_letivo;
@@ -1420,6 +1512,19 @@ const query = async (req, res) => {
     const identity = getIdentity(req);
     const question = sanitizeQuestion(req.body?.question);
     const contextFilters = req.body?.filters || {};
+    const effectiveContextFilters = { ...(contextFilters || {}) };
+    // Se o usuário pedir contexto temporal relativo (ex.: "ano passado") ou desistência/abandono,
+    // não deixe um filtro padrão do dashboard (ex.: ano atual / ATIVO) engessar a resposta.
+    const relYear = inferRelativeAnoLetivo(question, effectiveContextFilters);
+    if (relYear) {
+      effectiveContextFilters.anoLetivo = relYear;
+      effectiveContextFilters.ano_letivo = relYear;
+    }
+    if (shouldIgnoreSituacaoContext(question)) {
+      delete effectiveContextFilters.situacaoMatricula;
+      delete effectiveContextFilters.situacao_matricula;
+    }
+
     const dashboardContext = req.body?.dashboardContext || null;
     const availableFilters = dashboardContext?.availableFilters || null;
     const selection = req.body?.selection || null;
@@ -1473,7 +1578,7 @@ const query = async (req, res) => {
         compare: { baseYear, compareYear, direction: 'all' },
       };
 
-      const result = await runQuery(spec, contextFilters, req.user);
+      const result = await runQuery(spec, effectiveContextFilters, req.user);
       if (result.ok) {
         const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
         const metricLabel = ALLOWED_METRICS[metric].label;
@@ -1505,7 +1610,7 @@ const query = async (req, res) => {
         order: 'desc',
       };
 
-      const result = await runQuery(spec, contextFilters, req.user);
+      const result = await runQuery(spec, effectiveContextFilters, req.user);
       if (result.ok) {
         const rows = (result.rows || []).map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
         const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
@@ -1574,7 +1679,7 @@ const query = async (req, res) => {
         limit,
       };
 
-      const result = await runTurmasVagasQuery(spec, contextFilters, req.user);
+      const result = await runTurmasVagasQuery(spec, effectiveContextFilters, req.user);
       if (!result.ok) {
         const resp = { ok: false, answer: result.message || 'Não consegui calcular vagas por turma.', conversationId };
         await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
@@ -1643,7 +1748,7 @@ const query = async (req, res) => {
         order,
       };
 
-      const result = await runEscolasVagasQuery(spec, contextFilters, req.user);
+      const result = await runEscolasVagasQuery(spec, effectiveContextFilters, req.user);
       if (!result.ok) {
         const resp = { ok: false, answer: result.message || 'Não consegui calcular vagas por escola.', conversationId };
         await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
@@ -1697,9 +1802,11 @@ const query = async (req, res) => {
     }
 
     // 5) Heurística + LLM
-    const heur = heuristicSpec(question);
+    const heur = heuristicSpec(question, effectiveContextFilters);
     const domainOptionsString = formatDomainOptions(availableFilters);
-    const spec = heur || (await deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity));
+    let spec = heur || (await deepseekToSpec(question, effectiveContextFilters, historyString, domainOptionsString, identity));
+    spec = postProcessSpecWithQuestion(spec, question, effectiveContextFilters);
+
 
     if (spec?.type === 'error') {
       await saveMessage(conversationId, 'assistant', spec.message, 'error', spec);
@@ -1744,7 +1851,7 @@ const query = async (req, res) => {
         dimension: String(selection.dimension),
         matches: selection.matches,
         metric,
-        contextFilters,
+        contextFilters: effectiveContextFilters,
         user: req.user,
       });
 
@@ -1817,7 +1924,7 @@ const query = async (req, res) => {
       }
     }
 
-    const result = await runQuery(spec, contextFilters, req.user);
+    const result = await runQuery(spec, effectiveContextFilters, req.user);
     if (!result.ok) {
       const resp = { ok: false, answer: result.message || 'Não consegui executar essa consulta.', conversationId };
       await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
