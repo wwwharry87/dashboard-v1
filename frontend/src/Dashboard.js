@@ -681,7 +681,10 @@ const Dashboard = () => {
     totalVagas: null,
     totalEntradas: null,
     totalSaidas: null,
+    // tabela "Detalhes por Escola" (vem do /api/totais)
     escolas: [],
+    // pontos do mapa (vem do /api/map/escolas-ativos)
+    escolasMapa: [],
     entradasSaidasPorMes: {},
     matriculasPorZona: {},
     matriculasPorSexo: {},
@@ -954,7 +957,10 @@ const Dashboard = () => {
         matriculasPorTurno: totaisData.matriculasPorTurno || {},
         matriculasPorSituacao: totaisData.matriculasPorSituacao || {},
         evolucaoMatriculas: totaisData.evolucaoMatriculas || {},
-        escolas: mapaPoints.length ? mapaPoints : (totaisData.escolas || []),
+        // Mantém a tabela de escolas vinda do /api/totais (com vagas, capacidade, etc)
+        escolas: (totaisData.escolas || []),
+        // PONTOS do mapa vêm do /api/map/escolas-ativos
+        escolasMapa: mapaPoints,
         detalhesZona:
           totaisData.detalhesZona || {
             entradas: { urbana: 0, rural: 0 },
@@ -1418,9 +1424,10 @@ const Dashboard = () => {
   const filteredEscolas = useMemo(() => {
     const term = (searchTerm || "").trim().toLowerCase();
     if (!term) return data.escolas;
-    return data.escolas.filter((escola) =>
-      String(escola.escola || "").toLowerCase().includes(term)
-    );
+    return data.escolas.filter((esc) => {
+      const nome = String(pick(esc, ["escola", "nomeEscola", "nome", "ds_escola"], "")).toLowerCase();
+      return nome.includes(term);
+    });
   }, [data.escolas, searchTerm]);
 
   const formattedUpdateDate = useMemo(() => {
@@ -1941,7 +1948,16 @@ const Dashboard = () => {
                     </div>
                   ) : (
                     <Suspense fallback={<ChartSkeleton />}>
-                      <MapaCalorEscolas escolas={data.escolas} loading={loadingMapa} />
+                      <MapaCalorEscolas
+                        escolas={data.escolasMapa || []}
+                        loading={loadingMapa}
+                        onSelectSchool={(p) => {
+                          // garante que o chip de filtro e a tabela saibam o nome
+                          const escolaLabel =
+                            p?.escola || p?.nome || p?.nomeEscola || p?.ds_escola || `Escola ${p?.idescola}`;
+                          handleSchoolClick({ ...p, escola: escolaLabel });
+                        }}
+                      />
                     </Suspense>
                   )}
                 </div>
