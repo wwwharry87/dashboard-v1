@@ -23,6 +23,28 @@ const escolasAtivos = async (req, res) => {
     // Usa a mesma regra de filtros/tenant do dashboard
     const { clause, params } = buildWhereClause(filters, req.user);
 
+    /**
+     * ⚠️ FIX (PostgreSQL 42809):
+     * O buildWhereClause() monta params na ordem dos filtros recebidos e,
+     * depois, adiciona o filtro de tenant (idcliente). Portanto, NÃO dá pra
+     * assumir que $1 é sempre um array de clients.
+     *
+     * Aqui montamos um tenantWhere específico para a tabela escolas_geo,
+     * adicionando o parâmetro ao final da lista.
+     */
+    const geoParams = [...params];
+    let tenantWhere = '1=1';
+    if (req.user?.clientId !== undefined && req.user?.clientId !== null && req.user?.clientId !== '') {
+      geoParams.push(parseInt(req.user.clientId) || req.user.clientId);
+      tenantWhere = `g.idcliente = $${geoParams.length}::integer`;
+    } else if (Array.isArray(req.user?.allowedClients) && req.user.allowedClients.length > 0) {
+      geoParams.push(req.user.allowedClients.map((v) => parseInt(v) || v));
+      tenantWhere = `g.idcliente = ANY($${geoParams.length}::integer[])`;
+    } else if (filters.idcliente !== undefined && filters.idcliente !== null && filters.idcliente !== '') {
+      geoParams.push(parseInt(filters.idcliente) || filters.idcliente);
+      tenantWhere = `g.idcliente = $${geoParams.length}::integer`;
+    }
+
     const geoWhereExtra = onlyWithGeo
       ? 'AND g.latitude IS NOT NULL AND g.longitude IS NOT NULL'
       : '';
@@ -64,12 +86,12 @@ const escolasAtivos = async (req, res) => {
       LEFT JOIN agg a
         ON a.idcliente = g.idcliente
        AND a.idescola  = g.idescola
-      WHERE g.idcliente = ANY($1)
+      WHERE ${tenantWhere}
       ${geoWhereExtra}
       ORDER BY COALESCE(a.ativos,0) DESC, g.nome ASC;
     `;
 
-    const result = await pool.query(sql, params);
+    const result = await pool.query(sql, geoParams);
 
     return res.json({
       ok: true,
