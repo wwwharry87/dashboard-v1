@@ -1079,6 +1079,8 @@ function mergeFilters(contextFilters, whereFromLLM) {
     const key =
       k === 'ano_letivo' ? 'anoLetivo' :
       k === 'situacao_matricula' ? 'situacaoMatricula' :
+      k === 'zona_escola' ? 'zonaEscola' :
+      k === 'zona_aluno' ? 'zonaAluno' :
       k === 'grupo_etapa' ? 'grupoEtapa' :
       k === 'etapa_matricula' ? 'etapaMatricula' :
       k === 'etapa_turma' ? 'etapaTurma' :
@@ -1090,6 +1092,107 @@ function mergeFilters(contextFilters, whereFromLLM) {
   }
 
   return merged;
+}
+
+// =========================
+// DeepSeek: reparo de spec (self-healing)
+// =========================
+
+async function deepseekRepairSpec({
+  question,
+  contextFilters,
+  historyString,
+  domainOptionsString,
+  identity,
+  dashboardContext,
+  previousSpec,
+  sqlError,
+}) {
+  if (!DEEPSEEK_API_KEY) return null;
+
+  const userNameLine = identity?.userName
+    ? `O usuário se chama: ${identity.userName}. Responda como um analista humano, cordial e direto.`
+    : 'Responda como um analista humano, cordial e direto.';
+
+  const system = `Você é um "corretor" de SPEC JSON para consultas agregadas do dashboard escolar.
+${userNameLine}
+
+Regras obrigatórias:
+- Responda SOMENTE com JSON válido (sem texto fora do JSON).
+- Nunca retorne dados pessoais de alunos.
+- Use apenas estas métricas: ${Object.keys(ALLOWED_METRICS).join(', ')}.
+- Use apenas estas dimensões: ${Object.keys(ALLOWED_DIMENSIONS).join(', ')}.
+- Mantenha a MESMA intenção da pergunta do usuário, mas corrija o spec para evitar o erro do banco.
+
+Domínio (valores existentes no banco) — Use APENAS estes valores para filtros no WHERE:
+${domainOptionsString || '(domínio não informado)'}
+`;
+
+  const dashSummary = summarizeDashboardContextForLLM(dashboardContext, contextFilters);
+
+  const user = `Pergunta original: ${question}
+
+Histórico recente:
+${historyString || '(sem histórico)'}
+
+Contexto atual (filtros do dashboard): ${JSON.stringify(contextFilters || {})}
+
+Snapshot do dashboard:
+${dashSummary || '(snapshot não informado)'}
+
+SPEC anterior (que gerou erro):
+${JSON.stringify(previousSpec || {}, null, 2)}
+
+Erro do PostgreSQL:
+${JSON.stringify(sqlError || {}, null, 2)}
+
+Me devolva um NOVO spec JSON corrigido.`;
+
+  const controller = new AbortController();
+  const timeoutMs = Number(process.env.DEEPSEEK_TIMEOUT_MS || 25000);
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+
+  let resp;
+  let text = '';
+  try {
+    resp = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        temperature: 0.0,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    text = await resp.text();
+  } catch (e) {
+    if (e?.name === 'AbortError') throw new Error(`Timeout ao chamar DeepSeek (reparo) (>${timeoutMs}ms).`);
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+
+  if (!resp?.ok) return null;
+
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (_) {
+    return null;
+  }
+
+  const content = json?.choices?.[0]?.message?.content;
+  const spec = extractJsonMaybe(content);
+  if (!spec || typeof spec !== 'object') return null;
+  return spec;
 }
 
 async function runQuery(spec, contextFilters, user) {
@@ -1108,6 +1211,12 @@ async function runQuery(spec, contextFilters, user) {
     delete normalizedForWhere.anoLetivo;
     delete normalizedForWhere.ano_letivo;
   }
+
+  // meta para insights e auditoria (sem PII)
+  const effectiveYearRaw = normalizedForWhere.anoLetivo ?? normalizedForWhere.ano_letivo;
+  const effectiveYear = effectiveYearRaw !== undefined && effectiveYearRaw !== null && effectiveYearRaw !== ''
+    ? (parseInt(effectiveYearRaw, 10) || Number(effectiveYearRaw) || null)
+    : null;
 
   // IMPORTANTE: se o usuário pediu AGRUPAMENTO por situação, não podemos herdar
   // o filtro padrão do dashboard (ex.: situacaoMatricula=ATIVO), senão ele
@@ -1140,9 +1249,23 @@ async function runQuery(spec, contextFilters, user) {
     const sql = `${base}
       SELECT ${metricDef.sql} AS value
       FROM base_sem_especiais;`;
-    const result = await pool.query(sql, params);
-    const value = result.rows?.[0]?.value ?? 0;
-    return { ok: true, kind: 'single', value };
+    try {
+      const result = await pool.query(sql, params);
+      const value = result.rows?.[0]?.value ?? 0;
+      return { ok: true, kind: 'single', value, meta: { effectiveYear, usedFilters: normalizedForWhere } };
+    } catch (e) {
+      return {
+        ok: false,
+        message: 'Erro ao executar SQL (single).',
+        sqlError: {
+          message: e?.message,
+          code: e?.code,
+          detail: e?.detail,
+          hint: e?.hint,
+          where: e?.where,
+        },
+      };
+    }
   }
 
   if (spec.type === 'breakdown') {
@@ -1156,8 +1279,28 @@ async function runQuery(spec, contextFilters, user) {
       GROUP BY ${labelExpr}
       ORDER BY value ${spec.order === 'asc' ? 'ASC' : 'DESC'}
       LIMIT ${limit};`;
-    const result = await pool.query(sql, params);
-    return { ok: true, kind: 'breakdown', rows: result.rows || [], groupBy: spec.groupBy };
+    try {
+      const result = await pool.query(sql, params);
+      return {
+        ok: true,
+        kind: 'breakdown',
+        rows: result.rows || [],
+        groupBy: spec.groupBy,
+        meta: { effectiveYear, usedFilters: normalizedForWhere },
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        message: 'Erro ao executar SQL (breakdown).',
+        sqlError: {
+          message: e?.message,
+          code: e?.code,
+          detail: e?.detail,
+          hint: e?.hint,
+          where: e?.where,
+        },
+      };
+    }
   }
 
   if (spec.type === 'compare') {
@@ -1192,7 +1335,22 @@ async function runQuery(spec, contextFilters, user) {
           (${deltaExpr}) AS delta,
           (${pctExpr}) AS pct_change
         FROM base_sem_especiais;`;
-      const result = await pool.query(sql, newParams);
+      let result;
+      try {
+        result = await pool.query(sql, newParams);
+      } catch (e) {
+        return {
+          ok: false,
+          message: 'Erro ao executar SQL (compare).',
+          sqlError: {
+            message: e?.message,
+            code: e?.code,
+            detail: e?.detail,
+            hint: e?.hint,
+            where: e?.where,
+          },
+        };
+      }
       const row = result.rows?.[0] || {};
       return {
         ok: true,
@@ -1205,6 +1363,7 @@ async function runQuery(spec, contextFilters, user) {
           delta: Number(row.delta) || 0,
           pct_change: row.pct_change === null ? null : Number(row.pct_change),
         }],
+        meta: { usedFilters: normalizedForWhere },
       };
     }
 
@@ -1222,7 +1381,22 @@ async function runQuery(spec, contextFilters, user) {
       GROUP BY ${labelExpr}
       ORDER BY ${orderBy}
       LIMIT ${limit};`;
-    const result = await pool.query(sql, newParams);
+    let result;
+    try {
+      result = await pool.query(sql, newParams);
+    } catch (e) {
+      return {
+        ok: false,
+        message: 'Erro ao executar SQL (compare).',
+        sqlError: {
+          message: e?.message,
+          code: e?.code,
+          detail: e?.detail,
+          hint: e?.hint,
+          where: e?.where,
+        },
+      };
+    }
     const rows = (result.rows || []).map((r) => ({
       label: r.label,
       base_value: Number(r.base_value) || 0,
@@ -1230,10 +1404,116 @@ async function runQuery(spec, contextFilters, user) {
       delta: Number(r.delta) || 0,
       pct_change: r.pct_change === null ? null : Number(r.pct_change),
     }));
-    return { ok: true, kind: 'compare', compare: { baseYear, compareYear, direction }, groupBy: spec.groupBy, rows };
+    return { ok: true, kind: 'compare', compare: { baseYear, compareYear, direction }, groupBy: spec.groupBy, rows, meta: { usedFilters: normalizedForWhere } };
   }
 
   return { ok: false, message: 'Consulta não suportada.' };
+}
+
+// =========================
+// Self-healing: tenta reparar spec quando o banco devolver erro de SQL
+// =========================
+
+async function runQueryWithSelfHealing({
+  spec,
+  question,
+  contextFilters,
+  historyString,
+  domainOptionsString,
+  identity,
+  dashboardContext,
+  user,
+  maxRetries = 2,
+}) {
+  let currentSpec = { ...(spec || {}) };
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const result = await runQuery(currentSpec, contextFilters, user);
+    if (result?.ok) {
+      return { ok: true, result, finalSpec: currentSpec, healed: attempt > 0 };
+    }
+
+    const canRepair = !!(result?.sqlError && attempt < maxRetries);
+    if (!canRepair) {
+      return { ok: false, result, finalSpec: currentSpec, healed: attempt > 0 };
+    }
+
+    const repaired = await deepseekRepairSpec({
+      question,
+      contextFilters,
+      historyString,
+      domainOptionsString,
+      identity,
+      dashboardContext,
+      previousSpec: currentSpec,
+      sqlError: result.sqlError,
+    });
+
+    if (!repaired) {
+      return { ok: false, result, finalSpec: currentSpec, healed: attempt > 0 };
+    }
+
+    currentSpec = repaired;
+  }
+
+  return { ok: false, result: { ok: false, message: 'Falha ao reparar a consulta.' }, finalSpec: currentSpec, healed: true };
+}
+
+// =========================
+// Insights: comparação automática com ano anterior (quando fizer sentido)
+// =========================
+
+async function buildPrevYearInsight({ spec, result, contextFilters, user }) {
+  if (!spec || spec.type !== 'single' || !result || !result.ok) return null;
+  const metric = spec.metric;
+  if (!['total_matriculas', 'matriculas_ativas', 'desistentes', 'taxa_evasao', 'total_turmas', 'total_escolas'].includes(metric)) {
+    return null;
+  }
+
+  const y = result?.meta?.effectiveYear;
+  if (!Number.isFinite(Number(y))) return null;
+  const year = Number(y);
+  const prevYear = year - 1;
+  if (prevYear < 1900) return null;
+
+  const prevSpec = {
+    ...spec,
+    where: {
+      ...(spec.where || {}),
+      ano_letivo: prevYear,
+    },
+  };
+
+  const prev = await runQuery(prevSpec, contextFilters, user);
+  if (!prev?.ok || prev.kind !== 'single') return null;
+
+  const cur = Number(result.value) || 0;
+  const old = Number(prev.value) || 0;
+
+  const delta = cur - old;
+  const pct = old > 0 ? (delta * 100.0) / old : null;
+
+  const formatValue = (v) => (metric === 'taxa_evasao' ? `${formatPtBRPercent(v)}%` : formatPtBRNumber(v));
+  const deltaTxt = metric === 'taxa_evasao'
+    ? `${formatPtBRPercent(Math.abs(delta))} p.p.`
+    : formatPtBRNumber(Math.abs(delta));
+
+  const up = delta > 0;
+  const arrow = up ? '▲' : (delta < 0 ? '▼' : '▬');
+  const trend = delta === 0 ? 'sem variação' : (up ? 'aumento' : 'redução');
+  const pctTxt = pct === null ? '' : ` (${formatPtBRPercent(Math.abs(pct))}%)`;
+
+  const text = `${arrow} Comparando com ${prevYear}: ${trend} de ${deltaTxt}${pctTxt}. (${formatValue(cur)} em ${year} vs ${formatValue(old)} em ${prevYear})`;
+
+  return {
+    year,
+    prevYear,
+    current: cur,
+    previous: old,
+    delta,
+    pctChange: pct,
+    text,
+  };
 }
 
 // =========================
@@ -1968,47 +2248,71 @@ const query = async (req, res) => {
       }
     }
 
-    const result = await runQuery(spec, contextFilters, req.user);
-    if (!result.ok) {
+    const exec = await runQueryWithSelfHealing({
+      spec,
+      question,
+      contextFilters,
+      historyString,
+      domainOptionsString,
+      identity,
+      dashboardContext,
+      user: req.user,
+    });
+
+    const result = exec.result;
+    const finalSpec = exec.finalSpec || spec;
+
+    if (!exec.ok || !result?.ok) {
       const resp = { ok: false, answer: result.message || 'Não consegui executar essa consulta.', conversationId };
       await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
       return res.json(resp);
     }
 
-    const metricLabel = ALLOWED_METRICS[spec.metric].label;
+    const metricLabel = ALLOWED_METRICS[finalSpec.metric].label;
 
     if (result.kind === 'single') {
-      const valueFmt = spec.metric === 'taxa_evasao' ? `${formatPtBRPercent(result.value)}%` : formatPtBRNumber(result.value);
+      const valueFmt = finalSpec.metric === 'taxa_evasao' ? `${formatPtBRPercent(result.value)}%` : formatPtBRNumber(result.value);
       const answer = (identity.userName && created)
         ? `${identity.userName}, ${metricLabel}: ${valueFmt}`
         : `${metricLabel}: ${valueFmt}`;
-      const payload = { ok: true, kind: 'single', answer, data: { value: result.value }, spec, conversationId };
-      await saveMessage(conversationId, 'assistant', payload.answer, 'single', spec);
+      const insight = await buildPrevYearInsight({ spec: finalSpec, result, contextFilters, user: req.user });
+      const answerWithInsight = insight ? `${answer}\n\n📌 ${insight.text}` : answer;
+      const payload = {
+        ok: true,
+        kind: 'single',
+        answer: answerWithInsight,
+        data: { value: result.value, insights: insight ? { prevYear: insight.prevYear, delta: insight.delta, pctChange: insight.pctChange } : null },
+        insights: insight || null,
+        spec: finalSpec,
+        healed: !!exec.healed,
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', payload.answer, 'single', finalSpec);
       return res.json(payload);
     }
 
     if (result.kind === 'breakdown') {
       const rows = (result.rows || []).map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
-      const groupTxt = String(result.groupBy || spec.groupBy || '').replace('_', ' ');
+      const groupTxt = String(result.groupBy || finalSpec.groupBy || '').replace('_', ' ');
       let answer = `${metricLabel} por ${groupTxt}`;
-      if (rows.length === 1 && spec?.groupBy) {
+      if (rows.length === 1 && finalSpec?.groupBy) {
         const v = rows[0].value;
-        const vFmt = spec.metric === 'taxa_evasao' ? `${formatPtBRPercent(v)}%` : formatPtBRNumber(v);
-        const isAsc = String(spec.order || 'desc') === 'asc';
+        const vFmt = finalSpec.metric === 'taxa_evasao' ? `${formatPtBRPercent(v)}%` : formatPtBRNumber(v);
+        const isAsc = String(finalSpec.order || 'desc') === 'asc';
         const lead = isAsc ? 'Menor' : 'Maior';
         answer = `${lead} ${metricLabel.toLowerCase()} em ${groupTxt}: ${rows[0].label} (${vFmt})`;
       }
       if (identity.userName && created) answer = `${identity.userName}, ${answer}`;
 
-      const payload = { ok: true, kind: 'breakdown', answer, data: { rows, groupBy: result.groupBy, metric: spec.metric }, spec, conversationId };
-      await saveMessage(conversationId, 'assistant', payload.answer, 'breakdown', spec);
+      const payload = { ok: true, kind: 'breakdown', answer, data: { rows, groupBy: result.groupBy, metric: finalSpec.metric }, spec: finalSpec, healed: !!exec.healed, conversationId };
+      await saveMessage(conversationId, 'assistant', payload.answer, 'breakdown', finalSpec);
       return res.json(payload);
     }
 
     if (result.kind === 'compare') {
       const baseYear = result.compare?.baseYear;
       const compareYear = result.compare?.compareYear;
-      const groupLabel = spec.groupBy ? ` por ${spec.groupBy.replace('_', ' ')}` : '';
+      const groupLabel = finalSpec.groupBy ? ` por ${finalSpec.groupBy.replace('_', ' ')}` : '';
       const dir = String(result.compare?.direction || 'all');
       const dirTxt = dir === 'decrease' ? 'redução' : dir === 'increase' ? 'aumento' : 'variação';
       let answer = `${metricLabel}${groupLabel} — comparativo ${compareYear} vs ${baseYear} (${dirTxt})`;
@@ -2017,11 +2321,12 @@ const query = async (req, res) => {
         ok: true,
         kind: 'compare',
         answer,
-        data: { rows: result.rows, groupBy: spec.groupBy || null, metric: spec.metric, compare: result.compare },
-        spec,
+        data: { rows: result.rows, groupBy: finalSpec.groupBy || null, metric: finalSpec.metric, compare: result.compare },
+        spec: finalSpec,
+        healed: !!exec.healed,
         conversationId,
       };
-      await saveMessage(conversationId, 'assistant', payload.answer, 'compare', spec);
+      await saveMessage(conversationId, 'assistant', payload.answer, 'compare', finalSpec);
       return res.json(payload);
     }
 

@@ -98,7 +98,7 @@ class ChartErrorBoundary extends React.Component {
   }
 }
 
-function BreakdownChart({ rows, metric }) {
+function BreakdownChart({ rows, metric, groupBy, onDrillDown }) {
   const data = (rows || []).map((r) => ({
     name: String(r.label ?? ''),
     value: Number(r.value) || 0,
@@ -108,6 +108,13 @@ function BreakdownChart({ rows, metric }) {
 
   // Limita para não ficar feio no chat
   const sliced = data.slice(0, 18);
+
+  const handleBarClick = (barData) => {
+    const payload = barData?.payload || barData;
+    const label = payload?.name;
+    if (!label || !groupBy || typeof onDrillDown !== 'function') return;
+    onDrillDown({ dimension: groupBy, value: String(label) });
+  };
 
   const tooltipFormatter = (val) => formatPercentMaybe(metric, val);
 
@@ -127,13 +134,25 @@ function BreakdownChart({ rows, metric }) {
             />
             <Tooltip formatter={tooltipFormatter} labelFormatter={(l) => String(l)} />
             <Legend />
-            <Bar dataKey="value" name="Valor" radius={[8, 8, 8, 8]} />
+            <Bar
+              dataKey="value"
+              name="Valor"
+              radius={[8, 8, 8, 8]}
+              cursor={onDrillDown ? 'pointer' : 'default'}
+              onClick={handleBarClick}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
       {data.length > sliced.length && (
         <div className="mt-2 text-[11px] text-gray-500">
           Mostrando {sliced.length} de {data.length} itens (use filtros ou peça “top 10”).
+        </div>
+      )}
+
+      {onDrillDown && (
+        <div className="mt-2 text-[11px] text-gray-500">
+          Dica: clique em uma barra para aplicar o filtro e detalhar.
         </div>
       )}
     </div>
@@ -173,6 +192,9 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
 
+  // filtros locais aplicados via cliques (drill-down)
+  const [aiFilters, setAiFilters] = useState({});
+
   // quando o backend pedir desambiguação, guardamos a última pergunta para reenviar com selection
   const [pendingDisambiguation, setPendingDisambiguation] = useState(null);
 
@@ -189,6 +211,11 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     if (!trimmed || loading) return;
 
     const selection = opts.selection || null;
+    const mergedFilters = {
+      ...(filters || {}),
+      ...(aiFilters || {}),
+      ...(opts.extraFilters || {}),
+    };
 
     // Se estamos respondendo uma desambiguação, não duplicar o texto do user (fica feio)
     const shouldAppendUser = !opts.silentUser;
@@ -205,14 +232,14 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
       const { data: json } = await api.post('/ai/query', {
         question: trimmed,
-        filters: filters || {},
+        filters: mergedFilters,
         history,
         conversationId: conversationId || null,
         selection,
         dashboardContext: {
           availableFilters: filtersCatalog || null,
           totals: totals || null,
-          activeFilters: filters || {},
+          activeFilters: mergedFilters,
         },
       });
 
@@ -238,6 +265,8 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
           kind: json?.kind || (json?.ok ? 'ok' : 'error'),
           data: json?.data,
           spec: json?.spec,
+          insights: json?.insights || null,
+          healed: !!json?.healed,
           suggestions: json?.suggestions || [],
           options: json?.options || [],
           clarify: json?.clarify || null,
@@ -307,10 +336,223 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     });
   }
 
+  // =========================
+  // Drill-down: mapeia dimensão (snake_case) -> chave de filtro usada no backend
+  // =========================
+  const mapDimensionToFilterKey = (dimension) => {
+    if (!dimension) return null;
+    const d = String(dimension);
+    if (d === 'zona_aluno') return 'zonaAluno';
+    if (d === 'zona_escola') return 'zonaEscola';
+    if (d === 'situacao_matricula') return 'situacaoMatricula';
+    if (d === 'tipo_matricula') return 'tipoMatricula';
+    if (d === 'etapa_matricula') return 'etapaMatricula';
+    if (d === 'etapa_turma') return 'etapaTurma';
+    if (d === 'grupo_etapa') return 'grupoEtapa';
+    if (d === 'transporte_escolar') return 'transporteEscolar';
+    if (d === 'tipo_transporte') return 'tipoTransporte';
+    // fallback: tenta usar como veio
+    return d;
+  };
+
+  const prettyDimension = (dimension) => String(dimension || '').replace(/_/g, ' ');
+
+  // =========================
+  // Exportação (PDF / Excel) da resposta da IA (client-side)
+  // =========================
+  const metricLabelMap = {
+    total_matriculas: 'Total de matrículas',
+    matriculas_ativas: 'Matrículas ativas',
+    desistentes: 'Desistentes',
+    taxa_evasao: 'Taxa de evasão',
+    total_turmas: 'Total de turmas',
+    total_escolas: 'Total de escolas',
+    taxa_ocupacao: 'Taxa de ocupação',
+    total_vagas_disponiveis: 'Vagas disponíveis',
+    total_entradas: 'Entradas',
+    total_saidas: 'Saídas',
+  };
+
+  const sanitizeFileName = (name) =>
+    String(name || 'relatorio')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9\-_ ]/g, '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .slice(0, 80) || 'relatorio';
+
+  const buildReportTable = (msg) => {
+    const kind = msg?.kind;
+    const spec = msg?.spec || {};
+    const data = msg?.data || {};
+    const insights = msg?.insights || null;
+
+    const metric = data.metric || spec.metric;
+    const metricLabel = metricLabelMap[metric] || metric || 'Métrica';
+
+    if (kind === 'single') {
+      const value = data?.value;
+      const valueFmt = metric === 'taxa_evasao' ? `${Number(value || 0).toFixed(2).replace('.', ',')}%` : formatPtBRNumber(value || 0);
+      const head = ['Campo', 'Valor'];
+      const body = [[metricLabel, valueFmt]];
+      if (insights?.text) body.push(['Insight', insights.text]);
+      return { title: metricLabel, head, body };
+    }
+
+    if ((kind === 'breakdown' || kind === 'ok') && Array.isArray(data?.rows)) {
+      const head = ['Grupo', 'Valor'];
+      const body = data.rows.map((r) => [String(r.label ?? ''), formatPercentMaybe(metric, r.value)]);
+      return { title: `${metricLabel} por ${prettyDimension(data.groupBy || spec.groupBy)}`, head, body };
+    }
+
+    if (kind === 'compare' && Array.isArray(data?.rows)) {
+      const by = prettyDimension(data.groupBy || spec.groupBy);
+      const baseYear = data?.compare?.baseYear ?? 'Base';
+      const compYear = data?.compare?.compareYear ?? 'Comparação';
+      const head = [`Grupo (${by || 'geral'})`, String(baseYear), String(compYear), 'Δ', '%Δ'];
+      const body = data.rows.map((r) => [
+        String(r.label ?? ''),
+        formatPercentMaybe(metric, r.base_value),
+        formatPercentMaybe(metric, r.compare_value),
+        formatPercentMaybe(metric, r.delta),
+        r.pct_change === null || r.pct_change === undefined ? '—' : `${Number(r.pct_change).toFixed(2).replace('.', ',')}%`,
+      ]);
+      return { title: `${metricLabel} — comparativo`, head, body };
+    }
+
+    if (kind === 'list' && Array.isArray(data?.rows)) {
+      // tenta inferir colunas do primeiro item
+      const first = data.rows[0] || {};
+      const keys = Object.keys(first).slice(0, 12);
+      const head = keys.map((k) => prettyDimension(k));
+      const body = data.rows.map((r) => keys.map((k) => {
+        const v = r?.[k];
+        if (typeof v === 'number') return formatPtBRNumber(v);
+        return String(v ?? '');
+      }));
+      return { title: 'Lista', head, body };
+    }
+
+    return null;
+  };
+
+  const exportReport = async (format, msg) => {
+    const table = buildReportTable(msg);
+    if (!table) {
+      alert('Não há dados tabulares para exportar nesta resposta.');
+      return;
+    }
+
+    const title = table.title || 'Relatório';
+    const fileBase = sanitizeFileName(title);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+
+    if (format === 'excel') {
+      const ExcelJSModule = await import('exceljs');
+      const ExcelJS = ExcelJSModule?.default ?? ExcelJSModule;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Relatorio');
+
+      ws.addRow([title]);
+      ws.getRow(1).font = { bold: true, size: 14 };
+      ws.addRow([`Gerado em: ${new Date().toLocaleString('pt-BR')}`]);
+      ws.addRow([]);
+
+      ws.addRow(table.head);
+      ws.getRow(ws.lastRow.number).font = { bold: true };
+      table.body.forEach((r) => ws.addRow(r));
+
+      ws.views = [{ state: 'frozen', ySplit: 4 }];
+      ws.columns = table.head.map(() => ({ width: 28 }));
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileBase}_${stamp}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // PDF
+    const jsPDFModule = await import('jspdf');
+    const autoTableModule = await import('jspdf-autotable');
+    const jsPDF = jsPDFModule?.jsPDF ?? jsPDFModule?.default ?? jsPDFModule;
+
+    const resolveAutoTable = (mod) => {
+      if (!mod) return null;
+      if (typeof mod === 'function') return mod;
+      if (typeof mod?.default === 'function') return mod.default;
+      if (typeof mod?.autoTable === 'function') return mod.autoTable;
+      if (typeof mod?.default?.autoTable === 'function') return mod.default.autoTable;
+      return null;
+    };
+    const autoTable = resolveAutoTable(autoTableModule);
+    if (!autoTable) throw new Error('jspdf-autotable não carregou corretamente.');
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 14;
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, pageWidth / 2, 18, { align: 'center' });
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, margin, 28);
+
+    autoTable(doc, {
+      startY: 34,
+      head: [table.head],
+      body: table.body,
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fontStyle: 'bold' },
+    });
+
+    doc.save(`${fileBase}_${stamp}.pdf`);
+  };
+
   function renderAssistantExtras(m) {
     const data = m?.data;
     const spec = m?.spec;
     const suggestions = (m?.suggestions || []).filter(Boolean);
+
+    const metaBadges = (m?.healed || m?.insights) ? (
+      <div className="mt-2 flex flex-wrap gap-2">
+        {m?.healed && (
+          <span className="px-2 py-1 rounded-full text-[11px] border border-amber-200 bg-amber-50 text-amber-800">
+            ✅ Autocorreção aplicada
+          </span>
+        )}
+        {m?.insights?.text && (
+          <span className="px-2 py-1 rounded-full text-[11px] border border-blue-200 bg-blue-50 text-blue-800">
+            📌 Insight
+          </span>
+        )}
+      </div>
+    ) : null;
+
+    const reportButtons = (
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={() => exportReport('pdf', m)}
+          className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+        >
+          📄 Baixar PDF
+        </button>
+        <button
+          onClick={() => exportReport('excel', m)}
+          className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+        >
+          📊 Baixar Excel
+        </button>
+      </div>
+    );
 
     // Desambiguação
     if (m.kind === 'disambiguation' && Array.isArray(m.options) && m.options.length) {
@@ -395,6 +637,8 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
       return (
         <>
+          {metaBadges}
+          {reportButtons}
           <Table columns={cols} rows={rows} />
           {suggestions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -418,6 +662,20 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       const metric = data.metric || spec?.metric;
       const groupBy = data.groupBy || spec?.groupBy;
 
+      const onDrillDown = ({ dimension, value }) => {
+        const key = mapDimensionToFilterKey(dimension);
+        if (!key) return;
+        const extraFilters = { [key]: value };
+        setAiFilters((prev) => ({ ...(prev || {}), ...extraFilters }));
+
+        // por padrão, ao clicar em um grupo, detalha por escola (efeito Power BI)
+        const nextQuestion = groupBy && String(groupBy) === 'escola'
+          ? `Filtrar por ${prettyDimension(dimension)} = ${value} e mostrar detalhes`
+          : `Filtrar por ${prettyDimension(dimension)} = ${value} e detalhar por escola`;
+
+        send(nextQuestion, { silentUser: true, selection: { dimension, value }, extraFilters });
+      };
+
       const cols = [
         { key: 'label', label: groupBy ? `Grupo (${groupBy})` : 'Grupo' },
         { key: 'value', label: 'Valor' },
@@ -428,13 +686,15 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       }));
 
       const chart = (
-        <BreakdownChart rows={data.rows} metric={metric} />
+        <BreakdownChart rows={data.rows} metric={metric} groupBy={groupBy} onDrillDown={onDrillDown} />
       );
 
       const fallback = <Table columns={cols} rows={rows} />;
 
       return (
         <>
+          {metaBadges}
+          {reportButtons}
           {m.kind === 'breakdown' ? (
             <ChartErrorBoundary fallback={fallback}>{chart}</ChartErrorBoundary>
           ) : (
@@ -484,7 +744,32 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
       return (
         <>
+          {metaBadges}
+          {reportButtons}
           <Table columns={cols} rows={rows} />
+          {suggestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendSuggestion(s)}
+                  className="px-3 py-1.5 rounded-full text-xs border border-gray-200 bg-white hover:bg-gray-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      );
+    }
+
+    // Single (apenas badges + export + sugestões)
+    if (m.kind === 'single' && data && (data.value !== undefined && data.value !== null)) {
+      return (
+        <>
+          {metaBadges}
+          {reportButtons}
           {suggestions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {suggestions.map((s, i) => (
@@ -538,6 +823,36 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       </div>
 
       <div className="px-4 py-3 h-[420px] overflow-auto">
+        {Object.keys(aiFilters || {}).length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-500">Filtros IA:</span>
+            {Object.entries(aiFilters).map(([k, v]) => (
+              <span key={k} className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] border border-gray-200 bg-white">
+                <span className="text-gray-600">{prettyDimension(k)}</span>
+                <span className="font-medium text-gray-900">{String(v)}</span>
+                <button
+                  type="button"
+                  onClick={() => setAiFilters((prev) => {
+                    const next = { ...(prev || {}) };
+                    delete next[k];
+                    return next;
+                  })}
+                  className="ml-1 text-gray-400 hover:text-gray-700"
+                  title="Remover filtro"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => setAiFilters({})}
+              className="px-2 py-1 rounded-full text-[11px] border border-gray-200 bg-white hover:bg-gray-50"
+            >
+              Limpar
+            </button>
+          </div>
+        )}
         <div className="space-y-3">
           {messages.map((m, idx) => (
             <div key={idx} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>

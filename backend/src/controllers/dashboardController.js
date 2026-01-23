@@ -45,9 +45,13 @@ const buildWhereClause = (filters, user) => {
   }
 
   // ✅ NOVO: filtros para interação tipo Power BI (clique no gráfico)
-  // (colunas existem no dataset: `sexo` e `turno`)
+  // (colunas existem no dataset)
+  // Aceita tanto camelCase (frontend) quanto snake_case (IA/spec)
   addFilter(filters.sexo, "sexo");
   addFilter(filters.turno, "turno");
+  addFilter(filters.escola, "escola");
+  addFilter(filters.zonaEscola ?? filters.zona_escola, "zona_escola");
+  addFilter(filters.zonaAluno ?? filters.zona_aluno, "zona_aluno");
 
   addFilter(filters.deficiencia, "deficiencia");
   addFilter(filters.grupoEtapa, "grupo_etapa");
