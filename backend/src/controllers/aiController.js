@@ -411,79 +411,6 @@ function extractYears(question) {
   return Array.from(new Set(years)).slice(0, 3);
 }
 
-function getBaseAnoLetivoFromContext(contextFilters) {
-  // Base para expressões relativas ("ano passado", "este ano", etc.)
-  // Prioridade: filtro já aplicado no dashboard (anoLetivo/ano_letivo) -> senão ano do sistema.
-  const ctx = contextFilters || {};
-  const raw = ctx.anoLetivo ?? ctx.ano_letivo;
-  const n = raw !== undefined && raw !== null && raw !== '' ? Number(raw) : NaN;
-  if (Number.isFinite(n) && n > 1900 && n < 3000) return Math.trunc(n);
-  return new Date().getFullYear();
-}
-
-function inferRelativeAnoLetivo(question, contextFilters) {
-  const q = String(question || '').toLowerCase();
-
-  // Não aplica em comparativos explícitos (ex.: "2026 vs 2025")
-  if (isCompareIntent(question)) return null;
-
-  const base = getBaseAnoLetivoFromContext(contextFilters);
-
-  // "ano passado" / "ano anterior"
-  if (/(ano\s+passad|ano\s+anterio|no\s+passad|no\s+ano\s+anterior)/.test(q)) return base - 1;
-
-  // "ano retrasado" / "dois anos atrás"
-  if (/(ano\s+retrasad|dois\s+anos\s+atr[aá]s|2\s+anos\s+atr[aá]s)/.test(q)) return base - 2;
-
-  // "este ano" / "ano atual"
-  if (/(este\s+ano|ano\s+atual|no\s+ano\s+atual)/.test(q)) return base;
-
-  // "ano que vem" / "próximo ano"
-  if (/(ano\s+que\s+vem|pr[oó]ximo\s+ano|ano\s+seguinte)/.test(q)) return base + 1;
-
-  return null;
-}
-
-function shouldIgnoreSituacaoContext(question) {
-  const q = String(question || '').toLowerCase();
-  // Quando o usuário pede agrupamento por situação, a IA não pode carregar um filtro padrão (ex.: ATIVO)
-  if (/por\s+situ[aã]c|relat[oó]rio\s+por\s+situ|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(q)) return true;
-
-  // Quando a pergunta é sobre desistência/abandono/evasão, filtrar "ATIVO" por padrão quebra a lógica.
-  if (/desistent|desist[eê]n|aband|evad/.test(q)) return true;
-
-  return false;
-}
-
-function postProcessSpecWithQuestion(spec, question, contextFilters) {
-  const q = String(question || '').toLowerCase();
-  const out = { ...(spec || {}) };
-
-  // 1) Ano relativo (ex.: "ano passado" -> base-1)
-  const relYear = inferRelativeAnoLetivo(question, contextFilters);
-  const hasExplicitYear = !!(out?.where && (Object.prototype.hasOwnProperty.call(out.where, 'ano_letivo') || Object.prototype.hasOwnProperty.call(out.where, 'anoLetivo')));
-  if (relYear && !hasExplicitYear && out?.type && out.type !== 'compare') {
-    out.where = { ...(out.where || {}), ano_letivo: relYear };
-  }
-
-  // 2) Prioridade: desistência/abandono -> desistentes (evita cair no "total geral" ou "ativos")
-  const mentionsDropout = /desistent|desist[eê]n|aband|evad/.test(q);
-  const wantsSituacaoBreakdown = /por\s+situ[aã]c|relat[oó]rio\s+por\s+situ|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(q);
-
-  if (mentionsDropout && !wantsSituacaoBreakdown && out?.metric && out.metric !== 'desistentes' && out.type !== 'compare') {
-    out.metric = 'desistentes';
-  }
-
-  // Se o usuário falou em "desistência" e a IA veio com métrica inválida, corrige.
-  if (mentionsDropout && !wantsSituacaoBreakdown && (!out?.metric || !ALLOWED_METRICS[out.metric])) {
-    out.metric = 'desistentes';
-  }
-
-  return out;
-}
-
-
-
 function isCompareIntent(question) {
   const q = String(question || '').toLowerCase();
   return /(compar|comparativo|versus|\bvs\b|em\s+rela[cç][aã]o|rela[cç][aã]o\s+a|diferen[cç]a)/.test(q);
@@ -838,17 +765,50 @@ async function runEscolasVagasQuery(spec, contextFilters, user) {
 // Heurística (rápida) — sem LLM
 // =========================
 
-function heuristicSpec(question, contextFilters) {
+function resolveCurrentYearFromContext(contextFilters, availableFilters) {
+  const cf = contextFilters || {};
+  const v = cf.anoLetivo ?? cf.ano_letivo;
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 1900) return n;
+
+  const anos = Array.isArray(availableFilters?.ano_letivo) ? availableFilters.ano_letivo : [];
+  const years = anos.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 1900);
+  if (years.length) return Math.max(...years);
+
+  return new Date().getFullYear();
+}
+
+function resolveRelativeYearFromQuestion(qLower, currentYear) {
+  const q = String(qLower || '').toLowerCase();
+  const cy = Number(currentYear);
+  if (!Number.isFinite(cy) || cy < 1900) return null;
+
+  // ano passado / ano anterior
+  if (/\bano\s+passado\b|\bno\s+ano\s+passado\b|\bano\s+anterior\b/.test(q)) return cy - 1;
+  // ano retrasado
+  if (/\bano\s+retrasado\b|\bpen[úu]ltimo\s+ano\b/.test(q)) return cy - 2;
+  // ano atual
+  if (/\beste\s+ano\b|\bnesse\s+ano\b|\bano\s+atual\b/.test(q)) return cy;
+
+  return null;
+}
+
+function heuristicSpec(question, contextFilters, dashboardContext) {
   const q = String(question || '').toLowerCase();
   const years = [...q.matchAll(/\b(19\d{2}|20\d{2})\b/g)]
     .map((m) => Number(m[1]))
     .filter(Boolean);
   const uniqYears = Array.from(new Set(years)).slice(0, 3);
   const wantsCompare = isCompareIntent(question);
-  const relYear = inferRelativeAnoLetivo(question, contextFilters);
-  const yearWhere = (!wantsCompare && (uniqYears.length === 1 || relYear))
-    ? { ano_letivo: (uniqYears.length === 1 ? uniqYears[0] : relYear) }
-    : {};
+
+  // Ano de referência (importante para expressões como "ano passado")
+  const availableFilters = dashboardContext?.availableFilters || null;
+  const currentYear = resolveCurrentYearFromContext(contextFilters, availableFilters);
+  const relativeYear = resolveRelativeYearFromQuestion(q, currentYear);
+
+  const yearWhere = (!wantsCompare && uniqYears.length === 1)
+    ? { ano_letivo: uniqYears[0] }
+    : (!wantsCompare && Number.isFinite(Number(relativeYear)) ? { ano_letivo: Number(relativeYear) } : {});
 
   // TURMAS
   if (/\bturmas?\b/.test(q)) {
@@ -918,6 +878,7 @@ function heuristicSpec(question, contextFilters) {
 
   // SINGLE
   if (/taxa\s+de\s+evas[aã]o|evas[aã]o/.test(q)) return { type: 'single', metric: 'taxa_evasao', groupBy: null, where: yearWhere, limit: 20 };
+  if (/desistent|aband|evad/.test(q)) return { type: 'single', metric: 'desistentes', groupBy: null, where: yearWhere, limit: 20 };
   if (/matr[ií]culas\s+ativas|ativas/.test(q)) return { type: 'single', metric: 'matriculas_ativas', groupBy: null, where: yearWhere, limit: 20 };
   if (/total\s+de\s+matr[ií]culas|total\s+matr[ií]culas|quantas\s+matr[ií]culas|\balunos?\b/.test(q)) return { type: 'single', metric: 'total_matriculas', groupBy: null, where: yearWhere, limit: 20 };
 
@@ -928,8 +889,44 @@ function heuristicSpec(question, contextFilters) {
 // DeepSeek: Text -> Spec (JSON)
 // =========================
 
-async function deepseekToSpec(question, effectiveContextFilters, historyString, domainOptionsString, identity) {
-  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, contextFilters, historyString, domainOptionsString })).toString('base64').slice(0, 160)}`;
+function summarizeDashboardContextForLLM(dashboardContext, contextFilters) {
+  const ctx = dashboardContext || {};
+  const totals = ctx.totals || {};
+  const active = ctx.activeFilters || contextFilters || {};
+
+  // Só inclui campos bem agregados (sem risco de PII) e limita tamanho
+  const topObj = (obj, n=6) => {
+    if (!obj || typeof obj !== 'object') return [];
+    return Object.entries(obj)
+      .map(([k, v]) => ({ k, v: Number(v) || 0 }))
+      .sort((a, b) => (b.v || 0) - (a.v || 0))
+      .slice(0, n);
+  };
+
+  const summary = {
+    activeFilters: active,
+    totals: {
+      totalMatriculas: totals.totalMatriculas ?? totals.total_matriculas,
+      totalMatriculasAtivas: totals.totalMatriculasAtivas ?? totals.matriculasAtivas ?? totals.total_matriculas_ativas,
+      totalTurmas: totals.totalTurmas ?? totals.total_turmas,
+      totalEscolas: totals.totalEscolas ?? totals.total_escolas,
+      taxaEvasao: totals.taxaEvasao ?? totals.taxa_evasao,
+      taxaOcupacao: totals.taxaOcupacao ?? totals.taxa_ocupacao,
+      topSituacao: topObj(totals.matriculasPorSituacao),
+      topTurno: topObj(totals.matriculasPorTurno),
+      topSexo: topObj(totals.matriculasPorSexo),
+    },
+    availableYears: Array.isArray(ctx.availableFilters?.ano_letivo) ? ctx.availableFilters.ano_letivo : undefined,
+  };
+
+  let s = JSON.stringify(summary);
+  if (s.length > 1800) s = s.slice(0, 1800) + '...';
+  return s;
+}
+
+async function deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity, dashboardContext) {
+  const dashSummary = summarizeDashboardContextForLLM(dashboardContext, contextFilters);
+  const cacheKey = `ai_spec_${Buffer.from(JSON.stringify({ question, contextFilters, historyString, domainOptionsString, dashSummary })).toString('base64').slice(0, 160)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
@@ -974,7 +971,10 @@ Formato:
 Histórico recente (para perguntas de continuação):
 ${historyString || '(sem histórico)'}
 
-Contexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(contextFilters || {})}`;
+Contexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(contextFilters || {})}
+
+Snapshot do dashboard (totais/infos já carregados para os filtros atuais):
+${dashSummary || '(snapshot não informado)'}`;
 
   const controller = new AbortController();
   const timeoutMs = Number(process.env.DEEPSEEK_TIMEOUT_MS || 25000);
@@ -1104,25 +1104,29 @@ async function runQuery(spec, contextFilters, user) {
   };
 
   const normalizedForWhere = { ...normalizedFilters };
-
-  // ⚠️ Correção: não herdar filtro padrão de situação (ex.: ATIVO) quando isso distorce a análise
-  // - Se o usuário quer "por situação", não faz sentido filtrar previamente por uma situação só.
-  // - Se a métrica já é "desistentes" ou "taxa_evasao", filtrar por ATIVO por padrão mata o resultado.
-  const explicitWhere = spec?.where || {};
-  const hasExplicitSituacao =
-    Object.prototype.hasOwnProperty.call(explicitWhere, 'situacao_matricula') ||
-    Object.prototype.hasOwnProperty.call(explicitWhere, 'situacaoMatricula');
-
-  const groupingBySituacao = spec?.type === 'breakdown' && String(spec?.groupBy || '') === 'situacao_matricula';
-  const metricNeedsAllSituacoes = ['desistentes', 'taxa_evasao'].includes(String(spec?.metric || ''));
-
-  if ((groupingBySituacao || metricNeedsAllSituacoes) && !hasExplicitSituacao) {
-    delete normalizedForWhere.situacaoMatricula;
-    delete normalizedForWhere.situacao_matricula;
-  }
   if (spec.type === 'compare') {
     delete normalizedForWhere.anoLetivo;
     delete normalizedForWhere.ano_letivo;
+  }
+
+  // IMPORTANTE: se o usuário pediu AGRUPAMENTO por situação, não podemos herdar
+  // o filtro padrão do dashboard (ex.: situacaoMatricula=ATIVO), senão ele
+  // mascara as outras situações no GROUP BY.
+  const wantsGroupSituacao = spec.type === 'breakdown' && spec.groupBy === 'situacao_matricula';
+  const hasSituacaoInSpec = !!(spec?.where && (
+    spec.where.situacao_matricula !== undefined && spec.where.situacao_matricula !== null && String(spec.where.situacao_matricula).trim() !== ''
+  ));
+
+  if (wantsGroupSituacao && !hasSituacaoInSpec) {
+    delete normalizedForWhere.situacaoMatricula;
+    delete normalizedForWhere.situacao_matricula;
+  }
+
+  // Se a métrica já é desistentes, também não faz sentido herdar filtro de situação
+  // (a não ser que o usuário tenha pedido explicitamente).
+  if (spec.metric === 'desistentes' && !hasSituacaoInSpec) {
+    delete normalizedForWhere.situacaoMatricula;
+    delete normalizedForWhere.situacao_matricula;
   }
 
   const { clause, params } = buildWhereClause(normalizedForWhere, user);
@@ -1248,14 +1252,25 @@ function formatPtBRPercent(x) {
   return n.toFixed(2).replace('.', ',');
 }
 
+function normalizeFiltersForCompare(o) {
+  const obj = o || {};
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'string' && v.trim() === '') continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    // normaliza números/booleanos para string (evita mismatch 2026 vs "2026")
+    out[k] = String(v);
+  }
+  return out;
+}
+
 function isSameActiveFilters(a, b) {
-  const A = a || {};
-  const B = b || {};
+  const A = normalizeFiltersForCompare(a);
+  const B = normalizeFiltersForCompare(b);
   const keys = new Set([...Object.keys(A), ...Object.keys(B)]);
   for (const k of keys) {
-    const va = A[k] ?? '';
-    const vb = B[k] ?? '';
-    if (String(va) !== String(vb)) return false;
+    if ((A[k] ?? '') !== (B[k] ?? '')) return false;
   }
   return true;
 }
@@ -1288,6 +1303,45 @@ function answerFromDashboardContext(question, dashboardContext) {
     }
   }
 
+
+
+  // DESISTÊNCIA / ABANDONO (prioridade)
+  if (/desist|aband|evad|evas[aã]o/.test(q)) {
+    const activeSit = ctx?.activeFilters?.situacaoMatricula ?? ctx?.activeFilters?.situacao_matricula;
+    // Se o dashboard está filtrado em uma situação (ex.: ATIVO), o snapshot fica enviesado.
+    // Para perguntas sobre desistência/abandono, prefira consultar o banco sem esse viés.
+    if (activeSit && String(activeSit).trim() && !/desist|aband|evad|evas/i.test(String(activeSit).toLowerCase())) {
+      return null;
+    }
+
+    // 1) se o snapshot já tem quebra por situação, use ela
+    const porSit = totals.matriculasPorSituacao || totals.matriculas_por_situacao;
+    if (porSit && typeof porSit === 'object') {
+      const entries = Object.entries(porSit);
+      const matched = entries.filter(([label]) => /desist|aband|evad|evas/.test(String(label).toLowerCase()));
+      if (matched.length) {
+        const total = matched.reduce((acc, [, v]) => acc + (Number(v) || 0), 0);
+        const base = Number(totals.totalMatriculas ?? totals.total_matriculas) || 0;
+        const pct = base > 0 ? (total * 100.0 / base) : null;
+        const detalhe = matched
+          .map(([label, v]) => `${label}: ${formatPtBRNumber(v)}`)
+          .join(' | ');
+        const extra = pct === null ? '' : ` (≈ ${formatPtBRPercent(pct)}%)`;
+        return {
+          ok: true,
+          kind: 'ok',
+          answer: `Desistência/abandono no filtro atual: ${formatPtBRNumber(total)}${extra}. ${detalhe}`,
+          data: { value: total, percent: pct, matched, baseTotal: base },
+          spec: { type: 'single', metric: 'desistentes' },
+        };
+      }
+    }
+    // 2) se não tem quebra, mas existe total de desistentes no snapshot
+    const v = totals.desistentes ?? totals.totalDesistentes;
+    if (v !== undefined && v !== null) {
+      return { ok: true, kind: 'ok', answer: `Desistentes (filtro atual): ${formatPtBRNumber(v)}`, data: { value: Number(v) || 0 }, spec: { type: 'single', metric: 'desistentes' } };
+    }
+  }
   // IMPORTANTE: não "chutar" total quando o usuário pede lista/filtra (ex.: "quais turmas cheias").
   // Só responde com "total de turmas" se a pergunta for claramente de contagem.
   const vagasIntent = detectTurmasVagasIntent(question);
@@ -1334,6 +1388,11 @@ function answerFromDashboardContext(question, dashboardContext) {
   }
 
   if (/por\s+situa|situa[cç][aã]o\s+da\s+matr[ií]cula|ativos|cancel|desistent|transfer/.test(q)) {
+    const activeSit = ctx?.activeFilters?.situacaoMatricula ?? ctx?.activeFilters?.situacao_matricula;
+    // Se já existe filtro de situação aplicado, o snapshot mostra só aquela situação.
+    // Para "por situação", o comportamento correto é ignorar esse filtro e agrupar tudo.
+    if (activeSit && String(activeSit).trim()) return null;
+
     const rows = toRowsFromObject(totals.matriculasPorSituacao);
     if (rows.length) return { ok: true, answer: 'Matrículas por situação', data: { rows, groupBy: 'situacao_matricula', metric: 'total_matriculas' }, spec: { type: 'breakdown', metric: 'total_matriculas', groupBy: 'situacao_matricula' } };
   }
@@ -1512,19 +1571,6 @@ const query = async (req, res) => {
     const identity = getIdentity(req);
     const question = sanitizeQuestion(req.body?.question);
     const contextFilters = req.body?.filters || {};
-    const effectiveContextFilters = { ...(contextFilters || {}) };
-    // Se o usuário pedir contexto temporal relativo (ex.: "ano passado") ou desistência/abandono,
-    // não deixe um filtro padrão do dashboard (ex.: ano atual / ATIVO) engessar a resposta.
-    const relYear = inferRelativeAnoLetivo(question, effectiveContextFilters);
-    if (relYear) {
-      effectiveContextFilters.anoLetivo = relYear;
-      effectiveContextFilters.ano_letivo = relYear;
-    }
-    if (shouldIgnoreSituacaoContext(question)) {
-      delete effectiveContextFilters.situacaoMatricula;
-      delete effectiveContextFilters.situacao_matricula;
-    }
-
     const dashboardContext = req.body?.dashboardContext || null;
     const availableFilters = dashboardContext?.availableFilters || null;
     const selection = req.body?.selection || null;
@@ -1578,7 +1624,7 @@ const query = async (req, res) => {
         compare: { baseYear, compareYear, direction: 'all' },
       };
 
-      const result = await runQuery(spec, effectiveContextFilters, req.user);
+      const result = await runQuery(spec, contextFilters, req.user);
       if (result.ok) {
         const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
         const metricLabel = ALLOWED_METRICS[metric].label;
@@ -1610,7 +1656,7 @@ const query = async (req, res) => {
         order: 'desc',
       };
 
-      const result = await runQuery(spec, effectiveContextFilters, req.user);
+      const result = await runQuery(spec, contextFilters, req.user);
       if (result.ok) {
         const rows = (result.rows || []).map((r) => ({ label: r.label, value: Number(r.value) || 0 }));
         const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
@@ -1679,7 +1725,7 @@ const query = async (req, res) => {
         limit,
       };
 
-      const result = await runTurmasVagasQuery(spec, effectiveContextFilters, req.user);
+      const result = await runTurmasVagasQuery(spec, contextFilters, req.user);
       if (!result.ok) {
         const resp = { ok: false, answer: result.message || 'Não consegui calcular vagas por turma.', conversationId };
         await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
@@ -1748,7 +1794,7 @@ const query = async (req, res) => {
         order,
       };
 
-      const result = await runEscolasVagasQuery(spec, effectiveContextFilters, req.user);
+      const result = await runEscolasVagasQuery(spec, contextFilters, req.user);
       if (!result.ok) {
         const resp = { ok: false, answer: result.message || 'Não consegui calcular vagas por escola.', conversationId };
         await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
@@ -1802,11 +1848,9 @@ const query = async (req, res) => {
     }
 
     // 5) Heurística + LLM
-    const heur = heuristicSpec(question, effectiveContextFilters);
+    const heur = heuristicSpec(question, contextFilters, dashboardContext);
     const domainOptionsString = formatDomainOptions(availableFilters);
-    let spec = heur || (await deepseekToSpec(question, effectiveContextFilters, historyString, domainOptionsString, identity));
-    spec = postProcessSpecWithQuestion(spec, question, effectiveContextFilters);
-
+    const spec = heur || (await deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity, dashboardContext));
 
     if (spec?.type === 'error') {
       await saveMessage(conversationId, 'assistant', spec.message, 'error', spec);
@@ -1851,7 +1895,7 @@ const query = async (req, res) => {
         dimension: String(selection.dimension),
         matches: selection.matches,
         metric,
-        contextFilters: effectiveContextFilters,
+        contextFilters,
         user: req.user,
       });
 
@@ -1924,7 +1968,7 @@ const query = async (req, res) => {
       }
     }
 
-    const result = await runQuery(spec, effectiveContextFilters, req.user);
+    const result = await runQuery(spec, contextFilters, req.user);
     if (!result.ok) {
       const resp = { ok: false, answer: result.message || 'Não consegui executar essa consulta.', conversationId };
       await saveMessage(conversationId, 'assistant', resp.answer, 'error', spec);
