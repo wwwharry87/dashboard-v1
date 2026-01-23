@@ -1,5 +1,10 @@
 // src/components/MapacalorEscolas.js
-import React, { useMemo } from 'react';
+// Melhorias UI/UX:
+// - Legenda de cor e tamanho (gestor entende o mapa sem “adivinhar”)
+// - Seletor de métrica (Ativos / Total)
+// - Tooltip mais “Power BI”: mostra valores + % (quando possível)
+
+import React, { useMemo, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Tooltip } from 'react-leaflet';
 
 function clamp(n, min, max) {
@@ -16,37 +21,63 @@ function colorForValue(v, max) {
   return `rgb(${r},${g},${b})`;
 }
 
-// ✅ Aceita número, string com ponto OU string com vírgula
-function parseCoord(v) {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim().replace(',', '.'); // <- aqui está o segredo
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : null;
+function fmt(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString('pt-BR');
+}
+
+function pct(a, b) {
+  const A = Number(a) || 0;
+  const B = Number(b) || 0;
+  if (!B) return null;
+  return (A * 100) / B;
+}
+
+function LegendSwatch({ color, label }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="inline-block w-3 h-3 rounded" style={{ background: color }} />
+      <span className="text-[11px] text-gray-700">{label}</span>
+    </div>
+  );
+}
+
+function LegendSizeRow({ size, label }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className="inline-block rounded-full border border-gray-300/70 bg-gray-100"
+        style={{ width: size, height: size }}
+      />
+      <span className="text-[11px] text-gray-700">{label}</span>
+    </div>
+  );
 }
 
 export default function MapacalorEscolas({ escolas = [], loading = false, onSelectSchool }) {
+  const [metric, setMetric] = useState('ativos'); // 'ativos' | 'total'
+
   const points = useMemo(() => {
     return (escolas || [])
-      .map((e) => {
-        const lat = parseCoord(e.latitude);
-        const lng = parseCoord(e.longitude);
-        return {
-          ...e,
-          latitude: lat,
-          longitude: lng,
-          ativos: Number(e.ativos || 0),
-          total: Number(e.total || 0),
-        };
-      })
-      .filter((e) => Number.isFinite(e.latitude) && Number.isFinite(e.longitude));
+      .filter((e) => Number.isFinite(Number(e.latitude)) && Number.isFinite(Number(e.longitude)))
+      .map((e) => ({
+        ...e,
+        latitude: Number(e.latitude),
+        longitude: Number(e.longitude),
+        ativos: Number(e.ativos || 0),
+        total: Number(e.total || 0),
+      }));
   }, [escolas]);
 
-  const maxAtivos = useMemo(() => {
-    return points.reduce((m, p) => Math.max(m, p.ativos || 0), 0);
-  }, [points]);
+  const metricLabel = metric === 'total' ? 'Total de matrículas' : 'Ativos';
+  const metricValueOf = (p) => (metric === 'total' ? (p.total || 0) : (p.ativos || 0));
+
+  const maxMetric = useMemo(() => {
+    return points.reduce((m, p) => Math.max(m, metricValueOf(p) || 0), 0);
+  }, [points, metric]);
 
   const center = useMemo(() => {
-    if (!points.length) return [-3.0, -52.0]; // fallback PA
+    if (!points.length) return [-3.0, -52.0]; // fallback PA (ajuste automático quando tiver dados)
     const lat = points.reduce((s, p) => s + p.latitude, 0) / points.length;
     const lng = points.reduce((s, p) => s + p.longitude, 0) / points.length;
     return [lat, lng];
@@ -78,19 +109,63 @@ export default function MapacalorEscolas({ escolas = [], loading = false, onSele
 
   return (
     <div className="w-full">
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-        <span>
-          Pontos: <span className="font-semibold text-gray-800">{points.length}</span>
-        </span>
-        <span className="text-gray-400">•</span>
-        <span>
-          Ativos (max): <span className="font-semibold text-gray-800">{maxAtivos.toLocaleString('pt-BR')}</span>
-        </span>
-        <span className="text-gray-400">•</span>
-        <span className="text-gray-500">Clique em um ponto para filtrar por escola (se habilitado)</span>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-600 justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <span>
+            Pontos: <span className="font-semibold text-gray-800">{points.length}</span>
+          </span>
+          <span className="text-gray-400">•</span>
+          <span>
+            {metricLabel} (max): <span className="font-semibold text-gray-800">{fmt(maxMetric)}</span>
+          </span>
+          <span className="text-gray-400">•</span>
+          <span className="text-gray-500">Clique em um ponto para filtrar por escola</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-gray-500 font-semibold">Métrica:</span>
+          <div className="flex items-center bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => setMetric('ativos')}
+              className={`px-3 py-1 text-[11px] font-semibold transition-colors ${
+                metric === 'ativos' ? 'bg-violet-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+              }`}
+              title="Colorir e dimensionar pelos ativos"
+            >
+              Ativos
+            </button>
+            <button
+              type="button"
+              onClick={() => setMetric('total')}
+              className={`px-3 py-1 text-[11px] font-semibold transition-colors ${
+                metric === 'total' ? 'bg-violet-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+              }`}
+              title="Colorir e dimensionar pelo total"
+            >
+              Total
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="h-[520px] w-full rounded-2xl overflow-hidden border border-gray-200">
+      <div className="h-[520px] w-full rounded-2xl overflow-hidden border border-gray-200 relative">
+        {/* Legenda (overlay) */}
+        <div className="absolute z-[1000] bottom-3 right-3 bg-white/95 backdrop-blur rounded-2xl border border-gray-200 shadow-lg p-3 w-[220px] pointer-events-none">
+          <div className="text-xs font-bold text-gray-800 mb-2">Legenda</div>
+          <div className="space-y-1.5">
+            <div className="text-[11px] text-gray-500 font-semibold">Cor = {metricLabel}</div>
+            <LegendSwatch color={colorForValue(0, maxMetric)} label={`Baixo (${fmt(0)})`} />
+            <LegendSwatch color={colorForValue(maxMetric * 0.5, maxMetric)} label={`Médio (~${fmt(Math.round(maxMetric * 0.5))})`} />
+            <LegendSwatch color={colorForValue(maxMetric, maxMetric)} label={`Alto (${fmt(maxMetric)})`} />
+            <div className="pt-1 border-t border-gray-200" />
+            <div className="text-[11px] text-gray-500 font-semibold">Tamanho = {metricLabel}</div>
+            <LegendSizeRow size={10} label="Menor" />
+            <LegendSizeRow size={16} label="Médio" />
+            <LegendSizeRow size={22} label="Maior" />
+          </div>
+        </div>
+
         <MapContainer center={center} zoom={12} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
           <TileLayer
             attribution="&copy; OpenStreetMap contributors"
@@ -98,8 +173,10 @@ export default function MapacalorEscolas({ escolas = [], loading = false, onSele
           />
 
           {points.map((p) => {
-            const radius = clamp(6 + Math.sqrt(p.ativos || 0) / 2.2, 6, 24);
-            const color = colorForValue(p.ativos || 0, maxAtivos);
+            const v = metricValueOf(p);
+            const radius = clamp(6 + Math.sqrt(v || 0) / 2.2, 6, 24);
+            const color = colorForValue(v || 0, maxMetric);
+            const occ = pct(p.ativos, p.total);
 
             return (
               <CircleMarker
@@ -121,13 +198,16 @@ export default function MapacalorEscolas({ escolas = [], loading = false, onSele
                 <Tooltip direction="top" offset={[0, -6]} opacity={1}>
                   <div className="text-xs">
                     <div className="font-semibold">{p.nome || p.escola || `Escola ${p.idescola}`}</div>
-                    <div>
-                      Ativos: <b>{(p.ativos || 0).toLocaleString('pt-BR')}</b>
-                      {Number.isFinite(p.total) ? (
-                        <span>
-                          {' '}
-                          • Total: <b>{(p.total || 0).toLocaleString('pt-BR')}</b>
-                        </span>
+                    <div className="mt-1">
+                      <span className="text-gray-600">Ativos:</span> <b>{fmt(p.ativos || 0)}</b>
+                      <span className="text-gray-400"> • </span>
+                      <span className="text-gray-600">Total:</span> <b>{fmt(p.total || 0)}</b>
+                      {typeof occ === 'number' ? (
+                        <>
+                          <span className="text-gray-400"> • </span>
+                          <span className="text-gray-600">% Ativos:</span>{' '}
+                          <b>{occ.toFixed(1).replace('.', ',')}%</b>
+                        </>
                       ) : null}
                     </div>
                     {p.bairro ? <div>Bairro: {p.bairro}</div> : null}

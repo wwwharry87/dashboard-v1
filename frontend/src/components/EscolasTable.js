@@ -3,6 +3,57 @@ import React from "react";
 import { FaSchool, FaUsers, FaDoorOpen, FaExclamationTriangle, FaCheckCircle } from "react-icons/fa";
 import { formatNumber } from '../utils/formatters';
 
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function getSchoolStatus(escola) {
+  const vagas = Number(escola.vagas_disponiveis);
+  if (Number.isFinite(vagas) && vagas < 0) return 'LOTADA';
+  if (Number.isFinite(vagas) && vagas > 0) return 'VAGAS';
+  return 'CHEIA';
+}
+
+function StatusLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-600">
+      <div className="flex items-center gap-1">
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-green-500" />
+        <span>Com vagas</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-500" />
+        <span>Cheia</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
+        <span>Lotada</span>
+      </div>
+      <span className="text-gray-400">•</span>
+      <span className="text-gray-500">A barra mostra a ocupação (matrículas ÷ capacidade)</span>
+    </div>
+  );
+}
+
+function OccupancyBar({ matriculas, capacidade, status }) {
+  const m = Number(matriculas) || 0;
+  const c = Number(capacidade) || 0;
+  const pct = c > 0 ? (m * 100) / c : 0;
+  const pctClamped = clamp(pct, 0, 100);
+
+  const barColor =
+    status === 'LOTADA' ? 'bg-red-500' : status === 'VAGAS' ? 'bg-green-500' : 'bg-yellow-500';
+
+  return (
+    <div className="mt-1" title={c > 0 ? `${pct.toFixed(1).replace('.', ',')}% ocupado` : 'Capacidade não informada'}>
+      <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+        <div className={`h-2 ${barColor}`} style={{ width: `${pctClamped}%` }} />
+      </div>
+      <div className="text-[10px] text-gray-500 mt-0.5">{c > 0 ? `${Math.round(pct)}%` : '—'}</div>
+    </div>
+  );
+}
+
 const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, loading }) => {
   if (loading) {
     return (
@@ -23,6 +74,11 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
 
   return (
     <div className="w-full">
+      {/* Legenda compacta */}
+      <div className="hidden md:block px-2 py-2 bg-white border-b border-gray-200">
+        <StatusLegend />
+      </div>
+
       {/* Tabela para desktop */}
       <div className="hidden md:block">
         <table className="w-full text-sm">
@@ -68,7 +124,7 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
               const isSelected = selectedSchool && selectedSchool.idescola === escola.idescola;
               const hasVacancies = escola.vagas_disponiveis > 0;
               const isOverCapacity = escola.vagas_disponiveis < 0;
-              const isFull = escola.vagas_disponiveis === 0;
+              const status = getSchoolStatus(escola);
               
               return (
                 <tr
@@ -120,6 +176,13 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                     }`}>
                       {formatNumber(escola.vagas_disponiveis) || 0}
                     </div>
+
+                    {/* Barra de ocupação (visual rápido) */}
+                    <OccupancyBar
+                      matriculas={escola.qtde_matriculas}
+                      capacidade={escola.capacidade_total}
+                      status={status}
+                    />
                   </td>
                   
                   <td className="p-2 text-center text-xs">
@@ -155,10 +218,10 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
           const isSelected = selectedSchool && selectedSchool.idescola === escola.idescola;
           const hasVacancies = escola.vagas_disponiveis > 0;
           const isOverCapacity = escola.vagas_disponiveis < 0;
-          const isFull = escola.vagas_disponiveis === 0;
           const ocupacaoPercent = escola.capacidade_total > 0 
             ? Math.round((escola.qtde_matriculas / escola.capacidade_total) * 100)
             : 0;
+          const status = getSchoolStatus(escola);
 
           return (
             <div
@@ -257,29 +320,20 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                     <span className="text-[10px] text-gray-500 mt-1">
                       {ocupacaoPercent}% ocupado
                     </span>
+
+                    {/* Barra de ocupação no mobile */}
+                    <div className="w-full mt-2">
+                      <OccupancyBar
+                        matriculas={escola.qtde_matriculas}
+                        capacidade={escola.capacidade_total}
+                        status={status}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Barra de ocupação */}
-              <div className="mt-2">
-                <div className="flex justify-between text-xs text-gray-600 mb-1">
-                  <span>Ocupação</span>
-                  <span>{ocupacaoPercent}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full ${
-                      ocupacaoPercent >= 100 
-                        ? "bg-red-500" 
-                        : ocupacaoPercent >= 90 
-                          ? "bg-yellow-500" 
-                          : "bg-green-500"
-                    }`}
-                    style={{ width: `${Math.min(ocupacaoPercent, 100)}%` }}
-                  ></div>
-                </div>
-              </div>
+              {/* A barra de ocupação já é mostrada dentro do bloco de Vagas (mais compacto). */}
             </div>
           );
         })}
