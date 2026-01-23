@@ -16,17 +16,29 @@ function colorForValue(v, max) {
   return `rgb(${r},${g},${b})`;
 }
 
+// ✅ Aceita número, string com ponto OU string com vírgula
+function parseCoord(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim().replace(',', '.'); // <- aqui está o segredo
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function MapacalorEscolas({ escolas = [], loading = false, onSelectSchool }) {
   const points = useMemo(() => {
     return (escolas || [])
-      .filter((e) => Number.isFinite(Number(e.latitude)) && Number.isFinite(Number(e.longitude)))
-      .map((e) => ({
-        ...e,
-        latitude: Number(e.latitude),
-        longitude: Number(e.longitude),
-        ativos: Number(e.ativos || 0),
-        total: Number(e.total || 0),
-      }));
+      .map((e) => {
+        const lat = parseCoord(e.latitude);
+        const lng = parseCoord(e.longitude);
+        return {
+          ...e,
+          latitude: lat,
+          longitude: lng,
+          ativos: Number(e.ativos || 0),
+          total: Number(e.total || 0),
+        };
+      })
+      .filter((e) => Number.isFinite(e.latitude) && Number.isFinite(e.longitude));
   }, [escolas]);
 
   const maxAtivos = useMemo(() => {
@@ -34,7 +46,7 @@ export default function MapacalorEscolas({ escolas = [], loading = false, onSele
   }, [points]);
 
   const center = useMemo(() => {
-    if (!points.length) return [-3.0, -52.0]; // fallback PA (ajuste automático quando tiver dados)
+    if (!points.length) return [-3.0, -52.0]; // fallback PA
     const lat = points.reduce((s, p) => s + p.latitude, 0) / points.length;
     const lng = points.reduce((s, p) => s + p.longitude, 0) / points.length;
     return [lat, lng];
