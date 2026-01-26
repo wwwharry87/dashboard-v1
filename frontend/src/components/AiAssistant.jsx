@@ -437,12 +437,30 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     return null;
   };
 
+  // Texto humano (msg.content) deve ir junto no PDF/Excel.
+  const getNarrativeText = (msg) => {
+    const t = String(msg?.content ?? msg?.answer ?? '').trim();
+    return t;
+  };
+
+  const getNarrativeLines = (msg) => {
+    const t = getNarrativeText(msg);
+    if (!t) return [];
+    // preserva quebras, remove excesso de espaços
+    return t
+      .split(/\r?\n/)
+      .map((l) => String(l || '').trimEnd())
+      .filter((l) => l.length > 0);
+  };
+
   const exportReport = async (format, msg) => {
     const table = buildReportTable(msg);
     if (!table) {
       alert('Não há dados tabulares para exportar nesta resposta.');
       return;
     }
+
+    const narrative = getNarrativeLines(msg);
 
     const title = table.title || 'Relatório';
     const fileBase = sanitizeFileName(title);
@@ -459,12 +477,25 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       ws.addRow([`Gerado em: ${new Date().toLocaleString('pt-BR')}`]);
       ws.addRow([]);
 
+      // ✅ Resumo textual da IA
+      if (narrative.length) {
+        ws.addRow(['Resumo (IA)']);
+        ws.getRow(ws.lastRow.number).font = { bold: true };
+        narrative.forEach((line) => ws.addRow([line]));
+        ws.addRow([]);
+      }
+
       ws.addRow(table.head);
       ws.getRow(ws.lastRow.number).font = { bold: true };
       table.body.forEach((r) => ws.addRow(r));
 
-      ws.views = [{ state: 'frozen', ySplit: 4 }];
-      ws.columns = table.head.map(() => ({ width: 28 }));
+      // Congela até o início da tabela (4) + bloco de resumo (se existir)
+      const frozen = 4 + (narrative.length ? (2 + narrative.length + 1) : 0);
+      ws.views = [{ state: 'frozen', ySplit: frozen }];
+
+      // Ajuste de largura: 1 coluna larga pro texto + colunas da tabela
+      const cols = Math.max(1, table.head.length);
+      ws.columns = Array.from({ length: cols }, (_, idx) => ({ width: idx === 0 ? 48 : 24 }));
 
       const buffer = await wb.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -495,6 +526,7 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 14;
 
     doc.setFontSize(14);
@@ -505,8 +537,41 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
     doc.setFont('helvetica', 'normal');
     doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, margin, 28);
 
+    // ✅ Resumo textual da IA (com wrap)
+    let startY = 34;
+    if (narrative.length) {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Resumo (IA):', margin, startY);
+      startY += 6;
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      const maxWidth = pageWidth - margin * 2;
+
+      // quebra em linhas com wrap
+      const wrapped = [];
+      narrative.forEach((line) => {
+        const parts = doc.splitTextToSize(String(line), maxWidth);
+        parts.forEach((p) => wrapped.push(p));
+      });
+
+      const lineH = 4;
+      wrapped.forEach((ln) => {
+        // se estourar a página antes da tabela, cria nova
+        if (startY > pageHeight - 20) {
+          doc.addPage();
+          startY = 18;
+        }
+        doc.text(String(ln), margin, startY);
+        startY += lineH;
+      });
+
+      startY += 4;
+    }
+
     autoTable(doc, {
-      startY: 34,
+      startY,
       head: [table.head],
       body: table.body,
       margin: { left: margin, right: margin },
