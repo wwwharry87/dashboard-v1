@@ -396,9 +396,8 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       // símbolos
       .replace(/Δ/g, 'Dif')
       // remove caracteres fora do básico (evita "Ø=ÜÈ" etc.)
-      .replace(/[^	
+      .replace(/[^\x09\x0A\x0D\x20-\x7E\u00C0-\u00FF]/g, '');
 
- -~À-ÿ]/g, '');
   };
 
 
