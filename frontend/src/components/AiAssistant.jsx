@@ -382,6 +382,26 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       .replace(/\s+/g, '_')
       .slice(0, 80) || 'relatorio';
 
+  // jsPDF padrão (Helvetica) não suporta bem emojis/símbolos. Sanitizamos apenas para export PDF.
+  const pdfSafeText = (input) => {
+    if (input === null || input === undefined) return '';
+    return String(input)
+      .normalize('NFKD')
+      // emojis -> texto
+      .replace(/📈/g, 'ALTAS:')
+      .replace(/📉/g, 'QUEDAS:')
+      // bullets e traços
+      .replace(/•/g, '-')
+      .replace(/[–—]/g, '-')
+      // símbolos
+      .replace(/Δ/g, 'Dif')
+      // remove caracteres fora do básico (evita "Ø=ÜÈ" etc.)
+      .replace(/[^	
+
+ -~À-ÿ]/g, '');
+  };
+
+
   const buildReportTable = (msg) => {
     const kind = msg?.kind;
     const spec = msg?.spec || {};
@@ -410,7 +430,7 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       const by = prettyDimension(data.groupBy || spec.groupBy);
       const baseYear = data?.compare?.baseYear ?? 'Base';
       const compYear = data?.compare?.compareYear ?? 'Comparação';
-      const head = [`Grupo (${by || 'geral'})`, String(baseYear), String(compYear), 'Δ', '%Δ'];
+      const head = [`Grupo (${by || 'geral'})`, String(baseYear), String(compYear), 'Diferença', '% Dif'];
       const body = data.rows.map((r) => [
         String(r.label ?? ''),
         formatPercentMaybe(metric, r.base_value),
@@ -531,7 +551,7 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
 
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text(title, pageWidth / 2, 18, { align: 'center' });
+    doc.text(pdfSafeText(title), pageWidth / 2, 18, { align: 'center' });
 
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
@@ -552,7 +572,8 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       // quebra em linhas com wrap
       const wrapped = [];
       narrative.forEach((line) => {
-        const parts = doc.splitTextToSize(String(line), maxWidth);
+        const safe = pdfSafeText(line);
+        const parts = doc.splitTextToSize(String(safe), maxWidth);
         parts.forEach((p) => wrapped.push(p));
       });
 
@@ -570,10 +591,15 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
       startY += 4;
     }
 
-    autoTable(doc, {
+    
+    // Sanitiza cabeçalho/células para evitar caracteres estranhos no PDF (emoji, Δ, etc.)
+    const safeHead = (table.head || []).map((h) => pdfSafeText(h));
+    const safeBody = (table.body || []).map((row) => (Array.isArray(row) ? row.map((c) => pdfSafeText(c)) : row));
+
+autoTable(doc, {
       startY,
-      head: [table.head],
-      body: table.body,
+      head: [safeHead],
+      body: safeBody,
       margin: { left: margin, right: margin },
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fontStyle: 'bold' },
@@ -688,8 +714,8 @@ export default function AiAssistant({ filters, totals, filtersCatalog }) {
         { key: 'label', label: spec?.groupBy ? `Grupo (${spec.groupBy})` : 'Grupo' },
         { key: 'base', label: `${data.compare?.baseYear ?? 'Base'}` },
         { key: 'comp', label: `${data.compare?.compareYear ?? 'Comparação'}` },
-        { key: 'delta', label: 'Δ' },
-        { key: 'pct', label: '% Δ' },
+        { key: 'delta', label: 'Diferença' },
+        { key: 'pct', label: '% Dif' },
       ];
 
       const rows = data.rows.map((r) => ({
