@@ -22,6 +22,9 @@ router.post('/alertas', analyticsController.buscarAlertas);
 // Assistente IA (DeepSeek) — consultas agregadas seguras
 router.post('/ai/query', aiController.query);
 
+// Limpar cache da IA (útil em desenvolvimento)
+router.delete('/ai/cache', aiController.clearCache);
+
 // Mapa (pontos / calor) — escolas com quantitativo de matrículas
 router.post('/map/escolas-ativos', mapController.escolasAtivos);
 

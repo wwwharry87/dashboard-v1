@@ -16,10 +16,20 @@
 
 const pool = require('../config/db');
 const NodeCache = require('node-cache');
-const { randomUUID } = require('crypto');
+const { randomUUID, createHash } = require('crypto');
 const { buildWhereClause } = require('./dashboardController');
 
-const cache = new NodeCache({ stdTTL: 180, checkperiod: 60 });
+// Cache (specs e resultados SQL)
+// - CACHE_ENABLED (default: true)
+// - CACHE_TTL_SECONDS (default: 300)
+const CACHE_ENABLED = String(process.env.CACHE_ENABLED ?? 'true').toLowerCase() !== 'false';
+const CACHE_TTL_SECONDS = Math.min(Math.max(Number(process.env.CACHE_TTL_SECONDS || 300) || 300, 30), 60 * 60);
+
+// spec cache (geralmente curto — evita custo do LLM)
+const cache = new NodeCache({ stdTTL: 180, checkperiod: 60, useClones: false });
+
+// result cache (pode ser um pouco maior — evita bater no PG em perguntas repetidas)
+const resultCache = new NodeCache({ stdTTL: CACHE_TTL_SECONDS, checkperiod: 60, useClones: false });
 
 const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
@@ -31,6 +41,181 @@ const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 
 function sanitizeQuestion(q) {
   return String(q || '').trim().slice(0, 800);
+}
+
+// =========================
+// UX: saudação / conversa curta
+// =========================
+
+function normalizeLite(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s!?]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isGreeting(question) {
+  const q = normalizeLite(question);
+  if (!q) return false;
+  // Evita pegar frases longas do tipo "oi, quantas matrículas..."
+  const isShort = q.length <= 18;
+  if (!isShort) return false;
+
+  const greetings = new Set([
+    'oi', 'ola', 'olá', 'e ai', 'eaí', 'eai', 'bom dia', 'boa tarde', 'boa noite',
+    'oii', 'oiii', 'oi!', 'ola!', 'olá!', 'salve', 'fala', 'fala ai', 'fala aí',
+    'tudo bem', 'td bem', 'tudo bem?', 'tudo certo', 'tudo certo?',
+  ].map(normalizeLite));
+
+  if (greetings.has(q)) return true;
+
+  // variações comuns
+  if (/^(oi|ola|olá)(!|\?)?$/.test(q)) return true;
+  if (/^(bom dia|boa tarde|boa noite)(!|\?)?$/.test(q)) return true;
+  if (/^tudo bem(\?)?$/.test(q)) return true;
+  return false;
+}
+
+function isThanks(question) {
+  const q = normalizeLite(question);
+  if (!q) return false;
+  const isShort = q.length <= 24;
+  if (!isShort) return false;
+  return /^(obrigado|obrigada|valeu|vlw|show|top|perfeito|massa|gratid[aã]o)(!|\?)?$/.test(q);
+}
+
+// =========================
+// Logging estruturado (JSON)
+// =========================
+
+function logJson(level, payload) {
+  const lvl = String(level || 'info').toLowerCase();
+  const obj = {
+    timestamp: new Date().toISOString(),
+    level: lvl,
+    service: 'aiController',
+    ...payload,
+  };
+  const line = JSON.stringify(obj);
+  if (lvl === 'error') console.error(line);
+  else if (lvl === 'warn') console.warn(line);
+  else console.log(line);
+}
+
+// =========================
+// Erros: padronização
+// =========================
+
+class AiProviderError extends Error {
+  constructor(message, { status, details, provider } = {}) {
+    super(message);
+    this.name = 'AiProviderError';
+    this.status = status;
+    this.details = details;
+    this.provider = provider || 'deepseek';
+  }
+}
+
+function buildRequestId() {
+  return createHash('sha1')
+    .update(String(Date.now()) + ':' + Math.random())
+    .digest('hex')
+    .slice(0, 12);
+}
+
+function friendlyAiError(err) {
+  const msg = String(err?.message || err || '').trim();
+  const status = Number(err?.status) || (msg.match(/\bHTTP\s+(\d{3})\b/i)?.[1] ? Number(msg.match(/\bHTTP\s+(\d{3})\b/i)[1]) : null);
+
+  // Timeouts
+  if (/timeout/i.test(msg)) {
+    return {
+      httpStatus: 504,
+      payload: {
+        ok: false,
+        kind: 'error',
+        answer: 'A IA demorou para responder e excedeu o tempo limite. Tente novamente (ou reduza a pergunta).',
+        errorType: 'timeout',
+        details: msg.slice(0, 500),
+      },
+    };
+  }
+
+  // DeepSeek endpoint / config
+  if (status === 404 || /HTTP\s*404/i.test(msg)) {
+    return {
+      httpStatus: 502,
+      payload: {
+        ok: false,
+        kind: 'error',
+        answer:
+          'A IA está indisponível no momento (erro 404 no provedor). ' +
+          'Isso geralmente é configuração: verifique DEEPSEEK_BASE_URL e o endpoint "/chat/completions".',
+        errorType: 'provider_404',
+        details: msg.slice(0, 500),
+      },
+    };
+  }
+
+  if (status === 401 || status === 403) {
+    return {
+      httpStatus: 502,
+      payload: {
+        ok: false,
+        kind: 'error',
+        answer: 'Não consegui autenticar no provedor de IA. Verifique a chave DEEPSEEK_API_KEY.',
+        errorType: 'auth',
+        details: msg.slice(0, 500),
+      },
+    };
+  }
+
+  if (status === 429) {
+    return {
+      httpStatus: 503,
+      payload: {
+        ok: false,
+        kind: 'error',
+        answer: 'A IA recebeu muitas requisições agora (rate limit). Tente novamente em instantes.',
+        errorType: 'rate_limit',
+        details: msg.slice(0, 500),
+      },
+    };
+  }
+
+  if (status && status >= 500) {
+    return {
+      httpStatus: 502,
+      payload: {
+        ok: false,
+        kind: 'error',
+        answer: 'O provedor de IA está instável agora (erro temporário). Tente novamente.',
+        errorType: 'provider_5xx',
+        details: msg.slice(0, 500),
+      },
+    };
+  }
+
+  // Fallback
+  return {
+    httpStatus: 500,
+    payload: {
+      ok: false,
+      kind: 'error',
+      answer: 'Não consegui processar sua pergunta na IA agora. Tente novamente.',
+      errorType: 'unknown',
+      details: msg.slice(0, 500),
+    },
+  };
+}
+
+function buildSqlCacheKey({ sql, params, user }) {
+  const clientId = user?.clientId || user?.idcliente || user?.client || '0';
+  const raw = JSON.stringify({ clientId, sql, params });
+  return 'ai_sql_' + createHash('sha1').update(raw).digest('hex');
 }
 
 const ALLOWED_DIMENSIONS = {
@@ -976,55 +1161,99 @@ Contexto atual (filtros já aplicados pelo usuário): ${JSON.stringify(contextFi
 Snapshot do dashboard (totais/infos já carregados para os filtros atuais):
 ${dashSummary || '(snapshot não informado)'}`;
 
-  const controller = new AbortController();
   const timeoutMs = Number(process.env.DEEPSEEK_TIMEOUT_MS || 25000);
-  const t = setTimeout(() => controller.abort(), timeoutMs);
+  const maxAttempts = Math.min(Math.max(Number(process.env.DEEPSEEK_RETRY_ATTEMPTS || 2) || 2, 1), 3);
 
   let resp;
   let text = '';
-  try {
-    resp = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        temperature: 0.1,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      }),
-      signal: controller.signal,
-    });
-
-    text = await resp.text();
-  } catch (e) {
-    if (e?.name === 'AbortError') throw new Error(`Timeout ao chamar DeepSeek (>${timeoutMs}ms).`);
-    throw e;
-  } finally {
-    clearTimeout(t);
-  }
-
-  if (!resp?.ok) {
-    let details = text;
-    try {
-      const j = text ? JSON.parse(text) : null;
-      details = j?.error?.message || j?.message || j?.error || details;
-    } catch (_) {}
-    throw new Error(`DeepSeek respondeu HTTP ${resp?.status || '???'}${details ? `: ${String(details).slice(0, 300)}` : ''}`);
-  }
-
-  if (!text || !String(text).trim()) throw new Error('DeepSeek retornou resposta vazia.');
-
   let json;
-  try {
-    json = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`DeepSeek retornou JSON inválido: ${String(e?.message || e).slice(0, 120)}`);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+    const t0 = Date.now();
+
+    try {
+      resp = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: DEEPSEEK_MODEL,
+          temperature: 0.1,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      text = await resp.text();
+
+      const ms = Date.now() - t0;
+      logJson('info', { action: 'deepseekToSpec', attempt, status: resp?.status, ms });
+
+      if (!resp?.ok) {
+        let details = text;
+        try {
+          const j = text ? JSON.parse(text) : null;
+          details = j?.error?.message || j?.message || j?.error || details;
+        } catch (_) {}
+
+        const e = new AiProviderError(
+          `DeepSeek respondeu HTTP ${resp?.status || '???'}${details ? `: ${String(details).slice(0, 300)}` : ''}`,
+          { status: resp?.status, details: details ? String(details).slice(0, 500) : undefined, provider: 'deepseek' }
+        );
+
+        const retryable = resp?.status === 429 || (resp?.status >= 500 && resp?.status <= 599);
+        if (retryable && attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 220 * attempt));
+          continue;
+        }
+        throw e;
+      }
+
+      if (!text || !String(text).trim()) {
+        const e = new AiProviderError('DeepSeek retornou resposta vazia.', { status: resp?.status, provider: 'deepseek' });
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 150 * attempt));
+          continue;
+        }
+        throw e;
+      }
+
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        const err = new AiProviderError(`DeepSeek retornou JSON inválido: ${String(e?.message || e).slice(0, 160)}`, { status: resp?.status, provider: 'deepseek' });
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 180 * attempt));
+          continue;
+        }
+        throw err;
+      }
+
+      break; // sucesso
+    } catch (e) {
+      const isAbort = e?.name === 'AbortError' || /timeout/i.test(String(e?.message || ''));
+      const err = isAbort
+        ? new AiProviderError(`Timeout ao chamar DeepSeek (>${timeoutMs}ms).`, { status: 504, details: String(e?.message || e), provider: 'deepseek' })
+        : e;
+
+      logJson('warn', { action: 'deepseekToSpec_error', attempt, message: String(err?.message || err).slice(0, 300) });
+
+      if (attempt < maxAttempts && (isAbort || err?.status === 429 || (Number(err?.status) >= 500 && Number(err?.status) <= 599))) {
+        await new Promise((r) => setTimeout(r, 250 * attempt));
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(t);
+    }
   }
 
   const content = json?.choices?.[0]?.message?.content;
@@ -1250,9 +1479,20 @@ async function runQuery(spec, contextFilters, user) {
       SELECT ${metricDef.sql} AS value
       FROM base_sem_especiais;`;
     try {
+      const cacheKey = buildSqlCacheKey({ sql, params, user });
+      if (CACHE_ENABLED) {
+        const hit = resultCache.get(cacheKey);
+        if (hit) return hit;
+      }
+
+      const t0 = Date.now();
       const result = await pool.query(sql, params);
+      const ms = Date.now() - t0;
+      logJson('info', { action: 'sql', kind: 'single', ms, metric: spec.metric, groupBy: null });
       const value = result.rows?.[0]?.value ?? 0;
-      return { ok: true, kind: 'single', value, meta: { effectiveYear, usedFilters: normalizedForWhere } };
+      const payload = { ok: true, kind: 'single', value, meta: { effectiveYear, usedFilters: normalizedForWhere } };
+      if (CACHE_ENABLED) resultCache.set(cacheKey, payload);
+      return payload;
     } catch (e) {
       return {
         ok: false,
@@ -1280,14 +1520,26 @@ async function runQuery(spec, contextFilters, user) {
       ORDER BY value ${spec.order === 'asc' ? 'ASC' : 'DESC'}
       LIMIT ${limit};`;
     try {
+      const cacheKey = buildSqlCacheKey({ sql, params, user });
+      if (CACHE_ENABLED) {
+        const hit = resultCache.get(cacheKey);
+        if (hit) return hit;
+      }
+
+      const t0 = Date.now();
       const result = await pool.query(sql, params);
-      return {
+      const ms = Date.now() - t0;
+      logJson('info', { action: 'sql', kind: 'breakdown', ms, metric: spec.metric, groupBy: spec.groupBy, limit });
+
+      const payload = {
         ok: true,
         kind: 'breakdown',
         rows: result.rows || [],
         groupBy: spec.groupBy,
         meta: { effectiveYear, usedFilters: normalizedForWhere },
       };
+      if (CACHE_ENABLED) resultCache.set(cacheKey, payload);
+      return payload;
     } catch (e) {
       return {
         ok: false,
@@ -1337,7 +1589,17 @@ async function runQuery(spec, contextFilters, user) {
         FROM base_sem_especiais;`;
       let result;
       try {
+        const cacheKey = buildSqlCacheKey({ sql, params: newParams, user });
+        if (CACHE_ENABLED) {
+          const hit = resultCache.get(cacheKey);
+          if (hit) return hit;
+        }
+
+        const t0 = Date.now();
         result = await pool.query(sql, newParams);
+        const ms = Date.now() - t0;
+        logJson('info', { action: 'sql', kind: 'compare', ms, metric: spec.metric, groupBy: null, baseYear, compareYear });
+
       } catch (e) {
         return {
           ok: false,
@@ -1352,7 +1614,7 @@ async function runQuery(spec, contextFilters, user) {
         };
       }
       const row = result.rows?.[0] || {};
-      return {
+      const payload = {
         ok: true,
         kind: 'compare',
         compare: { baseYear, compareYear, direction },
@@ -1365,6 +1627,11 @@ async function runQuery(spec, contextFilters, user) {
         }],
         meta: { usedFilters: normalizedForWhere },
       };
+      if (CACHE_ENABLED) {
+        const cacheKey = buildSqlCacheKey({ sql, params: newParams, user });
+        resultCache.set(cacheKey, payload);
+      }
+      return payload;
     }
 
     const dim = ALLOWED_DIMENSIONS[spec.groupBy];
@@ -1383,7 +1650,16 @@ async function runQuery(spec, contextFilters, user) {
       LIMIT ${limit};`;
     let result;
     try {
+      const cacheKey = buildSqlCacheKey({ sql, params: newParams, user });
+      if (CACHE_ENABLED) {
+        const hit = resultCache.get(cacheKey);
+        if (hit) return hit;
+      }
+
+      const t0 = Date.now();
       result = await pool.query(sql, newParams);
+      const ms = Date.now() - t0;
+      logJson('info', { action: 'sql', kind: 'compare', ms, metric: spec.metric, groupBy: spec.groupBy, baseYear, compareYear, limit });
     } catch (e) {
       return {
         ok: false,
@@ -1404,7 +1680,12 @@ async function runQuery(spec, contextFilters, user) {
       delta: Number(r.delta) || 0,
       pct_change: r.pct_change === null ? null : Number(r.pct_change),
     }));
-    return { ok: true, kind: 'compare', compare: { baseYear, compareYear, direction }, groupBy: spec.groupBy, rows, meta: { usedFilters: normalizedForWhere } };
+    const payload = { ok: true, kind: 'compare', compare: { baseYear, compareYear, direction }, groupBy: spec.groupBy, rows, meta: { usedFilters: normalizedForWhere } };
+    if (CACHE_ENABLED) {
+      const cacheKey = buildSqlCacheKey({ sql, params: newParams, user });
+      resultCache.set(cacheKey, payload);
+    }
+    return payload;
   }
 
   return { ok: false, message: 'Consulta não suportada.' };
@@ -1864,6 +2145,48 @@ const query = async (req, res) => {
 
     await saveMessage(conversationId, 'user', question);
 
+    // 0) Saudações/curtas (não tenta ...
+    if (isGreeting(question)) {
+      const namePrefix = identity.userName ? `${identity.userName}, ` : '';
+      const yearsAvail = Array.isArray(availableFilters?.ano_letivo) ? availableFilters.ano_letivo : [];
+      const y = yearsAvail.length ? Math.max(...yearsAvail.map((n) => Number(n) || 0)) : null;
+      const yPrev = y ? y - 1 : null;
+
+      const resp = {
+        ok: true,
+        kind: 'ok',
+        answer:
+          `${namePrefix}oi! 👋 Me diga o que você quer analisar no dashboard (eu respondo só com números agregados, sem dados pessoais).`,
+        suggestions: [
+          y && yPrev ? `Comparar matrículas ${y} vs ${yPrev} por escola` : 'Comparar matrículas 2026 vs 2025 por escola',
+          y ? `Total de matrículas ativas em ${y}` : 'Total de matrículas ativas em 2026',
+          'Top 10 escolas com mais matrículas',
+          'Matrículas por turno',
+          'Matrículas por situação',
+        ].filter(Boolean),
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', resp.answer, 'ok', { type: 'greeting' });
+      return res.json(resp);
+    }
+
+    if (isThanks(question)) {
+      const namePrefix = identity.userName ? `${identity.userName}, ` : '';
+      const resp = {
+        ok: true,
+        kind: 'ok',
+        answer: `${namePrefix}tamo junto! 🙌 Quer que eu gere algum comparativo ou ranking agora?`,
+        suggestions: [
+          'Comparar matrículas 2026 vs 2025 por escola',
+          'Top 10 escolas com mais matrículas',
+          'Matrículas por etapa (grupo_etapa)',
+        ],
+        conversationId,
+      };
+      await saveMessage(conversationId, 'assistant', resp.answer, 'ok', { type: 'thanks' });
+      return res.json(resp);
+    }
+
     // 0) Pergunta "por que" => modo diagnóstico (conversacional)
     if (isWhyQuestion(question)) {
       const namePrefix = identity.userName ? `${identity.userName}, ` : '';
@@ -2130,7 +2453,29 @@ const query = async (req, res) => {
     // 5) Heurística + LLM
     const heur = heuristicSpec(question, contextFilters, dashboardContext);
     const domainOptionsString = formatDomainOptions(availableFilters);
-    const spec = heur || (await deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity, dashboardContext));
+
+    let spec = heur;
+    if (!spec) {
+      try {
+        const t0 = Date.now();
+        spec = await deepseekToSpec(question, contextFilters, historyString, domainOptionsString, identity, dashboardContext);
+        logJson('info', { action: 'spec_generated', ms: Date.now() - t0, via: 'deepseek' });
+      } catch (err) {
+        const mapped = friendlyAiError(err);
+        const requestId = buildRequestId();
+
+        logJson('error', {
+          action: 'deepseek_failed',
+          requestId,
+          message: String(err?.message || err).slice(0, 500),
+          status: err?.status,
+        });
+
+        const payload = { ...mapped.payload, conversationId, requestId };
+        await saveMessage(conversationId, 'assistant', payload.answer, payload.kind || 'error', { type: 'ai_error', errorType: payload.errorType, requestId });
+        return res.status(mapped.httpStatus).json(payload);
+      }
+    }
 
     if (spec?.type === 'error') {
       await saveMessage(conversationId, 'assistant', spec.message, 'error', spec);
@@ -2334,9 +2679,27 @@ const query = async (req, res) => {
     await saveMessage(conversationId, 'assistant', fallback.answer, 'error', spec);
     return res.json(fallback);
   } catch (err) {
-    console.error('[aiController] Erro:', err);
-    return res.status(500).json({ error: 'Erro ao executar consulta IA', details: err.message });
+    const requestId = buildRequestId();
+    const mapped = friendlyAiError(err);
+    logJson('error', {
+      action: 'query_unhandled',
+      requestId,
+      message: String(err?.message || err).slice(0, 800),
+      status: err?.status,
+    });
+    return res.status(mapped.httpStatus || 500).json({ ...mapped.payload, requestId });
   }
 };
 
-module.exports = { query };
+// Endpoint utilitário (dev): limpar cache do assistente (spec e SQL)
+const clearCache = async (_req, res) => {
+  try {
+    cache.flushAll();
+    resultCache.flushAll();
+    return res.json({ ok: true, message: 'Cache da IA limpo.' });
+  } catch (e) {
+    return res.status(500).json({ ok: false, message: 'Falha ao limpar cache da IA.' });
+  }
+};
+
+module.exports = { query, clearCache };
