@@ -1434,7 +1434,7 @@ const Dashboard = () => {
     if (!data.ultimaAtualizacao) return null;
 
     const updatedDate = new Date(data.ultimaAtualizacao);
-    updatedDate.setHours(updatedDate.getHours() + 3);
+    updatedDate.setHours(updatedDate.getHours());
     const day = updatedDate.getDate().toString().padStart(2, "0");
     const month = (updatedDate.getMonth() + 1).toString().padStart(2, "0");
     const year = updatedDate.getFullYear();
