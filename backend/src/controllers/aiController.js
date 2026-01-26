@@ -426,6 +426,83 @@ async function loadRecentMessages(conversationId, limit = 8) {
   return (r.rows || []).reverse();
 }
 
+
+async function loadLastAssistantSpec(conversationId) {
+  const r = await pool.query(
+    `SELECT kind, spec_json
+     FROM ai_message
+     WHERE conversation_id=$1 AND role='assistant' AND spec_json IS NOT NULL
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [conversationId]
+  );
+  const row = r.rows?.[0];
+  if (!row?.spec_json) return null;
+  // spec_json pode vir como objeto (jsonb) ou string; normaliza.
+  try {
+    const spec = typeof row.spec_json === 'string' ? JSON.parse(row.spec_json) : row.spec_json;
+    if (!spec || typeof spec !== 'object') return null;
+    return { kind: row.kind, spec };
+  } catch (_) {
+    return null;
+  }
+}
+
+function isShortRefinementDirective(question) {
+  const q = String(question || '').trim().toLowerCase();
+  if (!q) return false;
+  // Direcionamentos curtos: "por escola", "agora por turno", "mostra geral"...
+  if (q.length > 70) return false;
+  return /^(agora\s+)?(por\s+)?(escol|turno|sexo|situac|zona|etapa|grupo|geral|total)/.test(q)
+    || /(por\s+escol|por\s+turno|por\s+sexo|por\s+situac|por\s+zona|por\s+etapa|por\s+grupo|no\s+geral|geral|total)/.test(q);
+}
+
+function parseRefinementFromQuestion(question) {
+  const q = String(question || '').toLowerCase();
+
+  const wantsAll = /(todas\s+as?\s+escol|todas\s+as?\s+unidades|todas\s+as?\s+escolas|lista\s+com\s+todas)/.test(q);
+  const wantsGeneral = /(no\s+geral|geral|total|agregado)/.test(q);
+
+  let groupBy = null;
+  if (/(por\s+escol|\bescola\b|\bescolas\b|cada\s+escol)/.test(q)) groupBy = 'escola';
+  else if (/(por\s+turno|\bturno\b|\bturnos\b|manh[aã]|tarde|noite|integral)/.test(q)) groupBy = 'turno';
+  else if (/(por\s+sexo|\bsexo\b|mascul|femin)/.test(q)) groupBy = 'sexo';
+  else if (/(por\s+situac|situa[cç][aã]o\s+da\s+matr[ií]cula|\bsituacao\b)/.test(q)) groupBy = 'situacao_matricula';
+  else if (/(zona\s+escola|por\s+zona\s+da\s+escola)/.test(q)) groupBy = 'zona_escola';
+  else if (/(zona\s+aluno|por\s+zona\s+do\s+aluno)/.test(q)) groupBy = 'zona_aluno';
+  else if (/(etapa\s+turma|por\s+etapa\s+da\s+turma|por\s+etapa\s+turma)/.test(q)) groupBy = 'etapa_turma';
+  else if (/\betapa\b|por\s+etapa/.test(q)) groupBy = 'etapa_matricula';
+  else if (/grupo\s+etapa|por\s+grupo\s+etapa/.test(q)) groupBy = 'grupo_etapa';
+
+  if (wantsGeneral) groupBy = null;
+
+  const limit = wantsAll ? 500 : null;
+
+  // Se nada mudou, retorna null
+  if (groupBy === null && !wantsAll && !wantsGeneral) return null;
+  return { groupBy, limit, wantsAll, wantsGeneral };
+}
+
+function applyRefinementToSpec(lastSpec, refinement) {
+  const spec = { ...(lastSpec || {}) };
+  if (!refinement) return spec;
+
+  // groupBy
+  if (refinement.groupBy !== undefined) spec.groupBy = refinement.groupBy;
+
+  // limite maior quando pedir "todas"
+  if (refinement.limit) spec.limit = refinement.limit;
+
+  // Se veio um spec "single" e o usuário pediu "por escola/turno/etc", vira breakdown
+  if (spec.type === 'single' && spec.groupBy) {
+    spec.type = 'breakdown';
+    spec.order = spec.order || 'desc';
+    spec.limit = spec.limit || 50;
+  }
+
+  return spec;
+}
+
 function buildHistoryString(messages, maxPairs = 4) {
   const rows = Array.isArray(messages) ? messages.slice(-maxPairs * 2) : [];
   return rows
@@ -494,7 +571,7 @@ function inferMetricFromQuestion(q) {
 
 function inferGroupByFromQuestion(q) {
   const s = String(q || '').toLowerCase();
-  if (/por\s+escola|quais\s+escolas|qual\s+escola|escolas|unidade/.test(s)) return 'escola';
+  if (/(por\s+escol|quais\s+escol|qual\s+escol|\bescola(s)?\b|unidade\s+escolar|unidade)/.test(s)) return 'escola';
   if (/por\s+turno|turnos|manha|manhã|tarde|noite|integral/.test(s)) return 'turno';
   if (/por\s+sexo|mascul|femin|sexo/.test(s)) return 'sexo';
   if (/por\s+situ[aã]c|situa[cç][aã]o\s+da\s+matr[ií]cula/.test(s)) return 'situacao_matricula';
@@ -608,7 +685,7 @@ function isWhyQuestion(question) {
 
 function isListSchoolsQuestion(question) {
   const q = String(question || '').toLowerCase();
-  return /quais\s+escolas|nome\s+das\s+escolas|lista\s+de\s+escolas|me\s+passe\s+o\s+nome\s+delas|nome\s+delas/.test(q);
+  return /(quais\s+escol|nome\s+das\s+escol|lista\s+de\s+escol|me\s+passe\s+o\s+nome\s+delas|nome\s+delas|por\s+escol|aparec\w*\s+por\s+escol|por\s+unidade\s+escolar)/.test(q);
 }
 
 // =========================
@@ -1512,7 +1589,8 @@ async function runQuery(spec, contextFilters, user) {
     const dim = ALLOWED_DIMENSIONS[spec.groupBy];
     if (!dim) return { ok: false, message: 'Dimensão de agrupamento não suportada.' };
     const labelExpr = `COALESCE(${dim.col}::text, 'Sem informação')`;
-    const limit = Math.min(Math.max(Number(spec.limit || 20), 1), 50);
+    const maxLimit = (spec.groupBy === 'escola') ? 500 : 50;
+    const limit = Math.min(Math.max(Number(spec.limit || 20), 1), maxLimit);
     const sql = `${base}
       SELECT ${labelExpr} AS label, ${metricDef.sql} AS value
       FROM base_sem_especiais
@@ -1563,7 +1641,8 @@ async function runQuery(spec, contextFilters, user) {
       return { ok: false, message: 'Para comparar, preciso de dois anos (ex.: 2025 e 2026).' };
     }
 
-    const limit = Math.min(Math.max(Number(spec.limit || 20), 1), 50);
+    const maxLimit = (spec.groupBy === 'escola') ? 500 : 50;
+    const limit = Math.min(Math.max(Number(spec.limit || 20), 1), maxLimit);
     const pBase = `$${params.length + 1}`;
     const pComp = `$${params.length + 2}`;
     const newParams = [...params, baseYear, compareYear];
@@ -1812,6 +1891,58 @@ function formatPtBRPercent(x) {
   if (!Number.isFinite(n)) return '0,00';
   return n.toFixed(2).replace('.', ',');
 }
+
+
+function buildCompareHumanAnswer({ metricLabel, metric, groupBy, baseYear, compareYear, direction, rows, limit, identity, created }) {
+  const namePrefix = identity?.userName && created ? `${identity.userName}, ` : '';
+  const byTxt = groupBy ? ` por ${String(groupBy).replace(/_/g, ' ')}` : '';
+  const dirTxt = direction === 'decrease' ? 'redução' : direction === 'increase' ? 'aumento' : 'variação';
+
+  // Cabeçalho
+  let answer = `${namePrefix}${metricLabel}${byTxt} — comparativo ${compareYear} vs ${baseYear} (${dirTxt}).`;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return answer + `\n\nNão encontrei resultados com os filtros atuais. Quer que eu remova algum filtro?`;
+  }
+
+  // Se não houver agrupamento, não tem “top aumentos/quedas”
+  if (!groupBy) {
+    const r0 = rows[0] || {};
+    const delta = Number(r0.delta) || 0;
+    const pct = r0.pct_change === null || r0.pct_change === undefined ? null : Number(r0.pct_change);
+    const deltaTxt = `${delta >= 0 ? '+' : '-'}${formatPtBRNumber(Math.abs(delta))}`;
+    const pctTxt = pct === null ? '' : ` (${pct >= 0 ? '+' : '-'}${formatPtBRPercent(Math.abs(pct))}%)`;
+    return answer + `\n\nNo geral: Δ ${deltaTxt}${pctTxt}. Quer que eu detalhe **por escola**, **turno** ou **etapa**?`;
+  }
+
+  // Top aumentos / quedas (usa delta)
+  const topUp = [...rows].filter((r) => Number(r.delta) > 0).sort((a, b) => (Number(b.delta) || 0) - (Number(a.delta) || 0)).slice(0, 4);
+  const topDown = [...rows].filter((r) => Number(r.delta) < 0).sort((a, b) => (Number(a.delta) || 0) - (Number(b.delta) || 0)).slice(0, 4);
+
+  const fmtItem = (r) => {
+    const label = String(r.label ?? '');
+    const d = Number(r.delta) || 0;
+    const pct = r.pct_change === null || r.pct_change === undefined ? null : Number(r.pct_change);
+    const deltaTxt = `${d >= 0 ? '+' : '-'}${formatPtBRNumber(Math.abs(d))}`;
+    const pctTxt = pct === null ? '' : ` (${pct >= 0 ? '+' : '-'}${formatPtBRPercent(Math.abs(pct))}%)`;
+    return `• ${label}: ${deltaTxt}${pctTxt}`;
+  };
+
+  const parts = [];
+  if (topUp.length) parts.push(`\n\n📈 Maiores aumentos:\n${topUp.map(fmtItem).join('\n')}`);
+  if (topDown.length) parts.push(`\n\n📉 Maiores quedas:\n${topDown.map(fmtItem).join('\n')}`);
+
+  const shown = rows.length;
+  const lim = Number(limit) || null;
+  if (lim && shown >= lim) {
+    parts.push(`\n\nMostrando **${shown}** itens (limitado em ${lim}). Se quiser **todas as escolas**, diga: “todas as escolas”.`);
+  } else {
+    parts.push(`\n\nMostrando **${shown}** itens. Quer que eu filtre por algum critério (zona/etapa/turno) ou gere o **Excel** completo?`);
+  }
+
+  return answer + parts.join('');
+}
+
 
 function normalizeFiltersForCompare(o) {
   const obj = o || {};
@@ -2211,6 +2342,80 @@ const query = async (req, res) => {
       return res.json(resp);
     }
 
+
+    // 0.5) Follow-up inteligente (refinamento do último relatório)
+    // Ex.: "por escola", "agora por turno", "todas as escolas", "no geral"
+    if (isShortRefinementDirective(question)) {
+      const refinement = parseRefinementFromQuestion(question);
+      if (refinement) {
+        const last = await loadLastAssistantSpec(conversationId);
+        const lastSpec = last?.spec;
+
+        // Só refina se já existia um relatório anterior
+        if (lastSpec && typeof lastSpec === 'object') {
+          const refinedSpec = applyRefinementToSpec(lastSpec, refinement);
+
+          // Segurança: evita refinar para tipos inválidos
+          if (refinedSpec?.type && ['single', 'breakdown', 'compare'].includes(refinedSpec.type)) {
+            const r = await runQuery(refinedSpec, contextFilters, req.user);
+
+            if (r?.ok) {
+              const metric = refinedSpec.metric;
+              const metricLabel = ALLOWED_METRICS[metric]?.label || 'Resultado';
+
+              if (r.kind === 'breakdown') {
+                const rows = (r.rows || []).map((x) => ({ label: x.label, value: Number(x.value) || 0 }));
+                const groupTxt = String(refinedSpec.groupBy || '').replace(/_/g, ' ') || 'grupo';
+                const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
+                const answer = `${namePrefix}${metricLabel} por ${groupTxt}.`;
+                const payload = { ok: true, kind: 'breakdown', answer, data: { rows, groupBy: refinedSpec.groupBy, metric }, spec: refinedSpec, conversationId };
+                await saveMessage(conversationId, 'assistant', payload.answer, 'breakdown', refinedSpec);
+                return res.json(payload);
+              }
+
+              if (r.kind === 'compare') {
+                const baseYear = r.compare?.baseYear;
+                const compareYear = r.compare?.compareYear;
+                const answer = buildCompareHumanAnswer({
+                  metricLabel,
+                  metric,
+                  groupBy: refinedSpec.groupBy || null,
+                  baseYear,
+                  compareYear,
+                  direction: r.compare?.direction || 'all',
+                  rows: r.rows || [],
+                  limit: refinedSpec.limit,
+                  identity,
+                  created,
+                });
+
+                const payload = {
+                  ok: true,
+                  kind: 'compare',
+                  answer,
+                  data: { rows: r.rows, groupBy: refinedSpec.groupBy || null, metric, compare: r.compare },
+                  spec: refinedSpec,
+                  conversationId,
+                };
+                await saveMessage(conversationId, 'assistant', payload.answer, 'compare', refinedSpec);
+                return res.json(payload);
+              }
+
+              if (r.kind === 'single') {
+                const v = Number(r.value) || 0;
+                const vFmt = metric === 'taxa_evasao' ? `${formatPtBRPercent(v)}%` : formatPtBRNumber(v);
+                const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
+                const answer = `${namePrefix}${metricLabel}: ${vFmt}.`;
+                const payload = { ok: true, kind: 'single', answer, data: { value: v }, spec: refinedSpec, conversationId };
+                await saveMessage(conversationId, 'assistant', payload.answer, 'single', refinedSpec);
+                return res.json(payload);
+              }
+            }
+          }
+        }
+      }
+    }
+
     // 1) Comparativo explícito (antes do snapshot)
     const years = extractYears(question);
     if (isCompareIntent(question) && years.length >= 2) {
@@ -2223,7 +2428,7 @@ const query = async (req, res) => {
         metric,
         groupBy,
         where: {},
-        limit: Math.min(Math.max(parseLimitFromQuestion(question) || 20, 1), 50),
+        limit: Math.min(Math.max(((/(todas\s+as?\s+escol|todas\s+as?\s+unidades|lista\s+com\s+todas)/.test(String(question || '').toLowerCase()) && groupBy === 'escola') ? 500 : (parseLimitFromQuestion(question) || 20)), 1), (groupBy === 'escola' ? 500 : 50)),
         compare: { baseYear, compareYear, direction: 'all' },
       };
 
@@ -2231,8 +2436,7 @@ const query = async (req, res) => {
       if (result.ok) {
         const namePrefix = identity.userName && created ? `${identity.userName}, ` : '';
         const metricLabel = ALLOWED_METRICS[metric].label;
-        const groupLabel = groupBy ? ` por ${groupBy.replace('_', ' ')}` : '';
-        const answer = `${namePrefix}${metricLabel}${groupLabel} — comparativo ${compareYear} vs ${baseYear}`;
+        const answer = buildCompareHumanAnswer({ metricLabel, metric, groupBy, baseYear, compareYear, direction: 'all', rows: result.rows, limit: spec.limit, identity, created });
 
         const payload = {
           ok: true,
@@ -2255,7 +2459,7 @@ const query = async (req, res) => {
         metric,
         groupBy: 'escola',
         where: {},
-        limit: Math.min(Math.max(parseLimitFromQuestion(question) || 25, 1), 50),
+        limit: Math.min(Math.max(((/(todas\s+as?\s+escol|todas\s+as?\s+unidades|lista\s+com\s+todas)/.test(String(question || '').toLowerCase())) ? 500 : (parseLimitFromQuestion(question) || 25)), 1), 500),
         order: 'desc',
       };
 
@@ -2657,11 +2861,18 @@ const query = async (req, res) => {
     if (result.kind === 'compare') {
       const baseYear = result.compare?.baseYear;
       const compareYear = result.compare?.compareYear;
-      const groupLabel = finalSpec.groupBy ? ` por ${finalSpec.groupBy.replace('_', ' ')}` : '';
-      const dir = String(result.compare?.direction || 'all');
-      const dirTxt = dir === 'decrease' ? 'redução' : dir === 'increase' ? 'aumento' : 'variação';
-      let answer = `${metricLabel}${groupLabel} — comparativo ${compareYear} vs ${baseYear} (${dirTxt})`;
-      if (identity.userName && created) answer = `${identity.userName}, ${answer}`;
+      const answer = buildCompareHumanAnswer({
+        metricLabel,
+        metric: finalSpec.metric,
+        groupBy: finalSpec.groupBy || null,
+        baseYear,
+        compareYear,
+        direction: result.compare?.direction || 'all',
+        rows: result.rows || [],
+        limit: finalSpec.limit,
+        identity,
+        created,
+      });
       const payload = {
         ok: true,
         kind: 'compare',
