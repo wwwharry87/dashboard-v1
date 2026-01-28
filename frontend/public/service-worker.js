@@ -1,396 +1,290 @@
 /**
- * Service Worker - Dashboard Matrículas
- * Versão: v0.1.17
- * 
- * Funcionalidades:
- * - Cache de assets estáticos
- * - Cache de dados da API com TTL de 24h
- * - Atualização programada às 08:10
- * - Limpeza de cache ao sair/deslogar
- * - Atualização automática de ícones PWA
+ * Service Worker - Dashboard Matrículas (robusto)
+ * - App Shell (SPA): navegação -> index.html
+ * - Cache de ícones/manifest/favicons (network-first)
+ * - Cache de API com TTL 24h + refresh diário 08:10
+ * - Limpeza por mensagens (logout / force update)
  */
 
-const CACHE_VERSION = 'v17';
-const STATIC_CACHE_NAME = `dashboard-static-${CACHE_VERSION}`;
-const DATA_CACHE_NAME = `dashboard-data-${CACHE_VERSION}`;
-const ICON_CACHE_NAME = `dashboard-icons-${CACHE_VERSION}`;
+const CACHE_VERSION = "v2";
 
-// Assets estáticos para cache
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.ico',
-  '/logo192.png',
-  '/logo256.png',
-  '/logo512.png',
-];
+const STATIC_CACHE = `dashboard-static-${CACHE_VERSION}`;
+const RUNTIME_CACHE = `dashboard-runtime-${CACHE_VERSION}`; // assets dinâmicos
+const DATA_CACHE = `dashboard-data-${CACHE_VERSION}`;
+const ICON_CACHE = `dashboard-icons-${CACHE_VERSION}`;
 
-// Horário de atualização programada (08:10)
+// Atualização programada (08:10)
 const SCHEDULED_UPDATE_HOUR = 8;
 const SCHEDULED_UPDATE_MINUTE = 10;
 
-// Tempo de vida do cache de dados (24 horas em ms)
+// TTL do cache da API (24h)
 const DATA_CACHE_TTL = 24 * 60 * 60 * 1000;
 
-// ==========================================
-// INSTALAÇÃO
-// ==========================================
-self.addEventListener('install', (event) => {
-  console.log('[SW] Instalando service worker...');
-  
-  event.waitUntil(
-    Promise.all([
-      // Cache de assets estáticos
-      caches.open(STATIC_CACHE_NAME).then((cache) => {
-        console.log('[SW] Cacheando assets estáticos');
-        return cache.addAll(STATIC_ASSETS);
-      }),
-      // Cache de ícones (força atualização)
-      caches.open(ICON_CACHE_NAME).then((cache) => {
-        console.log('[SW] Cacheando ícones');
-        return cache.addAll([
-          '/logo192.png?v=' + CACHE_VERSION,
-          '/logo256.png?v=' + CACHE_VERSION,
-          '/logo512.png?v=' + CACHE_VERSION,
-        ]);
-      })
-    ]).then(() => {
-      console.log('[SW] Instalação completa, skipWaiting');
-      return self.skipWaiting();
+const APP_SHELL_URL = "/index.html";
+
+// Cache “best effort” (não quebra install se algum asset falhar)
+async function cacheAddAllSafe(cache, urls) {
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const req = new Request(url, { cache: "reload" });
+        const res = await fetch(req);
+        if (res.ok) await cache.put(req, res);
+      } catch (e) {
+        // ignora falha pra não quebrar install
+      }
     })
+  );
+}
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    (async () => {
+      const staticCache = await caches.open(STATIC_CACHE);
+
+      // ✅ cache mínimo e seguro (não inclua "/" aqui pra não dar mismatch)
+      await cacheAddAllSafe(staticCache, [
+        APP_SHELL_URL,
+        "/manifest.json?v=" + CACHE_VERSION
+      ]);
+
+      const iconCache = await caches.open(ICON_CACHE);
+      await cacheAddAllSafe(iconCache, [
+        "/favicon.ico?v=" + CACHE_VERSION,
+        "/icons/icon-192x192.png?v=" + CACHE_VERSION,
+        "/icons/icon-256x256.png?v=" + CACHE_VERSION,
+        "/icons/icon-512x512.png?v=" + CACHE_VERSION,
+        "/icons/icon-180x180.png?v=" + CACHE_VERSION, // iOS
+        "/icons/icon-167x167.png?v=" + CACHE_VERSION,
+        "/icons/icon-152x152.png?v=" + CACHE_VERSION,
+        "/icons/icon-120x120.png?v=" + CACHE_VERSION
+      ]);
+
+      await self.skipWaiting();
+    })()
   );
 });
 
-// ==========================================
-// ATIVAÇÃO
-// ==========================================
-self.addEventListener('activate', (event) => {
-  console.log('[SW] Ativando service worker...');
-  
+self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          // Remove caches antigos
+    (async () => {
+      const names = await caches.keys();
+      await Promise.all(
+        names.map((name) => {
           if (
-            cacheName.startsWith('dashboard-') &&
-            cacheName !== STATIC_CACHE_NAME &&
-            cacheName !== DATA_CACHE_NAME &&
-            cacheName !== ICON_CACHE_NAME
+            name.startsWith("dashboard-") &&
+            ![STATIC_CACHE, RUNTIME_CACHE, DATA_CACHE, ICON_CACHE].includes(name)
           ) {
-            console.log('[SW] Removendo cache antigo:', cacheName);
-            return caches.delete(cacheName);
+            return caches.delete(name);
           }
         })
       );
-    }).then(() => {
-      console.log('[SW] Ativação completa, claim clients');
-      // Iniciar timer de verificação programada
+
       scheduleUpdate();
-      return self.clients.claim();
-    })
+      await self.clients.claim();
+    })()
   );
 });
 
-// ==========================================
-// FETCH - Interceptação de requisições
-// ==========================================
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-  
-  // Requisições de API
-  if (url.pathname.includes('/api/')) {
-    event.respondWith(handleApiRequest(event.request));
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+
+  // só trata GET
+  if (req.method !== "GET") return;
+
+  // ✅ API cache (ajuste aqui o padrão /api/ se necessário)
+  if (url.pathname.includes("/api/")) {
+    event.respondWith(handleApiRequest(req));
     return;
   }
-  
-  // Requisições de ícones (força atualização com versão)
-  if (url.pathname.match(/logo\d+\.png/)) {
-    event.respondWith(handleIconRequest(event.request));
+
+  // ✅ Ícones / manifest / favicon (network-first)
+  if (
+    url.pathname.startsWith("/icons/") ||
+    url.pathname.endsWith("favicon.ico") ||
+    url.pathname.endsWith("manifest.json") ||
+    url.pathname.includes("apple-touch-icon") ||
+    url.pathname.match(/logo\d+\.png/)
+  ) {
+    event.respondWith(handleIconLike(req));
     return;
   }
-  
-  // Assets estáticos - cache first
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      if (response) {
-        return response;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        // Cachear novos assets
-        if (networkResponse && networkResponse.status === 200) {
-          const responseClone = networkResponse.clone();
-          caches.open(STATIC_CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return networkResponse;
-      });
-    })
-  );
+
+  // ✅ Navegação (SPA): sempre servir index.html
+  // Isso evita 404 ao abrir rota direto (ex.: /dashboard)
+  if (req.mode === "navigate") {
+    event.respondWith(appShellStrategy(req));
+    return;
+  }
+
+  // ✅ Demais assets: cache-first runtime
+  event.respondWith(cacheFirstRuntime(req));
 });
 
-// ==========================================
-// HANDLER: Requisições de API
-// ==========================================
-async function handleApiRequest(request) {
-  const cacheKey = request.url + '_' + (request.method || 'GET');
-  
-  // Verificar se deve atualizar (passou das 08:10)
-  if (shouldUpdateNow()) {
-    console.log('[SW] Horário de atualização programada, buscando dados frescos');
-    return fetchAndCacheApi(request, cacheKey);
-  }
-  
-  // Tentar cache primeiro
+async function appShellStrategy(request) {
+  // cache-first do app shell, com fallback de rede
+  const cache = await caches.open(STATIC_CACHE);
+  const cached = await cache.match(APP_SHELL_URL);
+  if (cached) return cached;
+
   try {
-    const cache = await caches.open(DATA_CACHE_NAME);
-    const cachedResponse = await cache.match(cacheKey);
-    
-    if (cachedResponse) {
-      const cachedData = await cachedResponse.clone().json();
-      const cacheTime = cachedData._cacheTimestamp;
-      
-      // Verificar se cache ainda é válido (24h)
-      if (cacheTime && (Date.now() - cacheTime) < DATA_CACHE_TTL) {
-        console.log('[SW] Usando dados em cache para:', request.url);
-        // Retornar dados sem o timestamp interno
+    const res = await fetch(new Request(APP_SHELL_URL, { cache: "reload" }));
+    if (res.ok) cache.put(APP_SHELL_URL, res.clone());
+    return res;
+  } catch (e) {
+    return new Response("Offline", { status: 503 });
+  }
+}
+
+async function cacheFirstRuntime(request) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(request);
+    if (res.ok) cache.put(request, res.clone());
+    return res;
+  } catch (e) {
+    return cached || new Response("", { status: 504 });
+  }
+}
+
+async function handleIconLike(request) {
+  // network-first (pra atualizar rápido)
+  const cache = await caches.open(ICON_CACHE);
+  try {
+    const res = await fetch(request);
+    if (res.ok) cache.put(request, res.clone());
+    return res;
+  } catch (e) {
+    const cached = await cache.match(request);
+    return cached || new Response("", { status: 404 });
+  }
+}
+
+// ===================== API CACHE (TTL + 08:10) =====================
+
+async function handleApiRequest(request) {
+  const cacheKey = request.url; // GET apenas
+  const cache = await caches.open(DATA_CACHE);
+
+  // Se deu horário 08:10 e ainda não atualizou hoje, força rede
+  if (shouldUpdateNow()) {
+    return fetchAndCacheApi(request, cache, cacheKey);
+  }
+
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    try {
+      const cachedData = await cached.clone().json();
+      const ts = cachedData && cachedData._cacheTimestamp;
+
+      if (ts && Date.now() - ts < DATA_CACHE_TTL) {
         const { _cacheTimestamp, ...data } = cachedData;
         return new Response(JSON.stringify(data), {
-          headers: { 'Content-Type': 'application/json' }
+          headers: { "Content-Type": "application/json" }
         });
       }
+    } catch (e) {
+      // se algo falhar, cai pra rede
     }
-    
-    // Cache expirado ou não existe, buscar da rede
-    return fetchAndCacheApi(request, cacheKey);
-  } catch (error) {
-    console.warn('[SW] Erro ao verificar cache:', error);
-    return fetchAndCacheApi(request, cacheKey);
   }
+
+  return fetchAndCacheApi(request, cache, cacheKey);
 }
 
-// ==========================================
-// HANDLER: Requisições de Ícones
-// ==========================================
-async function handleIconRequest(request) {
+async function fetchAndCacheApi(request, cache, cacheKey) {
   try {
-    // Sempre tenta buscar da rede primeiro para ícones
-    const networkResponse = await fetch(request);
-    
-    if (networkResponse && networkResponse.status === 200) {
-      const cache = await caches.open(ICON_CACHE_NAME);
-      cache.put(request, networkResponse.clone());
-      return networkResponse;
+    const res = await fetch(request);
+    if (res.ok) {
+      const data = await res.clone().json();
+      const cachedData = { ...data, _cacheTimestamp: Date.now() };
+      await cache.put(
+        cacheKey,
+        new Response(JSON.stringify(cachedData), {
+          headers: { "Content-Type": "application/json" }
+        })
+      );
     }
-    
-    // Fallback para cache
-    const cachedResponse = await caches.match(request);
-    return cachedResponse || networkResponse;
-  } catch (error) {
-    // Se offline, usar cache
-    const cachedResponse = await caches.match(request);
-    return cachedResponse || new Response('Ícone não disponível', { status: 404 });
-  }
-}
-
-// ==========================================
-// HELPER: Buscar e cachear dados da API
-// ==========================================
-async function fetchAndCacheApi(request, cacheKey) {
-  try {
-    // Clone request se for POST
-    let fetchRequest = request;
-    if (request.method === 'POST') {
-      fetchRequest = request.clone();
-    }
-    
-    const response = await fetch(fetchRequest);
-    
-    if (response && response.status === 200) {
-      const data = await response.clone().json();
-      
-      // Adicionar timestamp ao cache
-      const cachedData = {
-        ...data,
-        _cacheTimestamp: Date.now()
-      };
-      
-      const cache = await caches.open(DATA_CACHE_NAME);
-      await cache.put(cacheKey, new Response(JSON.stringify(cachedData), {
-        headers: { 'Content-Type': 'application/json' }
-      }));
-      
-      console.log('[SW] Dados cacheados para:', request.url);
-    }
-    
-    return response;
-  } catch (error) {
-    console.error('[SW] Erro ao buscar da rede:', error);
-    
-    // Tentar cache como fallback
-    const cache = await caches.open(DATA_CACHE_NAME);
-    const cachedResponse = await cache.match(cacheKey);
-    
-    if (cachedResponse) {
-      console.log('[SW] Usando cache como fallback');
-      const cachedData = await cachedResponse.clone().json();
-      const { _cacheTimestamp, ...data } = cachedData;
-      return new Response(JSON.stringify(data), {
-        headers: { 'Content-Type': 'application/json' }
+    return res;
+  } catch (e) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const cachedData = await cached.clone().json();
+      const { _cacheTimestamp, ...data } = cachedData || {};
+      return new Response(JSON.stringify(data || {}), {
+        headers: { "Content-Type": "application/json" }
       });
     }
-    
-    throw error;
+    return new Response(JSON.stringify({ error: "offline" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" }
+    });
   }
 }
 
-// ==========================================
-// HELPER: Verificar se deve atualizar (08:10)
-// ==========================================
 function shouldUpdateNow() {
   const now = new Date();
-  const lastUpdate = parseInt(self._lastScheduledUpdate || '0', 10);
+  const lastUpdate = parseInt(self._lastScheduledUpdate || "0", 10);
+
   const today810 = new Date();
   today810.setHours(SCHEDULED_UPDATE_HOUR, SCHEDULED_UPDATE_MINUTE, 0, 0);
-  
-  // Se passou das 08:10 de hoje e última atualização foi antes
+
   if (now >= today810 && lastUpdate < today810.getTime()) {
     self._lastScheduledUpdate = Date.now().toString();
     return true;
   }
-  
   return false;
 }
 
-// ==========================================
-// HELPER: Agendar verificação de atualização
-// ==========================================
 function scheduleUpdate() {
-  // Verificar a cada 5 minutos
   setInterval(() => {
     if (shouldUpdateNow()) {
-      console.log('[SW] Executando atualização programada');
-      // Notificar clientes para recarregar dados
       self.clients.matchAll().then((clients) => {
         clients.forEach((client) => {
-          client.postMessage({
-            type: 'SCHEDULED_UPDATE',
-            timestamp: Date.now()
-          });
+          client.postMessage({ type: "SCHEDULED_UPDATE", timestamp: Date.now() });
         });
       });
     }
-  }, 5 * 60 * 1000); // 5 minutos
+  }, 5 * 60 * 1000);
 }
 
-// ==========================================
-// MENSAGENS
-// ==========================================
-self.addEventListener('message', (event) => {
-  const { type, payload } = event.data || {};
-  
+// ===================== MESSAGES =====================
+
+self.addEventListener("message", (event) => {
+  const { type } = event.data || {};
+
   switch (type) {
-    case 'SKIP_WAITING':
-      console.log('[SW] Recebido SKIP_WAITING');
+    case "SKIP_WAITING":
       self.skipWaiting();
       break;
-      
-    case 'CLEAR_DATA_CACHE':
-      console.log('[SW] Limpando cache de dados');
-      caches.delete(DATA_CACHE_NAME).then(() => {
-        event.source.postMessage({ type: 'CACHE_CLEARED' });
+
+    case "CLEAR_DATA_CACHE":
+      caches.delete(DATA_CACHE).then(() => {
+        event.source?.postMessage({ type: "CACHE_CLEARED" });
       });
       break;
-      
-    case 'CLEAR_ALL_CACHE':
-      console.log('[SW] Limpando todo o cache');
-      caches.keys().then((names) => {
-        return Promise.all(names.map((name) => caches.delete(name)));
-      }).then(() => {
-        event.source.postMessage({ type: 'ALL_CACHE_CLEARED' });
-      });
+
+    case "CLEAR_ALL_CACHE":
+      caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n))))
+        .then(() => event.source?.postMessage({ type: "ALL_CACHE_CLEARED" }));
       break;
-      
-    case 'FORCE_UPDATE':
-      console.log('[SW] Forçando atualização de dados');
-      self._lastScheduledUpdate = '0'; // Reset para forçar atualização
-      event.source.postMessage({ type: 'UPDATE_FORCED' });
+
+    case "FORCE_UPDATE":
+      self._lastScheduledUpdate = "0";
+      event.source?.postMessage({ type: "UPDATE_FORCED" });
       break;
-      
-    case 'GET_CACHE_INFO':
-      getCacheInfo().then((info) => {
-        event.source.postMessage({ type: 'CACHE_INFO', payload: info });
-      });
+
+    case "CLEAR_PWA_ASSETS_CACHE":
+      Promise.all([caches.delete(STATIC_CACHE), caches.delete(RUNTIME_CACHE), caches.delete(ICON_CACHE)])
+        .then(() => event.source?.postMessage({ type: "PWA_ASSETS_CLEARED", version: CACHE_VERSION }));
       break;
-      
+
     default:
-      console.log('[SW] Mensagem desconhecida:', type);
+      break;
   }
 });
 
-// ==========================================
-// HELPER: Obter informações do cache
-// ==========================================
-async function getCacheInfo() {
-  const info = {
-    version: CACHE_VERSION,
-    staticCache: false,
-    dataCache: false,
-    iconCache: false,
-    lastUpdate: self._lastScheduledUpdate || null,
-    nextScheduledUpdate: getNextScheduledUpdate()
-  };
-  
-  const names = await caches.keys();
-  info.staticCache = names.includes(STATIC_CACHE_NAME);
-  info.dataCache = names.includes(DATA_CACHE_NAME);
-  info.iconCache = names.includes(ICON_CACHE_NAME);
-  
-  return info;
-}
-
-// ==========================================
-// HELPER: Próxima atualização programada
-// ==========================================
-function getNextScheduledUpdate() {
-  const now = new Date();
-  const next = new Date();
-  next.setHours(SCHEDULED_UPDATE_HOUR, SCHEDULED_UPDATE_MINUTE, 0, 0);
-  
-  if (now >= next) {
-    next.setDate(next.getDate() + 1);
-  }
-  
-  return next.toISOString();
-}
-
-// ==========================================
-// PUSH NOTIFICATIONS (preparado para futuro)
-// ==========================================
-self.addEventListener('push', (event) => {
-  if (!event.data) return;
-  
-  const data = event.data.json();
-  
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'Dashboard Matrículas', {
-      body: data.body || 'Novos dados disponíveis',
-      icon: '/logo192.png',
-      badge: '/logo192.png',
-      tag: 'dashboard-update',
-      data: data.url || '/'
-    })
-  );
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  
-  event.waitUntil(
-    clients.openWindow(event.notification.data || '/')
-  );
-});
-
-console.log('[SW] Service Worker carregado - versão:', CACHE_VERSION);
+console.log("[SW] Rodando:", CACHE_VERSION);

@@ -2,69 +2,90 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+
+    <!-- Favicon (com versão para forçar atualização) -->
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico?v=2" />
+
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes"
+    />
     <meta name="theme-color" content="#7c3aed" />
-    <meta name="description" content="Dashboard de Matrículas - Sistema de gestão e visualização de dados escolares" />
+    <meta
+      name="description"
+      content="Dashboard de Matrículas - Sistema de gestão e visualização de dados escolares"
+    />
+
+    <!-- PWA iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Dashboard" />
+
+    <!-- PWA Android/Chrome -->
     <meta name="mobile-web-app-capable" content="yes" />
+
     <meta name="format-detection" content="telephone=no" />
-    
-    <!-- Cache control para forçar atualização de assets -->
+
+    <!--
+      OBS IMPORTANTE:
+      Essas metas de "no-cache" NÃO garantem atualização de ícones/manifest em PWA instalado
+      e podem piorar performance. O que realmente ajuda é:
+      - trocar a URL dos ícones (ex.: ?v=2)
+      - bump do cache do Service Worker
+      Mantive as metas apenas se você realmente quer “sempre fresco” no navegador.
+    -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    
-    <!-- Ícones Apple com versão para forçar atualização -->
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png?v=17" />
-    <link rel="apple-touch-icon" sizes="192x192" href="%PUBLIC_URL%/logo192.png?v=17" />
-    <link rel="apple-touch-icon" sizes="256x256" href="%PUBLIC_URL%/logo256.png?v=17" />
-    <link rel="apple-touch-icon" sizes="512x512" href="%PUBLIC_URL%/logo512.png?v=17" />
-    
-    <!-- Manifest com versão -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json?v=17" />
-    
-    <!-- Preconnect para melhor performance -->
+
+    <!-- Apple touch icons (use os novos em /public/icons do pack) -->
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/icons/icon-180x180.png?v=2" />
+    <link rel="apple-touch-icon" sizes="120x120" href="%PUBLIC_URL%/icons/icon-120x120.png?v=2" />
+    <link rel="apple-touch-icon" sizes="152x152" href="%PUBLIC_URL%/icons/icon-152x152.png?v=2" />
+    <link rel="apple-touch-icon" sizes="167x167" href="%PUBLIC_URL%/icons/icon-167x167.png?v=2" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/icons/icon-180x180.png?v=2" />
+
+    <!-- Manifest (com versão) -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json?v=2" />
+
+    <!-- Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    
+
     <title>Dashboard Matrículas</title>
-    
-    <!-- Script para limpar cache de ícones antigos -->
+
+    <!-- Script: versionamento + pedido de update ao SW -->
     <script>
-      // Forçar atualização de ícones em PWAs instalados
-      if ('serviceWorker' in navigator && 'caches' in window) {
-        window.addEventListener('load', function() {
-          // Verificar versão do cache
-          var currentVersion = 'v17';
-          var storedVersion = localStorage.getItem('iconCacheVersion');
-          
-          if (storedVersion !== currentVersion) {
-            console.log('[App] Nova versão detectada, limpando cache de ícones...');
-            
-            // Limpar caches de ícones antigos
-            caches.keys().then(function(names) {
-              names.forEach(function(name) {
-                if (name.includes('icon') || name.includes('logo')) {
-                  caches.delete(name);
-                }
-              });
-            });
-            
-            // Salvar nova versão
-            localStorage.setItem('iconCacheVersion', currentVersion);
-            
-            // Solicitar ao SW para atualizar
-            if (navigator.serviceWorker.controller) {
-              navigator.serviceWorker.controller.postMessage({ type: 'FORCE_UPDATE' });
+      (function () {
+        var CURRENT_VERSION = "v2";
+        try {
+          var stored = localStorage.getItem("pwaAssetVersion");
+          if (stored !== CURRENT_VERSION) {
+            localStorage.setItem("pwaAssetVersion", CURRENT_VERSION);
+
+            // Pede para o SW atualizar (se suportado no seu SW)
+            if ("serviceWorker" in navigator) {
+              navigator.serviceWorker.ready
+                .then(function (reg) {
+                  // tenta buscar atualização do SW
+                  if (reg && reg.update) reg.update();
+
+                  // envia mensagem para limpar caches (se seu SW tratar isso)
+                  if (navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.controller.postMessage({
+                      type: "CLEAR_PWA_ASSETS_CACHE",
+                      version: CURRENT_VERSION,
+                    });
+                  }
+                })
+                .catch(function () {});
             }
           }
-        });
-      }
+        } catch (e) {}
+      })();
     </script>
   </head>
+
   <body>
     <noscript>Você precisa habilitar JavaScript para executar este aplicativo.</noscript>
     <div id="root"></div>

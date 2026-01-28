@@ -4,24 +4,24 @@
   "description": "Sistema de gestão e visualização de matrículas escolares",
   "icons": [
     {
-      "src": "favicon.ico",
+      "src": "/favicon.ico?v=2",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },
     {
-      "src": "logo192.png?v=17",
+      "src": "/icons/icon-192x192.png?v=2",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
     },
     {
-      "src": "logo256.png?v=17",
+      "src": "/icons/icon-256x256.png?v=2",
       "type": "image/png",
       "sizes": "256x256",
       "purpose": "any maskable"
     },
     {
-      "src": "logo512.png?v=17",
+      "src": "/icons/icon-512x512.png?v=2",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
@@ -32,7 +32,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#7c3aed",
-  "background_color": "#f3f4f6",
+  "background_color": "#0b1220",
   "categories": ["education", "utilities"],
   "prefer_related_applications": false,
   "shortcuts": [
@@ -41,7 +41,9 @@
       "short_name": "Dashboard",
       "description": "Abrir visão geral do dashboard",
       "url": "/",
-      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+      "icons": [
+        { "src": "/icons/icon-192x192.png?v=2", "sizes": "192x192" }
+      ]
     }
   ]
 }

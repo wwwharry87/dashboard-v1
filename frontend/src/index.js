@@ -34,4 +34,16 @@ root.render(
 reportWebVitals();
 
 // Registra o Service Worker em produção (PWA)
-serviceWorkerRegistration.register();
+serviceWorkerRegistration.register({
+  onUpdate: (registration) => {
+    // força o novo SW assumir e atualizar caches
+    if (registration && registration.waiting) {
+      registration.waiting.postMessage({ type: "SKIP_WAITING" });
+    }
+    window.location.reload();
+  },
+  onSuccess: () => {
+    // opcional: log
+    // console.log("SW registrado com sucesso");
+  }
+});
