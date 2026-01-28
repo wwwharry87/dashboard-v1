@@ -911,7 +911,7 @@ const Dashboard = () => {
       try {
         await carregarFiltros(controller.signal);
       } catch (error) {
-        if (!error.name === "AbortError") {
+        if (error.name !== "AbortError") {
           console.error("Erro ao inicializar:", error);
         }
       }
@@ -947,7 +947,7 @@ const Dashboard = () => {
       setSelectedFilters(initialFilters);
       await carregarDados(initialFilters, signal);
     } catch (error) {
-      if (!error.name === "AbortError") {
+      if (error.name !== "AbortError") {
         console.error("Erro ao carregar filtros:", error);
       }
     }
@@ -1071,7 +1071,7 @@ const Dashboard = () => {
         setTimeout(() => setShowToast(false), 1300);
       }
     } catch (error) {
-      if (!error.name === "AbortError") {
+      if (error.name !== "AbortError") {
         console.error("Erro ao carregar dados:", error);
 
         if (cachedData) {
