@@ -12,6 +12,7 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
 import App from "./App";
 import reportWebVitals from "./reportWebVitals";
+import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
 
 // Corrige ícones padrão no bundler (CRA/Webpack)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -31,3 +32,6 @@ root.render(
 );
 
 reportWebVitals();
+
+// Registra o Service Worker em produção (PWA)
+serviceWorkerRegistration.register();

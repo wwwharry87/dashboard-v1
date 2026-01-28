@@ -4,6 +4,7 @@ import React, {
   useState,
   useCallback,
   useMemo,
+  useRef,
   Suspense,
   lazy,
   createContext,
@@ -674,13 +675,98 @@ const Dashboard = () => {
   const [lastDataHash, setLastDataHash] = useState(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
-  // Hook de cache inteligente
+  // =========================
+  // Cache + atualização diária
+  // =========================
+  // Regra desejada:
+  // - Manter dados em cache (localStorage) mesmo fechando/abrindo o PWA
+  // - Recarregar automaticamente 1x por dia às 08:10, limpando cache
+  // - Limpar cache quando o usuário "sair" (logout)
+  const DAILY_REFRESH_HOUR = 8;
+  const DAILY_REFRESH_MINUTE = 10;
+  const LS_LAST_DAILY_REFRESH = "dashboard_last_daily_refresh"; // YYYY-MM-DD (local)
+  const LS_LAST_REFRESH_AT = "dashboard_last_refresh_at"; // timestamp (ms)
+
+  const getLocalDateKey = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const isAfterDailyTime = (d) => {
+    const h = d.getHours();
+    const m = d.getMinutes();
+    return h > DAILY_REFRESH_HOUR || (h === DAILY_REFRESH_HOUR && m >= DAILY_REFRESH_MINUTE);
+  };
+
+  const shouldForceDailyRefresh = (d) => {
+    // Só força refresh quando já passou das 08:10 do dia corrente
+    // e ainda não registramos refresh hoje.
+    if (!isAfterDailyTime(d)) return false;
+    const today = getLocalDateKey(d);
+    const last = localStorage.getItem(LS_LAST_DAILY_REFRESH);
+    return last !== today;
+  };
+
+  const msUntilNextDailyRefresh = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setSeconds(0, 0);
+    next.setHours(DAILY_REFRESH_HOUR, DAILY_REFRESH_MINUTE, 0, 0);
+    if (next <= now) {
+      next.setDate(next.getDate() + 1);
+    }
+    return next.getTime() - now.getTime();
+  };
+
+  const dailyRefreshTimeoutRef = useRef(null);
+  const selectedFiltersRef = useRef(selectedFilters);
+
+  useEffect(() => {
+    selectedFiltersRef.current = selectedFilters;
+  }, [selectedFilters]);
+
+  // Hook de cache inteligente (TTL maior; o refresh diário controla a validade)
   const smartCache = useSmartCache('dashboardData', {
-    ttlMs: 10 * 60 * 1000,
-    onUpdateAvailable: (newData) => {
+    ttlMs: 36 * 60 * 60 * 1000, // 36h (suficiente para atravessar a madrugada)
+    onUpdateAvailable: () => {
       setShowUpdateNotification(true);
     },
   });
+
+  // Agenda atualização diária às 08:10 (quando o app estiver aberto)
+  useEffect(() => {
+    // Só agenda quando já temos anoLetivo
+    if (!selectedFilters?.anoLetivo) return;
+
+    if (dailyRefreshTimeoutRef.current) {
+      clearTimeout(dailyRefreshTimeoutRef.current);
+    }
+
+    const schedule = () => {
+      const waitMs = msUntilNextDailyRefresh();
+      dailyRefreshTimeoutRef.current = setTimeout(async () => {
+        try {
+          setIsAutoUpdating(true);
+          // limpa cache e força recarregar
+          smartCache.clearCache();
+          await carregarDados(selectedFiltersRef.current, undefined, { force: true, markDaily: true });
+        } finally {
+          setIsAutoUpdating(false);
+          schedule();
+        }
+      }, waitMs);
+    };
+
+    schedule();
+    return () => {
+      if (dailyRefreshTimeoutRef.current) {
+        clearTimeout(dailyRefreshTimeoutRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFilters?.anoLetivo]);
 
   // === Loading individual ===
   const [loadingCards, setLoadingCards] = useState({
@@ -958,11 +1044,18 @@ const Dashboard = () => {
   // que aparecem ANTES da sua declaração no arquivo. Quando declarado com `const`, isso
   // causa erro em runtime (TDZ): "Cannot access 'X' before initialization".
   // Por isso, usamos function declaration (hoisted) aqui.
-  async function carregarDados(filtros, signal) {
-    // Verifica se deve usar cache em vez de fazer requisição
-    const cachedData = smartCache.getFromCache();
-    if (cachedData && !isUpdatingFromNotification) {
-      setData(cachedData);
+  async function carregarDados(filtros, signal, options = {}) {
+    const now = new Date();
+    const force = !!options.force;
+    const dueDailyRefresh = shouldForceDailyRefresh(now) || !!options.markDaily;
+
+    // Cache inteligente (localStorage) — só usa se:
+    // - não está em modo de update por notificação
+    // - não está na janela de refresh diário (08:10)
+    // - não foi forçado
+    const cachedSmart = smartCache.getFromCache();
+    if (!force && cachedSmart && !isUpdatingFromNotification && !dueDailyRefresh) {
+      setData(cachedSmart);
       setGlobalLoading(false);
       return;
     }
@@ -1039,6 +1132,16 @@ const Dashboard = () => {
       setData(safeData);
       setCachedData(safeData);
       smartCache.saveToCache(safeData);
+
+      // Marca timestamps de refresh
+      try {
+        localStorage.setItem(LS_LAST_REFRESH_AT, String(Date.now()));
+        if (isAfterDailyTime(new Date()) || !!options.markDaily) {
+          localStorage.setItem(LS_LAST_DAILY_REFRESH, getLocalDateKey(new Date()));
+        }
+      } catch {
+        // ignore
+      }
       setLastDataHash(hashDataSimple(safeData));
       setShowUpdateNotification(false);
 
@@ -1074,8 +1177,10 @@ const Dashboard = () => {
       if (error.name !== "AbortError") {
         console.error("Erro ao carregar dados:", error);
 
-        if (cachedData) {
-          setData(cachedData);
+        const fallback = cachedSmart || cachedData;
+
+        if (fallback) {
+          setData(fallback);
           setToastMsg("Usando dados em cache 📋");
           setToastType("info");
           setShowToast(true);
@@ -1237,6 +1342,19 @@ const Dashboard = () => {
     localStorage.removeItem("selectedSchool");
     localStorage.removeItem("activeTab");
     localStorage.removeItem("cachedData");
+
+    // Limpa caches do dashboard ao sair (logout)
+    try {
+      // remove caches criados pelo useSmartCache (prefixo cache_*)
+      Object.keys(localStorage).forEach((k) => {
+        if (k && k.startsWith("cache_")) localStorage.removeItem(k);
+      });
+      localStorage.removeItem(LS_LAST_DAILY_REFRESH);
+      localStorage.removeItem(LS_LAST_REFRESH_AT);
+    } catch {
+      // ignore
+    }
+
     navigate("/login", { replace: true });
   }, [navigate]);
 

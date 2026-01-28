@@ -1,8 +1,20 @@
-const CACHE_NAME = 'dashboard-matriculas-cache-v15';
+// IMPORTANTE:
+// - Este SW é simples (não Workbox). Ele serve para manter os assets do PWA disponíveis
+//   mesmo quando o usuário fecha/abre o app.
+// - Para forçar atualização para quem já instalou, aumente a versão do CACHE_NAME.
+
+const CACHE_NAME = 'dashboard-matriculas-cache-v16';
+
+// Assets estáticos principais do PWA
 const urlsToCache = [
   '/',
   '/index.html',
-  // Adicione outros assets estáticos que não sejam das APIs
+  '/manifest.json',
+  '/favicon-v2.ico',
+  '/apple-touch-icon-v2.png',
+  '/icon-192-v2.png',
+  '/icon-256-v2.png',
+  '/icon-512-v2.png',
 ];
 
 self.addEventListener('install', (event) => {
