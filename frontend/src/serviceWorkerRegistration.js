@@ -207,5 +207,9 @@ export const clearAllCache = () => swManager.clearAllCache();
 export const forceDataUpdate = () => swManager.forceDataUpdate();
 export const getCacheInfo = () => swManager.getCacheInfo();
 
+// Exportações para compatibilidade com CRA padrão
+export const register = (config) => swManager.register(config);
+export const unregister = () => swManager.unregister();
+
 export default swManager;
   
