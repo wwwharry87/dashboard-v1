@@ -122,8 +122,10 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
           <tbody className="divide-y divide-gray-200">
             {escolas.map((escola, index) => {
               const isSelected = selectedSchool && selectedSchool.idescola === escola.idescola;
-              const hasVacancies = escola.vagas_disponiveis > 0;
-              const isOverCapacity = escola.vagas_disponiveis < 0;
+              const vagasNum = Number(escola.vagas_disponiveis);
+              const vagasFinite = Number.isFinite(vagasNum) ? vagasNum : 0;
+              const hasVacancies = vagasFinite > 0;
+              const isOverCapacity = vagasFinite < 0;
               const status = getSchoolStatus(escola);
               
               return (
@@ -174,14 +176,7 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                           ? "text-green-600" 
                           : "text-yellow-600"
                     }`}>
-                      {isOverCapacity ? (
-                        <div className="flex flex-col items-center">
-                          <span className="text-red-600 font-bold">+{formatNumber(Math.abs(escola.vagas_disponiveis))}</span>
-                          <span className="text-[9px] text-red-500">acima</span>
-                        </div>
-                      ) : (
-                        formatNumber(escola.vagas_disponiveis) || 0
-                      )}
+                      {formatNumber(vagasFinite)}
                     </div>
 
                     {/* Barra de ocupação (visual rápido) */}
@@ -202,7 +197,7 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                       ) : hasVacancies ? (
                         <div className="flex flex-col items-center" title="Com vagas disponíveis">
                           <FaCheckCircle className="text-green-500 text-xs" />
-                          <span className="text-green-600 font-semibold text-[10px]">Vagas</span>
+                          <span className="text-green-600 font-semibold text-[10px]">Com vagas</span>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center" title="Capacidade total">
@@ -223,8 +218,10 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
       <div className="md:hidden space-y-2 p-2">
         {escolas.map((escola, index) => {
           const isSelected = selectedSchool && selectedSchool.idescola === escola.idescola;
-          const hasVacancies = escola.vagas_disponiveis > 0;
-          const isOverCapacity = escola.vagas_disponiveis < 0;
+          const vagasNum = Number(escola.vagas_disponiveis);
+          const vagasFinite = Number.isFinite(vagasNum) ? vagasNum : 0;
+          const hasVacancies = vagasFinite > 0;
+          const isOverCapacity = vagasFinite < 0;
           const ocupacaoPercent = escola.capacidade_total > 0 
             ? Math.round((escola.qtde_matriculas / escola.capacidade_total) * 100)
             : 0;
@@ -236,11 +233,7 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
               className={`rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 ${
                 isSelected
                   ? "border-violet-500 bg-violet-50"
-                  : isOverCapacity
-                    ? "bg-red-50 border-red-300 hover:border-red-400 hover:bg-red-100"
-                    : hasVacancies
-                      ? "bg-green-50 border-green-300 hover:border-green-400 hover:bg-green-100"
-                      : "bg-yellow-50 border-yellow-300 hover:border-yellow-400 hover:bg-yellow-100"
+                  : "bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50"
               }`}
               onClick={() => handleSchoolClick(escola)}
             >
@@ -274,7 +267,7 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                   ) : hasVacancies ? (
                     <div className="flex items-center gap-1 bg-green-100 text-green-800 px-2 py-1 rounded-full">
                       <FaCheckCircle className="text-xs" />
-                      <span className="text-xs font-semibold">Vagas</span>
+                      <span className="text-xs font-semibold">Com vagas</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1 bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
@@ -326,14 +319,7 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                           ? "text-green-600" 
                           : "text-yellow-600"
                     }`}>
-                      {isOverCapacity ? (
-                        <div className="flex flex-col items-center">
-                          <span>+{formatNumber(Math.abs(escola.vagas_disponiveis))}</span>
-                          <span className="text-[9px] text-red-500">acima</span>
-                        </div>
-                      ) : (
-                        formatNumber(escola.vagas_disponiveis) || 0
-                      )}
+                      {formatNumber(vagasFinite)}
                     </span>
                     <span className="text-[10px] text-gray-500 mt-1">
                       {ocupacaoPercent}% ocupado
