@@ -143,7 +143,7 @@ O arquivo `version.js` inclui um histórico completo:
 ```javascript
 export const VERSION_HISTORY = [
   {
-    version: 'v0.1.16',
+    version: 'v0.1.18',
     date: '2026-01-28',
     changes: [
       'Adicionado sistema de versionamento automático',

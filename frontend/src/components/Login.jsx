@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
+import { clearAllCache } from '../serviceWorkerRegistration';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
@@ -68,6 +69,27 @@ const Login = () => {
     // Limpa o token ao carregar a página de login
     localStorage.removeItem('token');
     delete axios.defaults.headers.common['Authorization'];
+    
+    // Limpa todo o cache de dados ao sair/deslogar
+    // Isso garante que os dados serão recarregados no próximo login
+    try {
+      // Limpar cache do localStorage
+      const keys = Object.keys(localStorage);
+      keys.forEach(k => {
+        if (k.startsWith('cache_') || k === 'cachedData' || k === 'selectedFilters' || k === 'selectedSchool' || k === 'activeTab') {
+          localStorage.removeItem(k);
+        }
+      });
+      
+      // Limpar cache do Service Worker
+      if (typeof clearAllCache === 'function') {
+        clearAllCache();
+      }
+      
+      console.log('[Login] Cache limpo com sucesso');
+    } catch (error) {
+      console.warn('[Login] Erro ao limpar cache:', error);
+    }
   }, []);
 
   const handleCpfChange = (e) => setCpf(formatCPF(e.target.value));

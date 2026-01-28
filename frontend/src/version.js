@@ -7,13 +7,13 @@
  * MINOR: Novas funcionalidades, melhorias
  * PATCH: Correções de bugs, ajustes pequenos
  * 
- * Exemplo: v0.1.16
+ * Exemplo: v0.1.17
  */
 
 export const VERSION = {
   major: 0,
   minor: 1,
-  patch: 16,
+  patch: 17,
   
   // Retorna a versão formatada
   toString() {
@@ -53,6 +53,19 @@ export const VERSION = {
 
 // Histórico de versões
 export const VERSION_HISTORY = [
+  {
+    version: 'v0.1.17',
+    date: '2026-01-28',
+    changes: [
+      'Sistema de cache inteligente com persistência',
+      'Atualização automática programada às 08:10',
+      'Cache mantido ao fechar app (PWA)',
+      'Limpeza de cache apenas ao fazer logout',
+      'Novos ícones do dashboard',
+      'Atualização automática de ícones em PWAs instalados',
+      'Melhoria no Service Worker',
+    ],
+  },
   {
     version: 'v0.1.16',
     date: '2026-01-28',
