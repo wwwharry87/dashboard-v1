@@ -132,7 +132,11 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                   className={`cursor-pointer transition-all duration-200 ${
                     isSelected
                       ? "bg-violet-100 border-l-4 border-l-violet-500"
-                      : "hover:bg-gray-50"
+                      : isOverCapacity
+                        ? "bg-red-50 hover:bg-red-100 border-l-4 border-l-red-400"
+                        : hasVacancies
+                          ? "bg-green-50 hover:bg-green-100 border-l-4 border-l-green-400"
+                          : "bg-yellow-50 hover:bg-yellow-100 border-l-4 border-l-yellow-400"
                   }`}
                   onClick={() => handleSchoolClick(escola)}
                 >
@@ -174,7 +178,14 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                           ? "text-green-600" 
                           : "text-yellow-600"
                     }`}>
-                      {formatNumber(escola.vagas_disponiveis) || 0}
+                      {isOverCapacity ? (
+                        <div className="flex flex-col items-center">
+                          <span className="text-red-600 font-bold">+{formatNumber(Math.abs(escola.vagas_disponiveis))}</span>
+                          <span className="text-[9px] text-red-500">acima</span>
+                        </div>
+                      ) : (
+                        formatNumber(escola.vagas_disponiveis) || 0
+                      )}
                     </div>
 
                     {/* Barra de ocupação (visual rápido) */}
@@ -226,12 +237,16 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
           return (
             <div
               key={escola.idescola || index}
-              className={`bg-white rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 ${
+              className={`rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 ${
                 isSelected
                   ? "border-violet-500 bg-violet-50"
-                  : "border-gray-200 hover:border-gray-300"
+                  : isOverCapacity
+                    ? "bg-red-50 border-red-300 hover:border-red-400 hover:bg-red-100"
+                    : hasVacancies
+                      ? "bg-green-50 border-green-300 hover:border-green-400 hover:bg-green-100"
+                      : "bg-yellow-50 border-yellow-300 hover:border-yellow-400 hover:bg-yellow-100"
               }`}
-              onClick={() => handleSchoolClick(escola)}
+              onClick={() => handleSchoolClick(escola)
             >
               {/* Cabeçalho da escola */}
               <div className="flex justify-between items-start mb-2">
@@ -315,7 +330,14 @@ const EscolasTable = ({ escolas, searchTerm, selectedSchool, handleSchoolClick, 
                           ? "text-green-600" 
                           : "text-yellow-600"
                     }`}>
-                      {formatNumber(escola.vagas_disponiveis) || 0}
+                      {isOverCapacity ? (
+                        <div className="flex flex-col items-center">
+                          <span>+{formatNumber(Math.abs(escola.vagas_disponiveis))}</span>
+                          <span className="text-[9px] text-red-500">acima</span>
+                        </div>
+                      ) : (
+                        formatNumber(escola.vagas_disponiveis) || 0
+                      )}
                     </span>
                     <span className="text-[10px] text-gray-500 mt-1">
                       {ocupacaoPercent}% ocupado

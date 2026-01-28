@@ -60,6 +60,7 @@ import AiAssistant from "./components/AiAssistant";
 import { CentralizedLoader, CompactLoader } from "./components/CentralizedLoader";
 import { UpdateNotification, UpdateNotificationCompact } from "./components/UpdateNotification";
 import { useSmartCache } from "./hooks/useSmartCache";
+import { VERSION } from "./version";
 
 // Lazy loading de componentes
 const EscolasTable = lazy(() => import("./components/EscolasTable"));
@@ -1595,8 +1596,15 @@ const Dashboard = () => {
           </div>
 
           {formattedUpdateDate && (
+            <div className="md:hidden p-2 text-center text-xs bg-violet-100/80 text-gray-700 space-y-1">
+              <div>Atualizado: {formattedUpdateDate}</div>
+              <div className="text-violet-600 font-semibold">{VERSION.toString()}</div>
+            </div>
+          )}
+          
+          {!formattedUpdateDate && (
             <div className="md:hidden p-2 text-center text-xs bg-violet-100/80 text-gray-700">
-              Atualizado: {formattedUpdateDate}
+              <div className="text-violet-600 font-semibold">{VERSION.toString()}</div>
             </div>
           )}
 
