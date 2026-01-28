@@ -12,8 +12,8 @@
 
 export const VERSION = {
   major: 0,
-  minor: 1,
-  patch: 17,
+  minor: 2,
+  patch: 26,
   
   // Retorna a versão formatada
   toString() {

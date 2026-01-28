@@ -6,7 +6,7 @@
  * - Limpeza por mensagens (logout / force update)
  */
 
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 const STATIC_CACHE = `dashboard-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `dashboard-runtime-${CACHE_VERSION}`; // assets dinâmicos
