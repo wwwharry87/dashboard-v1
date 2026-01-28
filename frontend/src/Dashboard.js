@@ -57,6 +57,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import FilterSelect from "./components/FilterSelect";
 import Card from "./components/Card";
 import AiAssistant from "./components/AiAssistant";
+import { CentralizedLoader, CompactLoader } from "./components/CentralizedLoader";
+import { UpdateNotification, UpdateNotificationCompact } from "./components/UpdateNotification";
+import { useSmartCache } from "./hooks/useSmartCache";
 
 // Lazy loading de componentes
 const EscolasTable = lazy(() => import("./components/EscolasTable"));
@@ -125,18 +128,8 @@ const ChartSkeleton = () => (
   </div>
 );
 
-// Loading geral para atualização
-const GlobalLoading = () => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed top-4 right-4 z-50 bg-gradient-to-r from-blue-500 to-purple-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
-  >
-    <FaSync className="animate-spin" />
-    <span className="font-semibold">Atualizando...</span>
-  </motion.div>
-);
+// GlobalLoading foi substituído pelo CentralizedLoader importado
+// que oferece melhor UX com loader centralizado na tela
 
 // Toast component melhorado
 const Toast = ({ message, show, type = "success" }) =>
@@ -186,6 +179,27 @@ const pick = (obj, keys, fallback = null) => {
     if (v !== undefined && v !== null && v !== "") return v;
   }
   return fallback;
+};
+
+// Funcao para gerar hash simples dos dados
+const hashDataSimple = (data) => {
+  try {
+    const str = JSON.stringify({
+      totalMatriculas: data?.totalMatriculas,
+      totalEscolas: data?.totalEscolas,
+      totalEntradas: data?.totalEntradas,
+      totalSaidas: data?.totalSaidas,
+    });
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return hash.toString();
+  } catch {
+    return '';
+  }
 };
 
 const normalizeSchoolRow = (esc) => {
@@ -652,6 +666,20 @@ const Dashboard = () => {
   const [isAutoUpdating, setIsAutoUpdating] = useState(false);
   const [activeTab, setActiveTab] = useLocalStorage("activeTab", "overview");
   const [cachedData, setCachedData] = useLocalStorage("cachedData", null);
+  
+  // Estados para deteccao de atualizacoes
+  const [showUpdateNotification, setShowUpdateNotification] = useState(false);
+  const [isUpdatingFromNotification, setIsUpdatingFromNotification] = useState(false);
+  const [lastDataHash, setLastDataHash] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  
+  // Hook de cache inteligente
+  const smartCache = useSmartCache('dashboardData', {
+    ttlMs: 10 * 60 * 1000,
+    onUpdateAvailable: (newData) => {
+      setShowUpdateNotification(true);
+    },
+  });
 
   // === Loading individual ===
   const [loadingCards, setLoadingCards] = useState({
@@ -844,6 +872,36 @@ const Dashboard = () => {
     fetchClientName();
   }, []);
 
+  // Detectar redimensionamento para mobile
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Verificar atualizacoes periodicamente
+  useEffect(() => {
+    const checkUpdates = async () => {
+      if (!selectedFilters.anoLetivo) return;
+      
+      try {
+        const response = await api.post('/totais', selectedFilters);
+        const newHash = hashDataSimple(response.data);
+        
+        if (lastDataHash && newHash !== lastDataHash) {
+          setShowUpdateNotification(true);
+        }
+      } catch (error) {
+        console.warn('Erro ao verificar atualizacoes:', error);
+      }
+    };
+
+    const interval = setInterval(checkUpdates, 30000);
+    return () => clearInterval(interval);
+  }, [lastDataHash, selectedFilters]);
+
   // Filtros iniciais
   useEffect(() => {
     const controller = new AbortController();
@@ -900,6 +958,14 @@ const Dashboard = () => {
   // causa erro em runtime (TDZ): "Cannot access 'X' before initialization".
   // Por isso, usamos function declaration (hoisted) aqui.
   async function carregarDados(filtros, signal) {
+    // Verifica se deve usar cache em vez de fazer requisição
+    const cachedData = smartCache.getFromCache();
+    if (cachedData && !isUpdatingFromNotification) {
+      setData(cachedData);
+      setGlobalLoading(false);
+      return;
+    }
+    
     setGlobalLoading(true);
 
     setLoadingCards({
@@ -971,6 +1037,9 @@ const Dashboard = () => {
 
       setData(safeData);
       setCachedData(safeData);
+      smartCache.saveToCache(safeData);
+      setLastDataHash(hashDataSimple(safeData));
+      setShowUpdateNotification(false);
 
       setLoadingCards({
         totalMatriculas: false,
@@ -992,6 +1061,7 @@ const Dashboard = () => {
       setLoadingEvolucao(false);
       setLoadingMapa(false);
       setGlobalLoading(false);
+      setIsUpdatingFromNotification(false);
 
       if (Object.keys(filtros).some((key) => filtros[key])) {
         setToastMsg("Filtros aplicados com sucesso! 🔍");
@@ -1448,9 +1518,34 @@ const Dashboard = () => {
   return (
     <AppContext.Provider value={{}}>
       <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 text-gray-800 relative overflow-hidden">
+        {/* Loader centralizado */}
+        <CentralizedLoader isLoading={globalLoading} message="Carregando dados..." />
+        
+        {/* Notificacao de atualizacao */}
+        {isMobile ? (
+          <UpdateNotificationCompact
+            isVisible={showUpdateNotification}
+            onUpdate={() => {
+              setIsUpdatingFromNotification(true);
+              carregarDados(selectedFilters);
+            }}
+            onDismiss={() => setShowUpdateNotification(false)}
+            isUpdating={isUpdatingFromNotification}
+          />
+        ) : (
+          <UpdateNotification
+            isVisible={showUpdateNotification}
+            onUpdate={() => {
+              setIsUpdatingFromNotification(true);
+              carregarDados(selectedFilters);
+            }}
+            onDismiss={() => setShowUpdateNotification(false)}
+            isUpdating={isUpdatingFromNotification}
+          />
+        )}
+        
         <AnimatePresence>
           {showToast && <Toast message={toastMsg} show={showToast} type={toastType} />}
-          {isLoading && <GlobalLoading />}
         </AnimatePresence>
 
         {/* HEADER FIXO NO TOPO */}
