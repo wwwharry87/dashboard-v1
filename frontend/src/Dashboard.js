@@ -60,7 +60,6 @@ import AiAssistant from "./components/AiAssistant";
 import { CentralizedLoader, CompactLoader } from "./components/CentralizedLoader";
 import { UpdateNotification, UpdateNotificationCompact } from "./components/UpdateNotification";
 import { useSmartCache } from "./hooks/useSmartCache";
-import { clearDataCache } from "./serviceWorkerRegistration";
 import { VERSION } from "./version";
 import { clearAllCache, clearDataCache } from "./serviceWorkerRegistration";
 
@@ -713,6 +712,47 @@ const Dashboard = () => {
     },
   });
 
+  // ✅ FUNÇÃO PARA LIMPAR TODO O CACHE - Estilo Power BI
+  // Limpa localStorage, sessionStorage e Service Worker cache
+  const limparTodoCache = useCallback(() => {
+    console.log('[Dashboard] Limpando TODO o cache...');
+    
+    // 1. Limpa caches do smartCache
+    smartCache.clearAllCaches();
+    
+    // 2. Limpa localStorage com prefixos de cache
+    const keys = Object.keys(localStorage);
+    keys.forEach(k => {
+      if (
+        k.startsWith('cache_') || 
+        k.startsWith('dashboardData') ||
+        k.startsWith('cachedData') ||
+        k.includes('Cache') ||
+        k.includes('cache')
+      ) {
+        localStorage.removeItem(k);
+        console.log(`[Dashboard] Removido: ${k}`);
+      }
+    });
+    
+    // 3. Limpa cache do Service Worker
+    try {
+      clearAllCache();
+      clearDataCache();
+    } catch (e) {
+      console.warn('[Dashboard] Erro ao limpar SW cache:', e);
+    }
+    
+    // 4. Limpa sessionStorage também
+    try {
+      sessionStorage.clear();
+    } catch (e) {
+      console.warn('[Dashboard] Erro ao limpar sessionStorage:', e);
+    }
+    
+    console.log('[Dashboard] Cache completamente limpo!');
+  }, [smartCache]);
+
   // === Loading individual ===
   const [loadingCards, setLoadingCards] = useState({
     totalMatriculas: true,
@@ -1209,11 +1249,21 @@ const Dashboard = () => {
         updatedFilters.etapaMatricula = "";
       }
 
-      carregarDados(updatedFilters);
+      // CORREÇÃO: Limpa o cache do filtro anterior e força refresh da API
+      // Isso garante comportamento estilo Power BI - sempre busca dados frescos
+      const oldCacheKey = getDashboardCacheKey(prev);
+      const newCacheKey = getDashboardCacheKey(updatedFilters);
+      
+      // Limpa ambos os caches para garantir dados frescos
+      smartCache.clearCache(oldCacheKey);
+      smartCache.clearCache(newCacheKey);
+      
+      // Força refresh da API (forceRefresh = true)
+      carregarDados(updatedFilters, undefined, true);
 
       return updatedFilters;
     });
-  }, []);
+  }, [smartCache]);
 
   const handleSchoolClick = useCallback(
     (escola) => {
@@ -1228,30 +1278,50 @@ const Dashboard = () => {
           updatedFilters.idescola = escola.idescola;
         }
 
-        carregarDados(updatedFilters);
+        // CORREÇÃO: Limpa cache e força refresh para garantir dados atualizados
+        const oldCacheKey = getDashboardCacheKey(prev);
+        const newCacheKey = getDashboardCacheKey(updatedFilters);
+        smartCache.clearCache(oldCacheKey);
+        smartCache.clearCache(newCacheKey);
+        
+        carregarDados(updatedFilters, undefined, true);
 
         return updatedFilters;
       });
     },
-    [selectedSchool]
+    [selectedSchool, smartCache]
   );
 
   // ✅ Interação estilo Power BI: clique em gráfico aplica filtro e atualiza TODAS as visualizações
   const handleSexoSelect = useCallback((label) => {
     setSelectedFilters((prev) => {
       const next = { ...prev, sexo: prev.sexo === label ? "" : label };
-      carregarDados(next);
+      
+      // CORREÇÃO: Limpa cache para garantir dados frescos estilo Power BI
+      const oldCacheKey = getDashboardCacheKey(prev);
+      const newCacheKey = getDashboardCacheKey(next);
+      smartCache.clearCache(oldCacheKey);
+      smartCache.clearCache(newCacheKey);
+      
+      carregarDados(next, undefined, true);
       return next;
     });
-  }, []);
+  }, [smartCache]);
 
   const handleTurnoSelect = useCallback((label) => {
     setSelectedFilters((prev) => {
       const next = { ...prev, turno: prev.turno === label ? "" : label };
-      carregarDados(next);
+      
+      // CORREÇÃO: Limpa cache para garantir dados frescos estilo Power BI
+      const oldCacheKey = getDashboardCacheKey(prev);
+      const newCacheKey = getDashboardCacheKey(next);
+      smartCache.clearCache(oldCacheKey);
+      smartCache.clearCache(newCacheKey);
+      
+      carregarDados(next, undefined, true);
       return next;
     });
-  }, []);
+  }, [smartCache]);
 
   const handleSituacaoSelect = useCallback((label) => {
     setSelectedFilters((prev) => {
@@ -1259,18 +1329,32 @@ const Dashboard = () => {
         ...prev,
         situacaoMatricula: prev.situacaoMatricula === label ? "" : label,
       };
-      carregarDados(next);
+      
+      // CORREÇÃO: Limpa cache para garantir dados frescos estilo Power BI
+      const oldCacheKey = getDashboardCacheKey(prev);
+      const newCacheKey = getDashboardCacheKey(next);
+      smartCache.clearCache(oldCacheKey);
+      smartCache.clearCache(newCacheKey);
+      
+      carregarDados(next, undefined, true);
       return next;
     });
-  }, []);
+  }, [smartCache]);
 
   const limparSelecoesGraficos = useCallback(() => {
     setSelectedFilters((prev) => {
       const next = { ...prev, sexo: "", turno: "", situacaoMatricula: "" };
-      carregarDados(next);
+      
+      // CORREÇÃO: Limpa cache para garantir dados frescos
+      const oldCacheKey = getDashboardCacheKey(prev);
+      const newCacheKey = getDashboardCacheKey(next);
+      smartCache.clearCache(oldCacheKey);
+      smartCache.clearCache(newCacheKey);
+      
+      carregarDados(next, undefined, true);
       return next;
     });
-  }, []);
+  }, [smartCache]);
 
   const indicadoresEstrategicos = useMemo(() => {
     const totalMatriculas = data.totalMatriculas || 1;
@@ -1290,13 +1374,26 @@ const Dashboard = () => {
   }, [data]);
 
   const sair = useCallback(() => {
+    // CORREÇÃO: Limpa todos os caches ao sair
+    smartCache.clearAllCaches();
+    
+    // Limpa também o localStorage específico
     localStorage.removeItem("token");
     localStorage.removeItem("selectedFilters");
     localStorage.removeItem("selectedSchool");
     localStorage.removeItem("activeTab");
     localStorage.removeItem("cachedData");
+    
+    // Limpa qualquer cache com prefixo dashboardData
+    const keys = Object.keys(localStorage);
+    keys.forEach(k => {
+      if (k.startsWith('cache_dashboardData') || k.startsWith('cache_')) {
+        localStorage.removeItem(k);
+      }
+    });
+    
     navigate("/login", { replace: true });
-  }, [navigate]);
+  }, [navigate, smartCache]);
 
   // Dados de gráficos memoizados
   const chartData = useMemo(() => {
@@ -2243,12 +2340,16 @@ const Dashboard = () => {
                         setShowToast(true);
                         setTimeout(() => setShowToast(false), 1200);
 
-                        const cacheKey = getDashboardCacheKey(selectedFilters);
-                        smartCache.clearCache(cacheKey);
-
-                        // Também limpa o cache do Service Worker (API fallback)
-                        // para garantir que puxará o banco atualizado.
-                        try { clearDataCache?.(); } catch (e) {}
+                        // CORREÇÃO: Limpa TODO o cache, não apenas o atual
+                        smartCache.clearAllCaches();
+                        
+                        // Limpa também caches específicos do localStorage
+                        const keys = Object.keys(localStorage);
+                        keys.forEach(k => {
+                          if (k.startsWith('cache_dashboardData') || k.startsWith('cache_')) {
+                            localStorage.removeItem(k);
+                          }
+                        });
 
                         await carregarDados(selectedFilters, undefined, true);
 
@@ -2289,9 +2390,23 @@ const Dashboard = () => {
                         transporteEscolar: "",
                         idescola: "",
                       };
+                      
+                      // CORREÇÃO: Limpa TODO o cache antes de resetar filtros
+                      smartCache.clearAllCaches();
+                      
+                      // Limpa também caches específicos do localStorage
+                      const keys = Object.keys(localStorage);
+                      keys.forEach(k => {
+                        if (k.startsWith('cache_dashboardData') || k.startsWith('cache_')) {
+                          localStorage.removeItem(k);
+                        }
+                      });
+                      
                       setSelectedFilters(resetFilters);
                       setSelectedSchool(null);
-                      carregarDados(resetFilters);
+                      
+                      // Força refresh da API
+                      carregarDados(resetFilters, undefined, true);
                       setShowSidebar(false);
                     }}
                     className="bg-gradient-to-r from-violet-500 to-purple-600 text-white px-6 py-2 rounded-lg hover:from-violet-600 hover:to-purple-700 transition-all duration-300 shadow font-semibold text-sm"
