@@ -2232,7 +2232,40 @@ const Dashboard = () => {
                   <FilterSelect label="Tipo Transporte" name="tipoTransporte" options={filters.tipo_transporte} value={selectedFilters.tipoTransporte} onChange={handleFilterChange} disabled={selectedFilters.transporteEscolar !== "SIM"} />
                 </div>
 
-                <div className="mt-6 pt-4 border-gray-200 border-t flex justify-center">
+                <div className="mt-6 pt-4 border-gray-200 border-t flex flex-col gap-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        // Força nova chamada mesmo com cache válido (ex.: banco atualizado)
+                        setToastMsg("Atualizando dados... 🔄");
+                        setToastType("info");
+                        setShowToast(true);
+                        setTimeout(() => setShowToast(false), 1200);
+
+                        const cacheKey = getDashboardCacheKey(selectedFilters);
+                        smartCache.clearCache(cacheKey);
+
+                        await carregarDados(selectedFilters, undefined, true);
+
+                        setToastMsg("Dados atualizados! ✅");
+                        setToastType("success");
+                        setShowToast(true);
+                        setTimeout(() => setShowToast(false), 1500);
+
+                        setShowSidebar(false);
+                      } catch (error) {
+                        console.error("Erro ao atualizar dados:", error);
+                        setToastMsg("Falha ao atualizar dados ❌");
+                        setToastType("error");
+                        setShowToast(true);
+                        setTimeout(() => setShowToast(false), 1800);
+                      }
+                    }}
+                    className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-6 py-2 rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 shadow font-semibold text-sm"
+                  >
+                    ⟳ Atualizar Dados
+                  </button>
+
                   <button
                     onClick={() => {
                       const ultimoAnoLetivo = filters.ano_letivo?.[0] || "";
