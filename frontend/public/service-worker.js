@@ -2,23 +2,20 @@
  * Service Worker - Dashboard Matrículas (robusto)
  * - App Shell (SPA): navegação -> index.html
  * - Cache de ícones/manifest/favicons (network-first)
- * - Cache de API com TTL 24h + refresh diário 08:10
+ * - API: network-first (sempre busca dados novos quando online; fallback offline)
  * - Limpeza por mensagens (logout / force update)
  */
 
-const CACHE_VERSION = "v3";
+// ⚠️ Bump de versão para forçar atualização do SW nos clientes
+const CACHE_VERSION = "v4";
 
 const STATIC_CACHE = `dashboard-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `dashboard-runtime-${CACHE_VERSION}`; // assets dinâmicos
 const DATA_CACHE = `dashboard-data-${CACHE_VERSION}`;
 const ICON_CACHE = `dashboard-icons-${CACHE_VERSION}`;
 
-// Atualização programada (08:10)
-const SCHEDULED_UPDATE_HOUR = 8;
-const SCHEDULED_UPDATE_MINUTE = 10;
-
-// TTL do cache da API (24h)
-const DATA_CACHE_TTL = 24 * 60 * 60 * 1000;
+// ✅ Importante: NÃO usamos atualização programada/horária para dados.
+// A API deve responder sempre com o banco atualizado quando estiver online.
 
 const APP_SHELL_URL = "/index.html";
 
@@ -80,7 +77,6 @@ self.addEventListener("activate", (event) => {
         })
       );
 
-      scheduleUpdate();
       await self.clients.claim();
     })()
   );
@@ -95,7 +91,9 @@ self.addEventListener("fetch", (event) => {
 
   // ✅ API cache (ajuste aqui o padrão /api/ se necessário)
   if (url.pathname.includes("/api/")) {
-    event.respondWith(handleApiRequest(req));
+    // ✅ Network-first SEM agendamento: sempre busca dados novos quando online.
+    // Se estiver offline, usa o último cache apenas como fallback.
+    event.respondWith(networkFirstApi(req));
     return;
   }
 
@@ -164,91 +162,30 @@ async function handleIconLike(request) {
   }
 }
 
-// ===================== API CACHE (TTL + 08:10) =====================
+// ===================== API: NETWORK-FIRST (sem horário) =====================
 
-async function handleApiRequest(request) {
-  const cacheKey = request.url; // GET apenas
+async function networkFirstApi(request) {
   const cache = await caches.open(DATA_CACHE);
 
-  // Se deu horário 08:10 e ainda não atualizou hoje, força rede
-  if (shouldUpdateNow()) {
-    return fetchAndCacheApi(request, cache, cacheKey);
-  }
-
-  const cached = await cache.match(cacheKey);
-  if (cached) {
-    try {
-      const cachedData = await cached.clone().json();
-      const ts = cachedData && cachedData._cacheTimestamp;
-
-      if (ts && Date.now() - ts < DATA_CACHE_TTL) {
-        const { _cacheTimestamp, ...data } = cachedData;
-        return new Response(JSON.stringify(data), {
-          headers: { "Content-Type": "application/json" }
-        });
-      }
-    } catch (e) {
-      // se algo falhar, cai pra rede
-    }
-  }
-
-  return fetchAndCacheApi(request, cache, cacheKey);
-}
-
-async function fetchAndCacheApi(request, cache, cacheKey) {
   try {
     const res = await fetch(request);
-    if (res.ok) {
-      const data = await res.clone().json();
-      const cachedData = { ...data, _cacheTimestamp: Date.now() };
-      await cache.put(
-        cacheKey,
-        new Response(JSON.stringify(cachedData), {
-          headers: { "Content-Type": "application/json" }
-        })
-      );
+    // guarda última resposta para fallback offline
+    if (res && res.ok) {
+      try {
+        await cache.put(request, res.clone());
+      } catch (e) {
+        // ignore
+      }
     }
     return res;
   } catch (e) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const cachedData = await cached.clone().json();
-      const { _cacheTimestamp, ...data } = cachedData || {};
-      return new Response(JSON.stringify(data || {}), {
-        headers: { "Content-Type": "application/json" }
-      });
-    }
+    const cached = await cache.match(request);
+    if (cached) return cached;
     return new Response(JSON.stringify({ error: "offline" }), {
       status: 503,
       headers: { "Content-Type": "application/json" }
     });
   }
-}
-
-function shouldUpdateNow() {
-  const now = new Date();
-  const lastUpdate = parseInt(self._lastScheduledUpdate || "0", 10);
-
-  const today810 = new Date();
-  today810.setHours(SCHEDULED_UPDATE_HOUR, SCHEDULED_UPDATE_MINUTE, 0, 0);
-
-  if (now >= today810 && lastUpdate < today810.getTime()) {
-    self._lastScheduledUpdate = Date.now().toString();
-    return true;
-  }
-  return false;
-}
-
-function scheduleUpdate() {
-  setInterval(() => {
-    if (shouldUpdateNow()) {
-      self.clients.matchAll().then((clients) => {
-        clients.forEach((client) => {
-          client.postMessage({ type: "SCHEDULED_UPDATE", timestamp: Date.now() });
-        });
-      });
-    }
-  }, 5 * 60 * 1000);
 }
 
 // ===================== MESSAGES =====================
@@ -270,11 +207,6 @@ self.addEventListener("message", (event) => {
     case "CLEAR_ALL_CACHE":
       caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n))))
         .then(() => event.source?.postMessage({ type: "ALL_CACHE_CLEARED" }));
-      break;
-
-    case "FORCE_UPDATE":
-      self._lastScheduledUpdate = "0";
-      event.source?.postMessage({ type: "UPDATE_FORCED" });
       break;
 
     case "CLEAR_PWA_ASSETS_CACHE":

@@ -38,9 +38,6 @@ export const swManager = {
       // Configurar listeners
       this.setupListeners(registration);
       
-      // Verificar atualizações
-      this.checkForUpdates(registration);
-      
       return registration;
     } catch (error) {
       console.error('[SWReg] Erro ao registrar Service Worker:', error);
@@ -76,24 +73,11 @@ export const swManager = {
     });
   },
   
-  // Verificar atualizações periodicamente
-  checkForUpdates(registration) {
-    // Verificar a cada 1 hora
-    setInterval(() => {
-      registration.update();
-    }, 60 * 60 * 1000);
-  },
-  
   // Tratar mensagens do SW
   handleMessage(data) {
     const { type, payload } = data || {};
     
     switch (type) {
-      case 'SCHEDULED_UPDATE':
-        console.log('[SWReg] Atualização programada recebida');
-        window.dispatchEvent(new CustomEvent('sw-scheduled-update', { detail: payload }));
-        break;
-        
       case 'CACHE_CLEARED':
         console.log('[SWReg] Cache limpo com sucesso');
         window.dispatchEvent(new CustomEvent('sw-cache-cleared'));
@@ -102,11 +86,6 @@ export const swManager = {
       case 'ALL_CACHE_CLEARED':
         console.log('[SWReg] Todo o cache limpo');
         window.dispatchEvent(new CustomEvent('sw-all-cache-cleared'));
-        break;
-        
-      case 'UPDATE_FORCED':
-        console.log('[SWReg] Atualização forçada');
-        window.dispatchEvent(new CustomEvent('sw-update-forced'));
         break;
         
       case 'CACHE_INFO':
@@ -141,13 +120,6 @@ export const swManager = {
   clearAllCache() {
     if (navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_ALL_CACHE' });
-    }
-  },
-  
-  // Forçar atualização de dados
-  forceDataUpdate() {
-    if (navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: 'FORCE_UPDATE' });
     }
   },
   
@@ -204,7 +176,6 @@ export const registerSW = () => swManager.register();
 export const unregisterSW = () => swManager.unregister();
 export const clearDataCache = () => swManager.clearDataCache();
 export const clearAllCache = () => swManager.clearAllCache();
-export const forceDataUpdate = () => swManager.forceDataUpdate();
 export const getCacheInfo = () => swManager.getCacheInfo();
 
 // Exportações para compatibilidade com CRA padrão

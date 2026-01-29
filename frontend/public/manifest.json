@@ -4,30 +4,30 @@
   "description": "Sistema de gestão e visualização de matrículas escolares",
   "icons": [
     {
-      "src": "/favicon.ico?v=2",
+      "src": "/favicon.ico?v=4",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },
     {
-      "src": "/icons/icon-192x192.png?v=2",
+      "src": "/icons/icon-192x192.png?v=4",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/icon-256x256.png?v=2",
+      "src": "/icons/icon-256x256.png?v=4",
       "type": "image/png",
       "sizes": "256x256",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/icon-512x512.png?v=2",
+      "src": "/icons/icon-512x512.png?v=4",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/?v=4",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
@@ -42,7 +42,7 @@
       "description": "Abrir visão geral do dashboard",
       "url": "/",
       "icons": [
-        { "src": "/icons/icon-192x192.png?v=2", "sizes": "192x192" }
+        { "src": "/icons/icon-192x192.png?v=4", "sizes": "192x192" }
       ]
     }
   ]

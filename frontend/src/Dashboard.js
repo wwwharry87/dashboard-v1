@@ -60,6 +60,7 @@ import AiAssistant from "./components/AiAssistant";
 import { CentralizedLoader, CompactLoader } from "./components/CentralizedLoader";
 import { UpdateNotification, UpdateNotificationCompact } from "./components/UpdateNotification";
 import { useSmartCache } from "./hooks/useSmartCache";
+import { clearDataCache } from "./serviceWorkerRegistration";
 import { VERSION } from "./version";
 import { clearAllCache, clearDataCache } from "./serviceWorkerRegistration";
 
@@ -2244,6 +2245,10 @@ const Dashboard = () => {
 
                         const cacheKey = getDashboardCacheKey(selectedFilters);
                         smartCache.clearCache(cacheKey);
+
+                        // Também limpa o cache do Service Worker (API fallback)
+                        // para garantir que puxará o banco atualizado.
+                        try { clearDataCache?.(); } catch (e) {}
 
                         await carregarDados(selectedFilters, undefined, true);
 
