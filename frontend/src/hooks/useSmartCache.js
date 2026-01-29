@@ -296,7 +296,7 @@ export function useSmartCache(key, options = {}) {
   // Verificar periodicamente se chegou o horário programado
   useEffect(() => {
     const checkScheduledTime = () => {
-      const k = overrideKey || key;
+      const k = key;
       const item = localStorage.getItem(storageKey(k));
       if (item) {
         const cached = JSON.parse(item);
