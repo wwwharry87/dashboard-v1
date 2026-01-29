@@ -204,6 +204,34 @@ const hashDataSimple = (data) => {
   }
 };
 
+// === Cache por filtros (para manter comportamento estilo Power BI) ===
+// Gera uma chave estável por combinação de filtros, evitando que o cache "trave" as interações.
+const hashString = (str) => {
+  try {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return hash.toString();
+  } catch {
+    return '0';
+  }
+};
+
+const getDashboardCacheKey = (filtros) => {
+  const clean = {};
+  const src = filtros || {};
+  Object.keys(src).sort().forEach((k) => {
+    const v = src[k];
+    if (v !== "" && v !== null && v !== undefined) clean[k] = v;
+  });
+  // Mantém o ano letivo mesmo quando vazio? (se vazio, vai cair no mesmo cache - ok)
+  return `dashboardData_${hashString(JSON.stringify(clean))}`;
+};
+
+
 const normalizeSchoolRow = (esc) => {
   // Ajuste de chaves mais comuns (se ainda vier branco, me manda um console.log(data.escolas[0]) e eu travo 100%)
   const escola = pick(esc, ["escola", "nomeEscola", "nome", "ds_escola"], "N/A");
@@ -963,8 +991,9 @@ const Dashboard = () => {
   async function carregarDados(filtros, signal, forceRefresh = false) {
     // Verifica se deve usar cache em vez de fazer requisição
     // Cache é válido se: existe, não expirou TTL, e não passou das 08:10
-    const cachedData = smartCache.getFromCache();
-    const cacheIsValid = smartCache.isCacheValid();
+    const cacheKey = getDashboardCacheKey(filtros);
+    const cachedData = smartCache.getFromCache(cacheKey);
+    const cacheIsValid = smartCache.isCacheValid(cacheKey);
     
     if (cachedData && cacheIsValid && !forceRefresh && !isUpdatingFromNotification) {
       console.log('[Dashboard] Usando dados do cache');
@@ -1066,7 +1095,7 @@ const Dashboard = () => {
 
       setData(safeData);
       setCachedData(safeData);
-      smartCache.saveToCache(safeData);
+      smartCache.saveToCache(safeData, cacheKey);
       setLastDataHash(hashDataSimple(safeData));
       setShowUpdateNotification(false);
 

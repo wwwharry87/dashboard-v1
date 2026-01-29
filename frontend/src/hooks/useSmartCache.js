@@ -20,6 +20,11 @@ const SCHEDULED_UPDATE_MINUTE = 10;
 // TTL padrão de 24 horas
 const DEFAULT_TTL = 24 * 60 * 60 * 1000;
 
+// Monta a chave do localStorage para um cache (permite múltiplos caches por contexto)
+function storageKey(k) {
+  return `cache_${k}`;
+}
+
 /**
  * Verifica se passou do horário de atualização programada (08:10)
  */
@@ -91,9 +96,10 @@ export function useSmartCache(key, options = {}) {
   const lastCheckRef = useRef(0);
 
   // Recuperar dados do cache
-  const getFromCache = useCallback(() => {
+  const getFromCache = useCallback((overrideKey = null) => {
+    const k = overrideKey || key;
     try {
-      const item = localStorage.getItem(`cache_${key}`);
+      const item = localStorage.getItem(storageKey(k));
       if (!item) return null;
 
       const cached = JSON.parse(item);
@@ -101,7 +107,7 @@ export function useSmartCache(key, options = {}) {
 
       // Verificar se passou do horário programado (08:10)
       if (shouldUpdateNow(cached.timestamp)) {
-        console.log(`[SmartCache] Cache ${key} expirou - horário programado`);
+        console.log(`[SmartCache] Cache ${k} expirou - horário programado`);
         // Não remove o cache, mas marca como expirado para atualização
         setCacheInfo(prev => ({ ...prev, isValid: false }));
         return cached.data; // Retorna dados antigos para exibir enquanto atualiza
@@ -109,7 +115,7 @@ export function useSmartCache(key, options = {}) {
 
       // Verifica se o cache expirou pelo TTL
       if (cached.timestamp && now - cached.timestamp > ttlMs) {
-        console.log(`[SmartCache] Cache ${key} expirou por TTL`);
+        console.log(`[SmartCache] Cache ${k} expirou por TTL`);
         setCacheInfo(prev => ({ ...prev, isValid: false }));
         return cached.data; // Retorna dados antigos para exibir enquanto atualiza
       }
@@ -122,15 +128,16 @@ export function useSmartCache(key, options = {}) {
 
       return cached.data;
     } catch (error) {
-      console.error(`[SmartCache] Erro ao recuperar cache ${key}:`, error);
+      console.error(`[SmartCache] Erro ao recuperar cache ${k}:`, error);
       return null;
     }
   }, [key, ttlMs]);
 
   // Verificar se cache é válido (não expirado)
-  const isCacheValid = useCallback(() => {
+  const isCacheValid = useCallback((overrideKey = null) => {
     try {
-      const item = localStorage.getItem(`cache_${key}`);
+      const k = overrideKey || key;
+      const item = localStorage.getItem(storageKey(k));
       if (!item) return false;
 
       const cached = JSON.parse(item);
@@ -152,7 +159,8 @@ export function useSmartCache(key, options = {}) {
   }, [key, ttlMs]);
 
   // Salvar dados no cache
-  const saveToCache = useCallback((data) => {
+  const saveToCache = useCallback((data, overrideKey = null) => {
+    const k = overrideKey || key;
     try {
       const timestamp = Date.now();
       const cacheItem = {
@@ -161,7 +169,7 @@ export function useSmartCache(key, options = {}) {
         hash: hashData(data),
         version: '1.0'
       };
-      localStorage.setItem(`cache_${key}`, JSON.stringify(cacheItem));
+      localStorage.setItem(storageKey(k), JSON.stringify(cacheItem));
       setCachedData(data);
       setHasUpdate(false);
       setCacheInfo({
@@ -169,10 +177,10 @@ export function useSmartCache(key, options = {}) {
         nextScheduledUpdate: getNextScheduledUpdate(),
         isValid: true
       });
-      console.log(`[SmartCache] Cache ${key} salvo com sucesso`);
+      console.log(`[SmartCache] Cache ${k} salvo com sucesso`);
       return true;
     } catch (error) {
-      console.error(`[SmartCache] Erro ao salvar cache ${key}:`, error);
+      console.error(`[SmartCache] Erro ao salvar cache ${k}:`, error);
       return false;
     }
   }, [key]);
@@ -210,9 +218,10 @@ export function useSmartCache(key, options = {}) {
   }, [getFromCache, onUpdateAvailable]);
 
   // Limpar cache
-  const clearCache = useCallback(() => {
+  const clearCache = useCallback((overrideKey = null) => {
+    const k = overrideKey || key;
     try {
-      localStorage.removeItem(`cache_${key}`);
+      localStorage.removeItem(storageKey(k));
       setCachedData(null);
       setHasUpdate(false);
       setCacheInfo({
@@ -220,9 +229,9 @@ export function useSmartCache(key, options = {}) {
         nextScheduledUpdate: getNextScheduledUpdate(),
         isValid: false
       });
-      console.log(`[SmartCache] Cache ${key} limpo`);
+      console.log(`[SmartCache] Cache ${k} limpo`);
     } catch (error) {
-      console.error(`[SmartCache] Erro ao limpar cache ${key}:`, error);
+      console.error(`[SmartCache] Erro ao limpar cache ${k}:`, error);
     }
   }, [key]);
 
@@ -287,7 +296,8 @@ export function useSmartCache(key, options = {}) {
   // Verificar periodicamente se chegou o horário programado
   useEffect(() => {
     const checkScheduledTime = () => {
-      const item = localStorage.getItem(`cache_${key}`);
+      const k = overrideKey || key;
+      const item = localStorage.getItem(storageKey(k));
       if (item) {
         const cached = JSON.parse(item);
         if (shouldUpdateNow(cached.timestamp)) {
