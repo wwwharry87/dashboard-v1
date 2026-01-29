@@ -2,11 +2,15 @@
 const pool = require('../config/db');
 const NodeCache = require('node-cache');
 
-// Configuração do cache
+// ⚠️ CACHE DESABILITADO - Sempre busca dados frescos do banco
+// Para reabilitar, mude stdTTL para 300 (5 minutos)
 const cache = new NodeCache({
-  stdTTL: 300,
-  checkperiod: 60
+  stdTTL: 0,  // 0 = CACHE DESABILITADO
+  checkperiod: 0
 });
+
+// Flag para desabilitar cache completamente
+const CACHE_ENABLED = false;
 
 const clientField = 'idcliente';
 
@@ -103,9 +107,10 @@ const generateCacheKey = (prefix, filters, user) => {
  * ============================================================ */
 const buscarFiltros = async (req, res) => {
   try {
-    const cacheKey = generateCacheKey('filtros', {}, req.user);
-    const cachedFilters = cache.get(cacheKey);
-    if (cachedFilters) return res.json(cachedFilters);
+    // CACHE DESABILITADO - sempre busca do banco
+    // const cacheKey = generateCacheKey('filtros', {}, req.user);
+    // const cachedFilters = cache.get(cacheKey);
+    // if (CACHE_ENABLED && cachedFilters) return res.json(cachedFilters);
 
     const { clause, params } = buildWhereClause({}, req.user);
 
@@ -146,7 +151,8 @@ const buscarFiltros = async (req, res) => {
       transporte_escolar: row.transporte_escolar || []
     };
 
-    cache.set(cacheKey, response, 3600);
+    // CACHE DESABILITADO
+    // if (CACHE_ENABLED) cache.set(cacheKey, response, 3600);
     res.json(response);
   } catch (err) {
     console.error("Erro ao buscar filtros:", err);
@@ -177,9 +183,10 @@ const buscarTotais = async (req, res) => {
       idescola: req.body.idescola
     };
 
-    const cacheKey = generateCacheKey('totais', filters, req.user);
-    const cachedData = cache.get(cacheKey);
-    if (cachedData) return res.json(cachedData);
+    // CACHE DESABILITADO - sempre busca do banco
+    // const cacheKey = generateCacheKey('totais', filters, req.user);
+    // const cachedData = cache.get(cacheKey);
+    // if (CACHE_ENABLED && cachedData) return res.json(cachedData);
 
     const { clause, params } = buildWhereClause(filters, req.user);
 
@@ -699,7 +706,8 @@ const buscarTotais = async (req, res) => {
       r.taxaOcupacao = sane(r.taxaOcupacao);
     })(responseData);
 
-    cache.set(cacheKey, responseData);
+    // CACHE DESABILITADO
+    // if (CACHE_ENABLED) cache.set(cacheKey, responseData);
     res.json(responseData);
 
   } catch (err) {
@@ -735,9 +743,10 @@ const buscarBreakdowns = async (req, res) => {
       idescola: req.body.idescola
     };
 
-    const cacheKey = generateCacheKey('breakdowns', filters, req.user);
-    const cachedData = cache.get(cacheKey);
-    if (cachedData) return res.json(cachedData);
+    // CACHE DESABILITADO - sempre busca do banco
+    // const cacheKey = generateCacheKey('breakdowns', filters, req.user);
+    // const cachedData = cache.get(cacheKey);
+    // if (CACHE_ENABLED && cachedData) return res.json(cachedData);
 
     const { clause, params } = buildWhereClause(filters, req.user);
 
@@ -788,7 +797,8 @@ const buscarBreakdowns = async (req, res) => {
       matriculasPorSituacao: row.matriculas_por_situacao || {}
     };
 
-    cache.set(cacheKey, response);
+    // CACHE DESABILITADO
+    // if (CACHE_ENABLED) cache.set(cacheKey, response);
     res.json(response);
   } catch (err) {
     console.error("Erro ao buscar breakdowns:", err);
@@ -832,6 +842,119 @@ const validarCapacidades = async (req, res) => {
 };
 
 /* ============================================================
+ * DEBUG DETALHADO - Para comparar com query manual
+ * ============================================================ */
+const debugContagem = async (req, res) => {
+  try {
+    const filters = req.body || {};
+    const { clause, params } = buildWhereClause(filters, req.user);
+
+    // Query que mostra EXATAMENTE como o dashboard conta
+    const debugQuery = `
+      WITH base_filtrada AS (
+        SELECT * FROM dados_matriculas WHERE ${clause}
+      ),
+      
+      -- Base SEM etapas especiais (98, 99)
+      base_sem_especiais AS (
+        SELECT * FROM base_filtrada 
+        WHERE COALESCE(idetapa_matricula, 0) NOT IN (98, 99)
+      ),
+      
+      -- Contagens detalhadas
+      contagem_total AS (
+        SELECT 
+          'base_filtrada' AS fonte,
+          COUNT(*) AS total_registros,
+          COUNT(DISTINCT idmatricula) AS matriculas_distintas,
+          COUNT(DISTINCT idescola) AS escolas_distintas
+        FROM base_filtrada
+        
+        UNION ALL
+        
+        SELECT 
+          'base_sem_especiais' AS fonte,
+          COUNT(*) AS total_registros,
+          COUNT(DISTINCT idmatricula) AS matriculas_distintas,
+          COUNT(DISTINCT idescola) AS escolas_distintas
+        FROM base_sem_especiais
+      ),
+      
+      -- Contagem por escola (top 10)
+      por_escola AS (
+        SELECT 
+          escola,
+          ultima_atualizacao,
+          COUNT(*) AS total_registros,
+          COUNT(DISTINCT idmatricula) AS matriculas_distintas
+        FROM base_sem_especiais
+        GROUP BY escola, ultima_atualizacao
+        ORDER BY matriculas_distintas DESC
+        LIMIT 15
+      ),
+      
+      -- Etapas excluídas
+      etapas_excluidas AS (
+        SELECT 
+          idetapa_matricula,
+          etapa_matricula,
+          COUNT(*) AS registros_excluidos,
+          COUNT(DISTINCT idmatricula) AS matriculas_excluidas
+        FROM base_filtrada
+        WHERE COALESCE(idetapa_matricula, 0) IN (98, 99)
+        GROUP BY idetapa_matricula, etapa_matricula
+      ),
+      
+      -- Situações de matrícula
+      por_situacao AS (
+        SELECT 
+          situacao_matricula,
+          idsituacao,
+          COUNT(*) AS total_registros,
+          COUNT(DISTINCT idmatricula) AS matriculas_distintas
+        FROM base_sem_especiais
+        GROUP BY situacao_matricula, idsituacao
+        ORDER BY matriculas_distintas DESC
+      )
+      
+      SELECT 
+        (SELECT json_agg(row_to_json(c)) FROM contagem_total c) AS contagens,
+        (SELECT json_agg(row_to_json(e)) FROM por_escola e) AS por_escola,
+        (SELECT json_agg(row_to_json(x)) FROM etapas_excluidas x) AS etapas_excluidas,
+        (SELECT json_agg(row_to_json(s)) FROM por_situacao s) AS por_situacao
+    `;
+
+    const result = await pool.query(debugQuery, params);
+    const row = result.rows[0] || {};
+
+    res.json({
+      message: "Debug de contagem - Compare com sua query manual",
+      filtros_aplicados: filters,
+      where_clause: clause,
+      params_count: params.length,
+      
+      // Resumo das contagens
+      contagens: row.contagens || [],
+      
+      // Top escolas
+      top_escolas: row.por_escola || [],
+      
+      // Etapas que foram EXCLUÍDAS (98, 99)
+      etapas_excluidas: row.etapas_excluidas || [],
+      
+      // Por situação
+      por_situacao: row.por_situacao || [],
+      
+      // Dica
+      dica: "O dashboard usa COUNT(DISTINCT idmatricula) da 'base_sem_especiais'. Sua query COUNT(*) conta TODOS os registros. A diferença pode estar aí!"
+    });
+  } catch (err) {
+    console.error("Erro no debug de contagem:", err);
+    res.status(500).json({ error: "Erro no debug", details: err.message, stack: err.stack });
+  }
+};
+
+/* ============================================================
  * Cache
  * ============================================================ */
 const limparCache = (req, res) => {
@@ -851,5 +974,6 @@ module.exports = {
   limparCache,
   buildWhereClause,
   generateCacheKey,
-  validarCapacidades
+  validarCapacidades,
+  debugContagem
 };
